@@ -5,10 +5,18 @@ from __future__ import annotations
 import pytest
 from starlette.testclient import TestClient
 
+from app.core.config import settings
 from app.core.security import create_session_token, decode_session_token
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def convex_unconfigured(monkeypatch):
+    """Force the 'no Convex' code paths regardless of the local .env."""
+    monkeypatch.setattr(settings, "convex_url", "")
+    monkeypatch.setattr(settings, "convex_api_key", "")
 
 
 def test_session_token_roundtrip():
@@ -29,8 +37,8 @@ def test_decode_rejects_tampered_token():
         decode_session_token(token + "x")
 
 
-def test_me_dev_demo_fallback_without_auth():
-    # Convex not configured in tests -> dev falls back to a demo tenant.
+def test_me_dev_demo_fallback_without_auth(convex_unconfigured):
+    # With no auth configured, dev falls back to a demo tenant.
     r = client.get("/api/auth/me")
     assert r.status_code == 200
     assert r.json()["business_name"]
@@ -53,7 +61,7 @@ def test_me_rejects_garbage_token():
     assert r.status_code == 401
 
 
-def test_login_503_when_convex_unconfigured():
+def test_login_503_when_convex_unconfigured(convex_unconfigured):
     r = client.post("/api/auth/login", json={"email": "a@b.com", "password": "x"})
     assert r.status_code == 503
 
