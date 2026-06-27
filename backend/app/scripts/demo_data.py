@@ -1,8 +1,6 @@
-"""Deterministic fake fitness studio — ~300 customers across all risk bands.
-
-Pure and seeded so it doubles as test fixtures and an offline demo. Produces a
-normalized SyncResult and can flatten to a customer-level CSV for upload demos.
-"""
+"""Deterministic fake coffee shop — "Hayward Coffee Co.", ~50 customers across all
+risk bands. Pure and seeded so it doubles as test fixtures and an offline demo.
+Produces a normalized SyncResult and can flatten to a customer-level CSV."""
 
 from __future__ import annotations
 
@@ -18,42 +16,64 @@ from app.schemas.normalized import (
     SyncResult,
 )
 
+DEMO_BUSINESS_NAME = "Hayward Coffee Co."
+DEMO_VERTICAL = "cafe"
+
 FIRST = [
-    "Jordan", "Sam", "Alex", "Riya", "Noah", "Maya", "Liam", "Ava", "Ethan",
-    "Sofia", "Mason", "Isla", "Lucas", "Mia", "Leo", "Zoe", "Kai", "Nora",
+    "Amara", "Ravi", "Kevin", "Zara", "Aaliyah", "Mei-Ling", "Jonas", "Adrian",
+    "Luis", "Isabella", "Simone", "Theo", "Ryan", "Nadia", "Marcus", "Priya",
+    "Diego", "Hana", "Omar", "Elena", "Tomas", "Yuki", "Andre", "Leila",
 ]
 LAST = [
-    "Lee", "Rivera", "Patel", "Nguyen", "Kim", "Garcia", "Cohen", "Okafor",
-    "Silva", "Haddad", "Romano", "Singh", "Brooks", "Flores", "Walsh",
+    "Nwosu", "Patel", "Okafor", "Mensah", "Brown", "Zhou", "Weber", "Torres",
+    "Castillo", "Ferreira", "Adeyemi", "Nakamura", "Cho", "Khan", "Silva",
+    "Romano", "Haddad", "Flores", "Walsh", "Kim",
+]
+MENU = [
+    ("Oat Milk Latte", 5.25),
+    ("Lavender Oat Latte", 5.75),
+    ("Almond Croissant", 4.75),
+    ("Avocado Toast", 9.50),
+    ("Chai Latte", 4.95),
+    ("Matcha Latte", 5.50),
+    ("Cold Brew", 4.50),
+    ("Espresso", 3.25),
+    ("Cappuccino", 4.75),
+    ("Drip Coffee", 3.00),
 ]
 
 
-def generate_sync(n: int = 300, seed: int = 42, now: datetime | None = None) -> SyncResult:
+def generate_sync(n: int = 50, seed: int = 42, now: datetime | None = None) -> SyncResult:
     rng = random.Random(seed)
     now = now or datetime.utcnow()
     result = SyncResult()
 
-    # Risk archetypes -> (last-visit gap as multiple of interval) and weight.
+    # Risk archetypes -> (last-visit gap as multiple of interval, weight).
     archetypes = [
-        ("healthy", 0.6, 0.45),   # visiting on cadence
-        ("slipping", 1.8, 0.25),  # ~yellow
-        ("at_risk", 3.2, 0.20),   # ~red
-        ("gone", 6.0, 0.10),      # long gone
+        ("healthy", 0.6, 0.40),   # visiting on cadence
+        ("slipping", 1.9, 0.25),  # ~yellow
+        ("at_risk", 3.4, 0.20),   # ~red
+        ("gone", 7.0, 0.10),      # long gone
+        ("new", 0.8, 0.05),       # joined recently
     ]
 
     for i in range(n):
         first = rng.choice(FIRST)
         last = rng.choice(LAST)
-        email = f"{first.lower()}.{last.lower()}{i}@example.com"
+        email = f"{first.lower().replace('-', '')}.{last.lower()}{i}@example.com"
         phone = f"+1555{rng.randint(1000000, 9999999)}"
-        interval = rng.uniform(3.0, 9.0)  # days between gym visits
-        tenure_days = rng.uniform(90, 900)
-        joined = now - timedelta(days=tenure_days)
+        favorite, unit_price = rng.choice(MENU)
+        interval = rng.uniform(2.5, 7.0)  # days between coffee runs
 
         archetype, gap_mult, _ = rng.choices(
             archetypes, weights=[w for *_, w in archetypes], k=1
         )[0]
+
+        tenure_days = rng.uniform(20, 50) if archetype == "new" else rng.uniform(120, 800)
+        joined = now - timedelta(days=tenure_days)
         last_visit = now - timedelta(days=interval * gap_mult)
+        if last_visit < joined:
+            last_visit = joined + timedelta(days=interval)
 
         ext = f"cust-{i}"
         result.customers.append(
@@ -65,6 +85,7 @@ def generate_sync(n: int = 300, seed: int = 42, now: datetime | None = None) -> 
                 email=email,
                 phone=phone,
                 created_at=joined,
+                favorite_item=favorite,
             )
         )
 
@@ -73,18 +94,17 @@ def generate_sync(n: int = 300, seed: int = 42, now: datetime | None = None) -> 
         while t > joined:
             result.visits.append(
                 NormalizedVisit(
-                    source="csv",
-                    customer_external_id=ext,
-                    customer_email=email,
-                    occurred_at=t,
+                    source="csv", customer_external_id=ext, customer_email=email, occurred_at=t
                 )
             )
+            # A coffee run is usually the favorite plus the odd pastry.
+            spend = unit_price + (rng.choice([0, 0, 0, 3.0, 4.75]) if rng.random() < 0.4 else 0)
             result.transactions.append(
                 NormalizedTransaction(
                     source="csv",
                     customer_external_id=ext,
                     customer_email=email,
-                    amount=round(rng.uniform(12, 45), 2),
+                    amount=round(spend, 2),
                     occurred_at=t,
                 )
             )
@@ -109,7 +129,8 @@ def to_customer_csv(sync: SyncResult) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(
-        ["first_name", "last_name", "email", "phone", "join_date", "last_visit", "total_spent"]
+        ["first_name", "last_name", "email", "phone", "join_date",
+         "last_visit", "total_spent", "favorite_item"]
     )
     for c in sync.customers:
         key = c.external_id or c.email or ""
@@ -122,5 +143,6 @@ def to_customer_csv(sync: SyncResult) -> str:
             c.created_at.date().isoformat() if c.created_at else "",
             lv.date().isoformat() if lv else "",
             f"{spend.get(key, 0.0):.2f}",
+            c.favorite_item or "",
         ])
     return buf.getvalue()

@@ -43,6 +43,7 @@ class VerticalConfig:
 
 
 VERTICALS: dict[str, VerticalConfig] = {
+    "cafe": VerticalConfig(name="cafe", expected_interval_days=4.0),
     "fitness": VerticalConfig(name="fitness", expected_interval_days=5.0),
     "salon": VerticalConfig(name="salon", expected_interval_days=35.0),
     "med_spa": VerticalConfig(

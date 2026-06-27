@@ -1,301 +1,51 @@
-first_name,last_name,email,phone,join_date,last_visit,total_spent
-Riya,Lee,riya.lee0@example.com,+15555614226,2025-12-06,2026-06-24,1326.68
-Ethan,Silva,ethan.silva1@example.com,+15551192619,2025-12-26,2026-06-04,677.05
-Liam,Singh,liam.singh2@example.com,+15556229731,2024-10-01,2026-06-23,3332.52
-Maya,Haddad,maya.haddad3@example.com,+15556049101,2024-05-22,2026-06-23,3971.58
-Mia,Kim,mia.kim4@example.com,+15552010496,2024-08-06,2026-05-18,2857.18
-Maya,Patel,maya.patel5@example.com,+15553937176,2024-04-22,2026-06-20,6475.54
-Leo,Lee,leo.lee6@example.com,+15557893063,2024-08-23,2026-05-26,3455.64
-Ava,Garcia,ava.garcia7@example.com,+15559705660,2024-05-12,2026-06-22,2656.42
-Riya,Haddad,riya.haddad8@example.com,+15557370211,2025-05-13,2026-06-22,1297.55
-Leo,Kim,leo.kim9@example.com,+15553679603,2025-02-15,2026-06-09,2689.28
-Nora,Romano,nora.romano10@example.com,+15557027375,2025-06-10,2026-06-11,2346.58
-Ethan,Rivera,ethan.rivera11@example.com,+15553223098,2025-04-14,2026-06-20,3725.21
-Isla,Silva,isla.silva12@example.com,+15555715824,2025-11-12,2026-05-18,856.08
-Jordan,Rivera,jordan.rivera13@example.com,+15553650523,2026-03-28,2026-05-24,241.24
-Noah,Haddad,noah.haddad14@example.com,+15554794852,2025-04-02,2026-06-23,2117.35
-Mason,Kim,mason.kim15@example.com,+15552306728,2025-12-22,2026-06-15,840.78
-Noah,Nguyen,noah.nguyen16@example.com,+15555893511,2025-07-16,2026-06-12,2067.07
-Mason,Lee,mason.lee17@example.com,+15551367637,2024-09-04,2026-06-24,4740.75
-Nora,Brooks,nora.brooks18@example.com,+15554071377,2024-03-30,2026-06-11,2537.82
-Noah,Okafor,noah.okafor19@example.com,+15559189341,2025-04-29,2026-06-24,3438.35
-Nora,Cohen,nora.cohen20@example.com,+15552542590,2024-04-12,2026-06-17,4549.26
-Riya,Cohen,riya.cohen21@example.com,+15553246185,2024-07-16,2026-05-30,4544.65
-Noah,Singh,noah.singh22@example.com,+15553970181,2025-03-24,2026-06-06,1954.10
-Ethan,Walsh,ethan.walsh23@example.com,+15551662507,2025-04-08,2026-06-23,2091.61
-Mason,Garcia,mason.garcia24@example.com,+15558286418,2024-04-25,2026-06-09,4252.22
-Liam,Lee,liam.lee25@example.com,+15555246497,2025-02-19,2026-06-21,4399.54
-Isla,Rivera,isla.rivera26@example.com,+15555734685,2025-09-19,2026-05-31,938.04
-Sam,Walsh,sam.walsh27@example.com,+15556763748,2026-03-20,2026-06-15,433.25
-Noah,Romano,noah.romano28@example.com,+15558493596,2025-11-07,2026-06-10,1112.76
-Maya,Walsh,maya.walsh29@example.com,+15552859671,2025-09-04,2026-06-14,1146.95
-Liam,Patel,liam.patel30@example.com,+15551598917,2024-08-23,2026-06-19,4580.73
-Sofia,Patel,sofia.patel31@example.com,+15553942041,2024-09-13,2026-06-12,2268.42
-Riya,Silva,riya.silva32@example.com,+15556899361,2026-03-18,2026-06-12,347.78
-Kai,Brooks,kai.brooks33@example.com,+15556738565,2025-07-25,2026-06-14,2390.23
-Zoe,Romano,zoe.romano34@example.com,+15558882244,2024-05-06,2026-06-16,3917.20
-Jordan,Walsh,jordan.walsh35@example.com,+15554837070,2024-01-30,2026-06-22,2873.32
-Noah,Romano,noah.romano36@example.com,+15556040020,2025-01-29,2026-06-22,1761.96
-Sofia,Singh,sofia.singh37@example.com,+15552446060,2025-12-14,2026-06-22,788.79
-Ava,Flores,ava.flores38@example.com,+15558946752,2025-02-13,2026-06-24,2921.50
-Liam,Haddad,liam.haddad39@example.com,+15551887084,2025-01-30,2026-05-30,1600.00
-Mason,Lee,mason.lee40@example.com,+15553243545,2026-03-27,2026-06-14,328.76
-Leo,Garcia,leo.garcia41@example.com,+15554237849,2025-09-30,2026-06-23,1207.28
-Alex,Brooks,alex.brooks42@example.com,+15553139695,2024-06-17,2026-06-25,6095.12
-Liam,Cohen,liam.cohen43@example.com,+15556058905,2025-02-17,2026-05-12,1599.37
-Isla,Okafor,isla.okafor44@example.com,+15557787310,2024-02-26,2026-05-06,2638.08
-Jordan,Patel,jordan.patel45@example.com,+15556477774,2024-07-16,2026-06-22,2593.05
-Nora,Patel,nora.patel46@example.com,+15557800317,2026-03-13,2026-06-12,346.33
-Kai,Kim,kai.kim47@example.com,+15557099518,2025-11-10,2026-05-05,546.03
-Liam,Singh,liam.singh48@example.com,+15557243511,2024-10-20,2026-06-15,2789.93
-Lucas,Patel,lucas.patel49@example.com,+15552841010,2024-06-25,2026-06-21,2394.26
-Ethan,Lee,ethan.lee50@example.com,+15552785812,2024-09-17,2026-05-14,2337.42
-Ava,Lee,ava.lee51@example.com,+15553311922,2024-09-11,2026-06-24,4855.98
-Ava,Lee,ava.lee52@example.com,+15557955106,2026-03-07,2026-06-16,956.37
-Liam,Cohen,liam.cohen53@example.com,+15552688991,2026-03-11,2026-06-23,547.60
-Sofia,Okafor,sofia.okafor54@example.com,+15559318172,2024-02-21,2026-05-24,4184.72
-Leo,Walsh,leo.walsh55@example.com,+15559840030,2024-03-21,2026-06-24,5710.34
-Alex,Nguyen,alex.nguyen56@example.com,+15553300684,2025-01-31,2026-06-22,1867.10
-Isla,Garcia,isla.garcia57@example.com,+15557847411,2025-05-29,2026-05-07,1233.12
-Mia,Lee,mia.lee58@example.com,+15553800715,2025-12-11,2026-05-29,514.25
-Riya,Nguyen,riya.nguyen59@example.com,+15555988680,2026-02-17,2026-06-16,526.48
-Mia,Singh,mia.singh60@example.com,+15558462919,2024-05-24,2026-06-23,3468.37
-Ethan,Silva,ethan.silva61@example.com,+15556408741,2025-06-01,2026-06-15,1562.36
-Kai,Nguyen,kai.nguyen62@example.com,+15551094196,2025-07-06,2026-05-18,1456.06
-Ethan,Singh,ethan.singh63@example.com,+15558375236,2025-02-25,2026-06-18,2960.06
-Zoe,Cohen,zoe.cohen64@example.com,+15555608638,2025-03-23,2026-06-17,2422.45
-Leo,Silva,leo.silva65@example.com,+15552864909,2024-05-19,2026-06-02,2692.91
-Kai,Okafor,kai.okafor66@example.com,+15559317941,2026-02-03,2026-06-24,894.31
-Sam,Brooks,sam.brooks67@example.com,+15557544171,2024-03-22,2026-06-14,3398.53
-Riya,Okafor,riya.okafor68@example.com,+15559267840,2024-05-08,2026-06-22,3117.43
-Lucas,Lee,lucas.lee69@example.com,+15552808544,2024-06-24,2026-05-18,3018.85
-Zoe,Singh,zoe.singh70@example.com,+15553004878,2026-01-11,2026-06-24,1002.07
-Riya,Romano,riya.romano71@example.com,+15552098296,2025-06-05,2026-06-24,2398.10
-Isla,Okafor,isla.okafor72@example.com,+15554366336,2026-02-11,2026-06-22,458.89
-Zoe,Walsh,zoe.walsh73@example.com,+15557476923,2024-11-15,2026-06-24,3502.49
-Sam,Okafor,sam.okafor74@example.com,+15554102574,2026-01-23,2026-05-21,566.28
-Alex,Haddad,alex.haddad75@example.com,+15555402967,2025-07-13,2026-06-22,1370.87
-Ava,Flores,ava.flores76@example.com,+15555179188,2025-03-13,2026-06-23,2335.32
-Sofia,Flores,sofia.flores77@example.com,+15554596069,2024-06-04,2026-06-22,2626.94
-Liam,Silva,liam.silva78@example.com,+15552620464,2025-10-25,2026-06-21,776.20
-Jordan,Walsh,jordan.walsh79@example.com,+15559494212,2025-02-15,2026-06-16,2356.40
-Mason,Silva,mason.silva80@example.com,+15557904482,2024-11-29,2026-06-18,3194.44
-Mia,Patel,mia.patel81@example.com,+15559441498,2025-12-16,2026-06-22,639.02
-Mason,Nguyen,mason.nguyen82@example.com,+15556206670,2025-11-14,2026-05-06,497.33
-Noah,Cohen,noah.cohen83@example.com,+15555280671,2025-10-09,2026-05-04,616.57
-Noah,Walsh,noah.walsh84@example.com,+15552654187,2025-02-12,2026-06-22,1881.33
-Maya,Lee,maya.lee85@example.com,+15553754468,2025-04-26,2026-06-11,1434.68
-Ethan,Patel,ethan.patel86@example.com,+15555904259,2025-04-26,2026-05-15,1569.09
-Jordan,Lee,jordan.lee87@example.com,+15555784110,2024-08-29,2026-06-11,3794.90
-Maya,Lee,maya.lee88@example.com,+15552635966,2024-12-21,2026-06-11,1576.91
-Riya,Okafor,riya.okafor89@example.com,+15557233398,2024-11-03,2026-06-07,5005.05
-Leo,Rivera,leo.rivera90@example.com,+15559761270,2025-01-19,2026-06-24,3133.46
-Nora,Flores,nora.flores91@example.com,+15554060030,2025-10-23,2026-06-20,1911.74
-Sam,Brooks,sam.brooks92@example.com,+15559927838,2025-01-28,2026-06-24,3243.05
-Sofia,Romano,sofia.romano93@example.com,+15557933678,2026-03-23,2026-06-24,673.90
-Leo,Cohen,leo.cohen94@example.com,+15555044801,2025-05-15,2026-06-13,1416.07
-Maya,Nguyen,maya.nguyen95@example.com,+15559975635,2026-02-07,2026-06-09,672.49
-Leo,Cohen,leo.cohen96@example.com,+15558827457,2025-12-05,2026-06-22,682.76
-Liam,Singh,liam.singh97@example.com,+15556792145,2024-09-12,2026-06-20,4898.24
-Riya,Cohen,riya.cohen98@example.com,+15553388063,2024-03-03,2026-06-19,6219.28
-Riya,Lee,riya.lee99@example.com,+15554105702,2024-04-08,2026-06-24,5354.45
-Leo,Walsh,leo.walsh100@example.com,+15556263801,2024-03-30,2026-06-22,2956.78
-Sam,Brooks,sam.brooks101@example.com,+15556698706,2025-03-06,2026-05-30,1574.09
-Alex,Brooks,alex.brooks102@example.com,+15554406178,2025-04-23,2026-06-21,1403.85
-Lucas,Walsh,lucas.walsh103@example.com,+15555505739,2024-06-22,2026-06-23,3300.98
-Maya,Walsh,maya.walsh104@example.com,+15559528836,2026-01-02,2026-06-21,1515.83
-Jordan,Okafor,jordan.okafor105@example.com,+15556689470,2024-02-07,2026-06-14,3470.54
-Sam,Kim,sam.kim106@example.com,+15554486965,2026-02-09,2026-06-22,457.90
-Jordan,Okafor,jordan.okafor107@example.com,+15558161659,2025-03-06,2026-06-20,3517.13
-Nora,Silva,nora.silva108@example.com,+15551981259,2024-01-18,2026-06-10,4789.74
-Mia,Silva,mia.silva109@example.com,+15557725470,2025-05-29,2026-06-22,1311.41
-Leo,Nguyen,leo.nguyen110@example.com,+15555361362,2024-03-29,2026-06-24,5098.52
-Sam,Nguyen,sam.nguyen111@example.com,+15556118172,2024-12-05,2026-05-30,1736.31
-Noah,Patel,noah.patel112@example.com,+15553012432,2024-05-30,2026-06-25,6761.76
-Lucas,Walsh,lucas.walsh113@example.com,+15553610334,2024-02-26,2026-06-13,3145.97
-Sam,Patel,sam.patel114@example.com,+15553898403,2024-07-12,2026-06-24,4114.33
-Ethan,Romano,ethan.romano115@example.com,+15552558716,2024-03-28,2026-06-23,3596.06
-Liam,Silva,liam.silva116@example.com,+15557521659,2025-03-30,2026-06-06,1909.94
-Jordan,Flores,jordan.flores117@example.com,+15556078183,2025-12-06,2026-06-23,953.55
-Lucas,Haddad,lucas.haddad118@example.com,+15554013728,2025-06-26,2026-06-21,3256.49
-Lucas,Silva,lucas.silva119@example.com,+15559636371,2025-02-20,2026-06-16,2281.34
-Maya,Flores,maya.flores120@example.com,+15556823594,2025-06-17,2026-06-25,3028.41
-Sofia,Singh,sofia.singh121@example.com,+15555786762,2025-09-27,2026-06-21,958.37
-Sam,Garcia,sam.garcia122@example.com,+15558721462,2024-03-02,2026-06-24,6901.60
-Maya,Flores,maya.flores123@example.com,+15554584224,2024-10-24,2026-06-14,2418.59
-Sam,Romano,sam.romano124@example.com,+15552718032,2024-02-29,2026-05-13,3068.07
-Jordan,Patel,jordan.patel125@example.com,+15556612357,2024-08-15,2026-05-27,3597.41
-Leo,Rivera,leo.rivera126@example.com,+15551490346,2025-02-19,2026-06-24,3343.21
-Isla,Cohen,isla.cohen127@example.com,+15557550273,2025-02-11,2026-05-18,2014.38
-Jordan,Romano,jordan.romano128@example.com,+15554814207,2024-12-10,2026-06-23,2804.17
-Riya,Walsh,riya.walsh129@example.com,+15552346865,2024-01-30,2026-06-22,3560.80
-Jordan,Rivera,jordan.rivera130@example.com,+15552816657,2025-08-04,2026-06-22,1120.13
-Isla,Cohen,isla.cohen131@example.com,+15556488650,2025-11-27,2026-06-23,1135.60
-Alex,Lee,alex.lee132@example.com,+15553374916,2025-08-15,2026-06-22,1295.90
-Riya,Kim,riya.kim133@example.com,+15557759870,2026-01-14,2026-06-23,732.92
-Lucas,Haddad,lucas.haddad134@example.com,+15554368402,2026-01-15,2026-06-22,652.84
-Sofia,Brooks,sofia.brooks135@example.com,+15558698459,2024-01-24,2026-05-31,2826.90
-Mia,Garcia,mia.garcia136@example.com,+15559625390,2024-07-31,2026-06-24,4786.28
-Lucas,Silva,lucas.silva137@example.com,+15553039412,2024-10-28,2026-06-22,2289.74
-Zoe,Walsh,zoe.walsh138@example.com,+15555779148,2025-03-30,2026-06-15,1940.53
-Lucas,Silva,lucas.silva139@example.com,+15556665244,2024-11-10,2026-06-13,2099.14
-Isla,Brooks,isla.brooks140@example.com,+15555831336,2025-09-08,2026-06-19,2116.81
-Mia,Flores,mia.flores141@example.com,+15551868567,2025-10-21,2026-06-14,896.62
-Zoe,Kim,zoe.kim142@example.com,+15559318064,2024-05-02,2026-06-11,2526.41
-Liam,Kim,liam.kim143@example.com,+15558019723,2025-01-20,2026-06-22,1927.63
-Lucas,Patel,lucas.patel144@example.com,+15557392603,2024-12-23,2026-06-22,1851.41
-Alex,Singh,alex.singh145@example.com,+15557859186,2024-10-27,2026-06-08,2879.31
-Jordan,Flores,jordan.flores146@example.com,+15559061412,2026-01-21,2026-06-01,474.10
-Liam,Romano,liam.romano147@example.com,+15556132445,2024-07-16,2026-06-19,4505.41
-Ava,Haddad,ava.haddad148@example.com,+15551342811,2024-03-20,2026-06-10,4460.96
-Sam,Nguyen,sam.nguyen149@example.com,+15553182067,2025-09-08,2026-06-24,2046.53
-Leo,Kim,leo.kim150@example.com,+15552857227,2024-02-07,2026-05-04,2811.36
-Jordan,Walsh,jordan.walsh151@example.com,+15559076583,2025-06-26,2026-06-19,2364.90
-Ava,Singh,ava.singh152@example.com,+15551482819,2025-09-30,2026-05-30,732.94
-Maya,Flores,maya.flores153@example.com,+15557974010,2025-08-11,2026-06-20,2377.30
-Leo,Flores,leo.flores154@example.com,+15551037353,2025-03-29,2026-06-18,2844.45
-Zoe,Flores,zoe.flores155@example.com,+15554841906,2025-03-19,2026-06-22,1703.85
-Mia,Kim,mia.kim156@example.com,+15551250828,2025-11-29,2026-06-01,719.37
-Mason,Garcia,mason.garcia157@example.com,+15556833773,2024-10-10,2026-06-15,2769.51
-Mia,Rivera,mia.rivera158@example.com,+15554273939,2024-05-20,2026-06-15,5829.62
-Zoe,Rivera,zoe.rivera159@example.com,+15553677902,2025-04-24,2026-06-14,2927.95
-Isla,Rivera,isla.rivera160@example.com,+15554148315,2024-02-28,2026-05-31,5193.45
-Mia,Romano,mia.romano161@example.com,+15555789713,2024-10-22,2026-06-23,3185.99
-Liam,Nguyen,liam.nguyen162@example.com,+15556384369,2024-12-29,2026-06-09,2857.08
-Ethan,Patel,ethan.patel163@example.com,+15557681300,2025-09-10,2026-06-16,1378.03
-Mia,Patel,mia.patel164@example.com,+15558963316,2025-02-16,2026-05-27,2661.04
-Mia,Brooks,mia.brooks165@example.com,+15554771454,2025-02-18,2026-06-14,3439.78
-Isla,Cohen,isla.cohen166@example.com,+15557174035,2025-03-13,2026-06-19,3105.73
-Zoe,Rivera,zoe.rivera167@example.com,+15559103851,2026-03-19,2026-06-25,932.48
-Nora,Rivera,nora.rivera168@example.com,+15553037405,2025-12-12,2026-06-14,757.13
-Ethan,Lee,ethan.lee169@example.com,+15554960862,2024-12-27,2026-06-24,3309.91
-Noah,Lee,noah.lee170@example.com,+15558929550,2026-01-29,2026-06-11,702.37
-Mia,Romano,mia.romano171@example.com,+15552154595,2025-01-29,2026-06-22,1901.87
-Riya,Nguyen,riya.nguyen172@example.com,+15557880557,2024-09-16,2026-06-24,4471.98
-Ava,Okafor,ava.okafor173@example.com,+15557899226,2025-04-01,2026-06-21,1465.41
-Liam,Rivera,liam.rivera174@example.com,+15556475377,2025-08-04,2026-06-25,3031.63
-Ava,Flores,ava.flores175@example.com,+15552150365,2025-04-22,2026-06-14,1718.32
-Ethan,Cohen,ethan.cohen176@example.com,+15559231662,2024-03-27,2026-06-24,6055.69
-Sofia,Okafor,sofia.okafor177@example.com,+15558568652,2025-05-30,2026-05-18,1565.48
-Leo,Lee,leo.lee178@example.com,+15559738483,2025-07-09,2026-06-23,1485.99
-Mason,Kim,mason.kim179@example.com,+15553044243,2024-09-29,2026-06-24,4461.40
-Mason,Walsh,mason.walsh180@example.com,+15553332502,2025-12-21,2026-05-05,428.62
-Nora,Garcia,nora.garcia181@example.com,+15552554904,2024-03-15,2026-06-22,3558.38
-Noah,Kim,noah.kim182@example.com,+15557777044,2025-11-18,2026-06-12,634.19
-Liam,Lee,liam.lee183@example.com,+15551554463,2025-12-14,2026-06-24,1101.97
-Ethan,Singh,ethan.singh184@example.com,+15558941680,2025-03-03,2026-06-23,2251.35
-Leo,Silva,leo.silva185@example.com,+15554623016,2024-07-13,2026-06-15,2971.15
-Leo,Garcia,leo.garcia186@example.com,+15557608750,2025-11-04,2026-06-22,877.18
-Leo,Flores,leo.flores187@example.com,+15551463271,2024-06-18,2026-06-22,2638.85
-Nora,Singh,nora.singh188@example.com,+15556962643,2024-08-03,2026-06-22,2623.64
-Sofia,Brooks,sofia.brooks189@example.com,+15554032644,2024-08-07,2026-06-24,5660.85
-Sofia,Patel,sofia.patel190@example.com,+15559877364,2024-08-02,2026-06-21,2142.74
-Noah,Garcia,noah.garcia191@example.com,+15554180902,2026-02-09,2026-05-13,365.09
-Kai,Kim,kai.kim192@example.com,+15557444535,2025-08-09,2026-06-24,1741.90
-Mia,Nguyen,mia.nguyen193@example.com,+15558480522,2024-11-22,2026-05-30,1806.69
-Sofia,Walsh,sofia.walsh194@example.com,+15552741191,2024-04-18,2026-06-23,3797.40
-Noah,Nguyen,noah.nguyen195@example.com,+15551099070,2026-01-29,2026-06-25,1375.60
-Mia,Nguyen,mia.nguyen196@example.com,+15554143472,2024-03-24,2026-06-04,6169.91
-Sofia,Kim,sofia.kim197@example.com,+15554261900,2026-01-07,2026-06-25,1536.80
-Liam,Silva,liam.silva198@example.com,+15554515139,2024-05-01,2026-06-21,2425.99
-Ethan,Flores,ethan.flores199@example.com,+15554734099,2024-09-24,2026-06-22,2247.62
-Nora,Brooks,nora.brooks200@example.com,+15556978769,2026-03-13,2026-06-22,369.96
-Riya,Singh,riya.singh201@example.com,+15552203302,2025-03-01,2026-06-23,2394.83
-Nora,Flores,nora.flores202@example.com,+15552118635,2025-12-02,2026-06-06,661.95
-Zoe,Patel,zoe.patel203@example.com,+15557897517,2025-11-18,2026-06-07,999.93
-Zoe,Brooks,zoe.brooks204@example.com,+15551010029,2024-01-16,2026-06-09,4181.86
-Mason,Nguyen,mason.nguyen205@example.com,+15553184117,2024-05-12,2026-06-22,2803.21
-Alex,Silva,alex.silva206@example.com,+15559670140,2025-10-05,2026-06-22,1039.29
-Ethan,Patel,ethan.patel207@example.com,+15553927548,2024-09-29,2026-06-16,3083.66
-Isla,Garcia,isla.garcia208@example.com,+15553625818,2024-09-13,2026-06-24,4796.69
-Maya,Okafor,maya.okafor209@example.com,+15559735785,2025-09-28,2026-06-11,876.89
-Leo,Patel,leo.patel210@example.com,+15554543855,2025-02-13,2026-06-10,2734.57
-Mia,Patel,mia.patel211@example.com,+15551350945,2024-06-10,2026-06-05,3203.63
-Ethan,Brooks,ethan.brooks212@example.com,+15554316573,2025-10-22,2026-06-23,1065.40
-Liam,Rivera,liam.rivera213@example.com,+15558445740,2026-01-11,2026-06-02,544.01
-Liam,Rivera,liam.rivera214@example.com,+15551130889,2026-01-18,2026-06-25,1286.57
-Zoe,Walsh,zoe.walsh215@example.com,+15555424114,2024-04-06,2026-06-24,6538.71
-Liam,Lee,liam.lee216@example.com,+15557948597,2025-01-16,2026-06-24,4009.85
-Zoe,Lee,zoe.lee217@example.com,+15556083680,2024-07-01,2026-06-12,2452.57
-Zoe,Garcia,zoe.garcia218@example.com,+15555814928,2025-01-23,2026-06-22,1705.12
-Sam,Rivera,sam.rivera219@example.com,+15551095501,2024-04-14,2026-06-24,6443.63
-Isla,Romano,isla.romano220@example.com,+15554270865,2025-07-24,2026-06-15,2937.28
-Zoe,Romano,zoe.romano221@example.com,+15556674401,2025-12-07,2026-06-17,982.76
-Alex,Lee,alex.lee222@example.com,+15554802646,2025-05-31,2026-06-24,2360.02
-Sofia,Walsh,sofia.walsh223@example.com,+15551902489,2024-05-04,2026-06-18,4587.39
-Noah,Haddad,noah.haddad224@example.com,+15558996142,2025-07-28,2026-06-08,1455.98
-Liam,Cohen,liam.cohen225@example.com,+15558588799,2024-08-17,2026-06-22,2258.16
-Riya,Romano,riya.romano226@example.com,+15557218604,2026-01-04,2026-06-12,579.47
-Maya,Haddad,maya.haddad227@example.com,+15555909113,2024-05-03,2026-06-21,6707.66
-Maya,Patel,maya.patel228@example.com,+15551472528,2025-06-21,2026-05-07,1080.60
-Riya,Flores,riya.flores229@example.com,+15559876767,2025-06-19,2026-06-21,3332.78
-Alex,Cohen,alex.cohen230@example.com,+15551861561,2025-09-12,2026-06-22,1101.61
-Nora,Romano,nora.romano231@example.com,+15558142539,2025-03-05,2026-06-22,2052.66
-Mason,Garcia,mason.garcia232@example.com,+15559033685,2024-08-25,2026-06-13,4295.99
-Zoe,Okafor,zoe.okafor233@example.com,+15554310946,2025-09-26,2026-06-02,1063.41
-Nora,Romano,nora.romano234@example.com,+15558094015,2024-10-21,2026-06-12,2257.09
-Noah,Lee,noah.lee235@example.com,+15555229253,2024-04-03,2026-05-25,4112.91
-Ava,Patel,ava.patel236@example.com,+15554751330,2025-07-23,2026-06-07,2682.59
-Zoe,Singh,zoe.singh237@example.com,+15552763456,2025-05-21,2026-06-11,1325.77
-Sofia,Flores,sofia.flores238@example.com,+15553595166,2025-05-01,2026-06-22,1714.04
-Sofia,Haddad,sofia.haddad239@example.com,+15555788942,2024-09-25,2026-06-22,2417.84
-Leo,Flores,leo.flores240@example.com,+15551608687,2026-03-06,2026-06-22,530.52
-Ethan,Garcia,ethan.garcia241@example.com,+15553892862,2024-06-10,2026-06-19,4939.38
-Zoe,Patel,zoe.patel242@example.com,+15554774790,2024-09-09,2026-06-24,4458.53
-Jordan,Rivera,jordan.rivera243@example.com,+15558486273,2024-03-16,2026-06-12,2986.43
-Liam,Walsh,liam.walsh244@example.com,+15552063522,2025-11-06,2026-06-15,982.51
-Lucas,Nguyen,lucas.nguyen245@example.com,+15559841684,2025-10-19,2026-06-22,803.31
-Isla,Flores,isla.flores246@example.com,+15551999420,2024-06-17,2026-06-22,3100.42
-Kai,Singh,kai.singh247@example.com,+15558240722,2024-03-11,2026-06-23,4233.74
-Zoe,Lee,zoe.lee248@example.com,+15555441409,2025-01-06,2026-06-09,2837.61
-Jordan,Singh,jordan.singh249@example.com,+15559420900,2025-03-15,2026-05-22,2108.38
-Nora,Walsh,nora.walsh250@example.com,+15558611033,2024-12-11,2026-06-04,3970.06
-Mia,Romano,mia.romano251@example.com,+15557152929,2026-01-21,2026-06-12,846.69
-Maya,Romano,maya.romano252@example.com,+15555334456,2024-03-06,2026-05-31,2634.14
-Mia,Nguyen,mia.nguyen253@example.com,+15553007241,2025-03-13,2026-06-23,2266.45
-Isla,Nguyen,isla.nguyen254@example.com,+15553024715,2025-06-30,2026-06-08,1633.56
-Jordan,Nguyen,jordan.nguyen255@example.com,+15557177042,2025-03-19,2026-06-24,3127.65
-Riya,Romano,riya.romano256@example.com,+15557109313,2025-07-26,2026-06-22,1306.64
-Sofia,Brooks,sofia.brooks257@example.com,+15559523692,2025-04-16,2026-06-24,2483.70
-Leo,Flores,leo.flores258@example.com,+15557359802,2026-03-05,2026-06-04,301.81
-Isla,Cohen,isla.cohen259@example.com,+15555224963,2025-04-10,2026-06-23,1868.11
-Sofia,Cohen,sofia.cohen260@example.com,+15553947506,2025-05-20,2026-06-20,3282.62
-Mia,Walsh,mia.walsh261@example.com,+15552310479,2025-07-26,2026-06-25,2887.75
-Liam,Cohen,liam.cohen262@example.com,+15559895230,2025-03-07,2026-06-24,3495.12
-Sam,Walsh,sam.walsh263@example.com,+15556021154,2025-09-23,2026-06-15,1206.94
-Liam,Patel,liam.patel264@example.com,+15555174803,2024-02-13,2026-06-11,5142.16
-Maya,Flores,maya.flores265@example.com,+15556646515,2024-08-23,2026-06-25,6344.11
-Lucas,Patel,lucas.patel266@example.com,+15559076945,2025-06-17,2026-06-24,2983.10
-Zoe,Rivera,zoe.rivera267@example.com,+15559938471,2024-01-22,2026-06-21,2912.29
-Kai,Haddad,kai.haddad268@example.com,+15557652566,2024-12-17,2026-06-04,3888.83
-Ethan,Romano,ethan.romano269@example.com,+15554305595,2024-10-31,2026-06-15,4396.86
-Noah,Cohen,noah.cohen270@example.com,+15553141011,2025-08-27,2026-06-24,2306.22
-Riya,Silva,riya.silva271@example.com,+15551746750,2026-02-18,2026-06-14,478.70
-Lucas,Lee,lucas.lee272@example.com,+15555852579,2026-03-07,2026-06-04,637.24
-Isla,Walsh,isla.walsh273@example.com,+15554419219,2024-11-29,2026-06-24,3503.52
-Leo,Cohen,leo.cohen274@example.com,+15558341899,2024-06-01,2026-06-21,2487.51
-Nora,Rivera,nora.rivera275@example.com,+15554334603,2025-01-22,2026-06-22,1769.37
-Maya,Flores,maya.flores276@example.com,+15557988135,2024-02-09,2026-06-24,5323.61
-Lucas,Nguyen,lucas.nguyen277@example.com,+15555355158,2026-02-02,2026-06-21,475.31
-Jordan,Romano,jordan.romano278@example.com,+15556442637,2024-02-04,2026-06-23,4302.70
-Zoe,Nguyen,zoe.nguyen279@example.com,+15558293039,2024-03-02,2026-05-29,2734.75
-Mason,Rivera,mason.rivera280@example.com,+15554556602,2024-03-06,2026-06-24,6870.28
-Mia,Haddad,mia.haddad281@example.com,+15558163921,2024-11-07,2026-06-12,1991.03
-Liam,Silva,liam.silva282@example.com,+15558236768,2025-08-10,2026-06-01,1073.64
-Sofia,Silva,sofia.silva283@example.com,+15558984700,2025-02-02,2026-06-19,3537.89
-Nora,Rivera,nora.rivera284@example.com,+15559988956,2025-10-27,2026-05-14,766.04
-Nora,Flores,nora.flores285@example.com,+15557306432,2024-09-04,2026-06-10,2141.18
-Maya,Garcia,maya.garcia286@example.com,+15554737241,2024-05-25,2026-06-16,6556.34
-Mason,Brooks,mason.brooks287@example.com,+15554020319,2025-08-10,2026-06-23,1440.38
-Mia,Singh,mia.singh288@example.com,+15557292708,2025-04-06,2026-06-22,1691.98
-Noah,Silva,noah.silva289@example.com,+15556086153,2024-03-03,2026-06-24,5161.25
-Isla,Brooks,isla.brooks290@example.com,+15558368072,2025-04-06,2026-06-24,3410.39
-Jordan,Okafor,jordan.okafor291@example.com,+15556321699,2025-07-04,2026-06-07,1578.90
-Alex,Rivera,alex.rivera292@example.com,+15559512372,2025-08-09,2026-06-23,1398.78
-Kai,Singh,kai.singh293@example.com,+15559580472,2024-06-22,2026-06-22,2554.22
-Liam,Silva,liam.silva294@example.com,+15556599952,2024-04-18,2026-06-20,6613.36
-Riya,Flores,riya.flores295@example.com,+15554688526,2024-04-02,2026-06-22,3254.45
-Nora,Singh,nora.singh296@example.com,+15558024192,2024-07-17,2026-06-18,4555.38
-Nora,Okafor,nora.okafor297@example.com,+15554136835,2025-04-25,2026-06-06,1964.37
-Alex,Haddad,alex.haddad298@example.com,+15555218981,2025-04-04,2026-06-22,1684.87
-Lucas,Singh,lucas.singh299@example.com,+15554901179,2024-08-31,2026-05-30,2114.45
+first_name,last_name,email,phone,join_date,last_visit,total_spent,favorite_item
+Tomas,Mensah,tomas.mensah0@example.com,+15551419610,2025-12-19,2026-06-24,275.70,Chai Latte
+Isabella,Torres,isabella.torres1@example.com,+15551971823,2025-12-30,2026-05-12,221.00,Avocado Toast
+Ryan,Adeyemi,ryan.adeyemi2@example.com,+15552833230,2025-11-23,2026-06-20,643.75,Avocado Toast
+Isabella,Torres,isabella.torres3@example.com,+15554740036,2025-08-21,2026-06-23,321.50,Oat Milk Latte
+Amara,Walsh,amara.walsh4@example.com,+15557381734,2024-10-02,2026-06-25,930.50,Espresso
+Amara,Zhou,amara.zhou5@example.com,+15555452128,2025-12-11,2026-06-21,380.00,Oat Milk Latte
+Mei-Ling,Kim,meiling.kim6@example.com,+15558719145,2025-09-14,2026-06-17,571.25,Matcha Latte
+Diego,Flores,diego.flores7@example.com,+15551341153,2025-06-09,2026-06-23,303.75,Cold Brew
+Marcus,Silva,marcus.silva8@example.com,+15559679860,2025-02-17,2026-06-16,981.75,Matcha Latte
+Omar,Okafor,omar.okafor9@example.com,+15551759836,2024-04-22,2026-06-24,999.00,Cold Brew
+Theo,Nakamura,theo.nakamura10@example.com,+15558681625,2024-08-31,2026-06-15,729.50,Drip Coffee
+Ryan,Castillo,ryan.castillo11@example.com,+15554016809,2024-06-28,2026-06-24,1025.00,Oat Milk Latte
+Isabella,Khan,isabella.khan12@example.com,+15551907009,2025-05-24,2026-06-25,691.50,Almond Croissant
+Aaliyah,Zhou,aaliyah.zhou13@example.com,+15559453929,2025-12-10,2026-06-23,206.75,Cappuccino
+Kevin,Adeyemi,kevin.adeyemi14@example.com,+15559814666,2024-09-10,2026-06-14,982.25,Avocado Toast
+Kevin,Haddad,kevin.haddad15@example.com,+15555220919,2025-05-27,2026-06-23,303.50,Cold Brew
+Simone,Flores,simone.flores16@example.com,+15551873301,2024-08-29,2026-06-19,842.25,Almond Croissant
+Priya,Ferreira,priya.ferreira17@example.com,+15554334029,2025-10-02,2026-05-12,218.25,Matcha Latte
+Andre,Walsh,andre.walsh18@example.com,+15555293936,2026-01-09,2026-06-19,216.25,Oat Milk Latte
+Mei-Ling,Romano,meiling.romano19@example.com,+15552599943,2024-08-26,2026-06-23,455.50,Drip Coffee
+Mei-Ling,Adeyemi,meiling.adeyemi20@example.com,+15553518087,2024-10-30,2026-06-23,509.00,Almond Croissant
+Ravi,Okafor,ravi.okafor21@example.com,+15558154907,2025-01-20,2026-06-20,812.25,Cold Brew
+Priya,Mensah,priya.mensah22@example.com,+15559980912,2026-01-20,2026-06-24,245.50,Matcha Latte
+Omar,Ferreira,omar.ferreira23@example.com,+15557983050,2024-12-19,2026-06-23,379.25,Espresso
+Isabella,Zhou,isabella.zhou24@example.com,+15555362201,2026-05-15,2026-06-23,90.25,Avocado Toast
+Theo,Brown,theo.brown25@example.com,+15557256474,2025-08-06,2026-06-24,301.25,Espresso
+Zara,Khan,zara.khan26@example.com,+15558725762,2026-02-15,2026-06-25,269.75,Lavender Oat Latte
+Marcus,Haddad,marcus.haddad27@example.com,+15552426162,2025-01-21,2026-06-21,1039.00,Lavender Oat Latte
+Omar,Silva,omar.silva28@example.com,+15552438456,2024-05-05,2026-05-25,980.50,Oat Milk Latte
+Diego,Okafor,diego.okafor29@example.com,+15552422342,2026-06-02,2026-06-23,32.25,Matcha Latte
+Leila,Adeyemi,leila.adeyemi30@example.com,+15556774002,2025-01-08,2026-05-14,475.50,Oat Milk Latte
+Isabella,Brown,isabella.brown31@example.com,+15554064676,2024-05-20,2026-06-23,729.60,Chai Latte
+Andre,Torres,andre.torres32@example.com,+15558827187,2024-09-22,2026-06-20,665.50,Drip Coffee
+Kevin,Romano,kevin.romano33@example.com,+15552174152,2026-05-09,2026-06-24,181.75,Avocado Toast
+Simone,Brown,simone.brown34@example.com,+15558872850,2026-02-18,2026-06-25,382.50,Avocado Toast
+Ravi,Zhou,ravi.zhou35@example.com,+15554219293,2025-05-03,2026-05-09,277.65,Chai Latte
+Andre,Cho,andre.cho36@example.com,+15558331010,2025-12-29,2026-06-25,520.25,Avocado Toast
+Luis,Silva,luis.silva37@example.com,+15557162658,2025-03-31,2026-06-25,873.50,Oat Milk Latte
+Priya,Nakamura,priya.nakamura38@example.com,+15556608323,2024-11-19,2026-06-16,1093.80,Chai Latte
+Luis,Patel,luis.patel39@example.com,+15551957285,2025-11-14,2026-06-16,404.50,Avocado Toast
+Leila,Weber,leila.weber40@example.com,+15558049385,2025-10-03,2026-06-15,219.25,Cappuccino
+Tomas,Walsh,tomas.walsh41@example.com,+15557576872,2025-07-22,2026-06-23,290.35,Chai Latte
+Theo,Brown,theo.brown42@example.com,+15556275644,2024-10-27,2026-06-18,1507.50,Lavender Oat Latte
+Priya,Torres,priya.torres43@example.com,+15551863674,2024-08-17,2026-06-24,536.00,Drip Coffee
+Isabella,Adeyemi,isabella.adeyemi44@example.com,+15556265434,2024-04-29,2026-06-21,1775.00,Lavender Oat Latte
+Priya,Torres,priya.torres45@example.com,+15555237501,2025-05-30,2026-06-17,475.25,Matcha Latte
+Nadia,Mensah,nadia.mensah46@example.com,+15554215246,2025-03-14,2026-06-24,467.00,Drip Coffee
+Luis,Okafor,luis.okafor47@example.com,+15554187908,2025-08-05,2026-06-23,326.75,Lavender Oat Latte
+Priya,Walsh,priya.walsh48@example.com,+15558883139,2024-05-15,2026-06-23,731.25,Oat Milk Latte
+Priya,Flores,priya.flores49@example.com,+15558655712,2025-03-11,2026-06-23,571.00,Lavender Oat Latte

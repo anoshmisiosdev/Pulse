@@ -43,6 +43,8 @@ class NormalizedCustomer(BaseModel):
     email: str | None = None
     phone: str | None = None
     created_at: datetime | None = None
+    # Optional metadata many POS exports carry — surfaced in outreach ("they love X").
+    favorite_item: str | None = None
 
     @field_validator("email")
     @classmethod

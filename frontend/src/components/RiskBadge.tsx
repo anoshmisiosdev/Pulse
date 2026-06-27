@@ -1,20 +1,15 @@
-import type { Band } from "../lib/api";
+import type { Segment } from "../lib/api";
+import { SEGMENTS } from "../lib/segments";
 
-const STYLES: Record<Band, string> = {
-  high: "bg-red-100 text-red-700 ring-red-600/20",
-  med: "bg-amber-100 text-amber-700 ring-amber-600/20",
-  low: "bg-emerald-100 text-emerald-700 ring-emerald-600/20",
-};
-
-const LABELS: Record<Band, string> = { high: "High", med: "Medium", low: "Low" };
-
-export default function RiskBadge({ band }: { band: Band }) {
+export default function RiskBadge({ segment, score }: { segment: Segment; score?: number }) {
+  const meta = SEGMENTS[segment];
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
-                  ring-1 ring-inset ${STYLES[band]}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${meta.bg}`}
     >
-      {LABELS[band]}
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.color }} />
+      {meta.health}
+      {score !== undefined && <span className="opacity-70">{score}</span>}
     </span>
   );
 }

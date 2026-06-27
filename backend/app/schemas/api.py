@@ -14,6 +14,15 @@ class CustomerRisk(BaseModel):
     band: str
     reasons: list[str]
     estimated_annual_value: float
+    days_since_last_visit: int | None = None
+    last_visit: str | None = None
+    visit_count: int = 0
+    total_spend: float = 0.0
+    segment: str = "regulars"
+    pattern: str | None = None
+    confidence: str = "medium"
+    trend_pct: int = 0
+    favorite_item: str | None = None
 
 
 class PortfolioSummaryOut(BaseModel):
@@ -22,9 +31,13 @@ class PortfolioSummaryOut(BaseModel):
     med_risk: int
     low_risk: int
     revenue_at_risk: float
+    avg_days_away: float = 0.0
+    revenue_series: list[dict] = []
 
 
 class CSVPreviewOut(BaseModel):
+    business_name: str = "Your Business"
+    vertical: str = "other"
     summary: PortfolioSummaryOut
     customers: list[CustomerRisk]
     warnings: list[str] = []

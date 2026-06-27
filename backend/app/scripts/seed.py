@@ -13,14 +13,14 @@ from app.services.activity import build_scored_customers, summarize
 
 
 def main() -> None:
-    sync = generate_sync(n=300)
-    scored = build_scored_customers(sync, vertical="fitness")
+    sync = generate_sync(n=50)
+    scored = build_scored_customers(sync, vertical="cafe")
     summary = summarize(scored)
 
     out = Path(__file__).with_name("sample_customers.csv")
     out.write_text(to_customer_csv(sync))
 
-    print("Seeded fake fitness studio")
+    print("Seeded fake coffee shop (Hayward Coffee Co.)")
     print(f"  customers:        {summary.total_customers}")
     print(f"  high risk:        {summary.high_risk}")
     print(f"  medium risk:      {summary.med_risk}")

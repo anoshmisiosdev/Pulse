@@ -12,7 +12,12 @@ from app.schemas.api import (
     CustomerRisk,
     PortfolioSummaryOut,
 )
-from app.services.activity import ScoredCustomer, build_scored_customers, summarize
+from app.services.activity import (
+    ScoredCustomer,
+    build_scored_customers,
+    monthly_revenue_series,
+    summarize,
+)
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -28,6 +33,15 @@ def _to_risk(scored: list[ScoredCustomer]) -> list[CustomerRisk]:
             band=s.result.band,
             reasons=s.result.reasons,
             estimated_annual_value=s.estimated_annual_value,
+            days_since_last_visit=s.days_since_last_visit,
+            last_visit=s.last_visit,
+            visit_count=s.visit_count,
+            total_spend=s.total_spend,
+            segment=s.segment,
+            pattern=s.pattern,
+            confidence=s.confidence,
+            trend_pct=s.trend_pct,
+            favorite_item=s.customer.favorite_item,
         )
         for s in scored
     ]
@@ -46,6 +60,7 @@ async def csv_template() -> str:
 async def csv_preview(
     file: UploadFile = File(...),
     vertical: str = Query("other"),
+    business_name: str = Query("Your Business"),
 ) -> CSVPreviewOut:
     """Parse + score an uploaded CSV entirely in memory (no persistence).
 
@@ -60,8 +75,10 @@ async def csv_preview(
         raise HTTPException(status_code=422, detail="File is not valid UTF-8 text") from exc
 
     scored = build_scored_customers(sync, vertical=vertical)
-    summary = summarize(scored)
+    summary = summarize(scored, monthly_revenue_series(sync))
     return CSVPreviewOut(
+        business_name=business_name,
+        vertical=vertical,
         summary=PortfolioSummaryOut(**summary.__dict__),
         customers=_to_risk(scored),
         warnings=sync.warnings,
@@ -69,14 +86,16 @@ async def csv_preview(
 
 
 @router.post("/demo", response_model=CSVPreviewOut)
-async def demo(count: int = Query(300, ge=1, le=2000)) -> CSVPreviewOut:
-    """Instant demo: a seeded fake fitness studio, scored — no upload required."""
-    from app.scripts.demo_data import generate_sync
+async def demo(count: int = Query(50, ge=1, le=2000)) -> CSVPreviewOut:
+    """Instant demo: the seeded "Hayward Coffee Co." cafe, scored — no upload needed."""
+    from app.scripts.demo_data import DEMO_BUSINESS_NAME, DEMO_VERTICAL, generate_sync
 
     sync = generate_sync(n=count)
-    scored = build_scored_customers(sync, vertical="fitness")
-    summary = summarize(scored)
+    scored = build_scored_customers(sync, vertical=DEMO_VERTICAL)
+    summary = summarize(scored, monthly_revenue_series(sync))
     return CSVPreviewOut(
+        business_name=DEMO_BUSINESS_NAME,
+        vertical=DEMO_VERTICAL,
         summary=PortfolioSummaryOut(**summary.__dict__),
         customers=_to_risk(scored),
         warnings=[],

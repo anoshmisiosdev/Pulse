@@ -43,6 +43,10 @@ _HEADER_SYNONYMS: dict[str, set[str]] = {
         "amount", "total_spent", "total_spend", "lifetime_spend", "ltv",
         "revenue", "spend", "price",
     },
+    "favorite_item": {
+        "favorite_item", "favorite", "favourite", "top_item", "usual",
+        "favorite_product", "preferred_item",
+    },
 }
 
 _DATE_FORMATS = (
@@ -147,6 +151,7 @@ def parse_csv(content: str) -> SyncResult:
             email=email,
             phone=phone,
             created_at=parse_date(fields.get("joined_at")),
+            favorite_item=fields.get("favorite_item") or None,
         )
         result.customers.append(customer)
 
@@ -195,7 +200,10 @@ def dedupe_customers(customers: list[NormalizedCustomer]) -> list[NormalizedCust
             merged[key] = cust.model_copy(deep=True)
             continue
         existing = merged[key]
-        for fld in ("first_name", "last_name", "email", "phone", "external_id", "created_at"):
+        for fld in (
+            "first_name", "last_name", "email", "phone", "external_id",
+            "created_at", "favorite_item",
+        ):
             if getattr(existing, fld) is None and getattr(cust, fld) is not None:
                 setattr(existing, fld, getattr(cust, fld))
 
