@@ -1,46 +1,69 @@
-# PulseQ
+# Pulse
 
-AI-powered customer retention dashboard. Identifies churn risk, generates win-back outreach, and delivers daily audio briefings.
+AI-powered customer retention for small local businesses. Pulse predicts which
+customers are about to churn and automatically drafts AI-written win-back
+campaigns — before the owner notices a problem.
+
+> **The product in one screen:** _"We found 14 customers at high risk, worth an
+> estimated $2,100/year."_ Everything optimizes for time-to-that-screen.
 
 ## Stack
 
-Next.js 16 | SQLite (better-sqlite3) | Claude API | ElevenLabs TTS | Perplexity (pricing)
+| Layer | Choice |
+|---|---|
+| Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Alembic, Pydantic v2 |
+| Workers | Celery + Redis |
+| Database | PostgreSQL 16 (Supabase), Supabase Auth |
+| Frontend | React 18 + Vite + TypeScript, Tailwind, shadcn/ui, Recharts |
+| AI | Anthropic `claude-sonnet-4-6` |
+| Email / SMS | Resend / Twilio |
+| Billing | Stripe Checkout + Customer Portal |
 
-## Setup
+## Quick start (Docker)
 
-Requires Node.js v18+.
+```bash
+cp .env.example .env          # fill in secrets (works offline with seed data)
+docker compose up --build     # postgres, redis, api, worker, frontend
+```
 
-1. Install dependencies:
-   ```
-   npm install
-   ```
+- API:       http://localhost:8000  (docs at `/docs`)
+- Frontend:  http://localhost:5173
 
-2. Create `.env` in the project root:
-   ```
-   ANTHROPIC_API_KEY=your_key_here
-   PERPLEXITY_API_KEY=your_key_here
-   ELEVENLABS_API_KEY=your_key_here
-   ```
+## Quick start (backend only, no Docker)
 
-3. Seed the database:
-   ```
-   npm run seed
-   ```
+```bash
+cd backend
+uv sync                       # creates .venv, installs deps (pins Python 3.12)
+uv run uvicorn app.main:app --reload
+uv run pytest                 # scoring engine + adapter tests
+```
 
-4. Start the dev server:
-   ```
-   npm run dev
-   ```
+## Demo offline
 
-Open http://localhost:3000.
+```bash
+cd backend && uv run python -m app.scripts.seed   # ~300-customer fake fitness studio
+```
 
-## Features
+Then upload `backend/app/scripts/sample_customers.csv` via the onboarding screen,
+or hit `POST /api/integrations/csv/preview`.
 
-- **Dashboard** — customer risk heatmap, revenue-at-risk stats, filter by churn segment
-- **Audio Briefing** — AI-generated spoken summary of business state (Claude + ElevenLabs)
-- **Outreach** — per-customer email drafts, phone scripts, and special offers via multi-agent orchestration
-- **Pricing** — live competitor price comparison via Perplexity API
-- **Business Profile** — configurable business info stored in SQLite
-- **Retention View** — track contacted, responded, and won-back customers
+## Repo layout
 
-This is an easter egg
+```
+pulse/
+├── docker-compose.yml
+├── backend/          # FastAPI app, scoring engine, adapters, workers
+│   ├── app/
+│   │   ├── core/         config, db, auth, deps
+│   │   ├── models/       SQLAlchemy ORM (multi-tenant)
+│   │   ├── schemas/      Pydantic v2 + normalized adapter types
+│   │   ├── integrations/ adapter pattern: csv, square, stripe, mindbody
+│   │   ├── scoring/      transparent churn engine (pure functions)
+│   │   ├── campaigns/    Claude generation + static fallbacks
+│   │   ├── api/          routers
+│   │   └── workers/      Celery tasks
+│   └── tests/
+└── frontend/         # Vite + React + TS
+```
+
+See [CLAUDE.md](CLAUDE.md) for architecture details and conventions.

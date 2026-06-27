@@ -1,88 +1,99 @@
-# PulseQ — AI Customer Retention Dashboard
+# Pulse — AI Customer Retention Platform
 
 ## What This Is
 
-PulseQ is an AI-powered customer retention tool for small businesses (coffee shops, gyms, boutiques). It identifies churn risk, generates personalized win-back outreach (email, phone scripts, offers), compares competitor pricing, and delivers daily audio briefings.
+Pulse predicts which customers are about to churn and drafts AI-written win-back
+campaigns to keep them — before the owner notices a problem. Target users are
+non-technical owners of small local businesses (fitness studios, salons, med spas).
 
-## Stack
+**Definition of Done:** an owner with zero technical skill can sign up → connect
+Square or upload a CSV → within 2 minutes see which customers are at risk *and
+why in plain English* → approve an AI-written win-back email → see it send → two
+weeks later see "3 customers recovered, ~$640 saved" → and pay $199/mo via Stripe.
+When scope is unclear, cut toward that sentence.
 
-- **Framework:** Next.js 16 (App Router, Turbopack)
-- **Database:** Supabase Postgres (migrated from SQLite/better-sqlite3)
-- **AI:** Claude API (`@anthropic-ai/sdk`) — churn analysis, recommendations, email synthesis
-- **Pricing:** Perplexity API (`sonar` model) — live competitor price lookups
-- **Voice:** ElevenLabs TTS — audio briefings
-- **UI:** Tailwind CSS 4, Radix UI primitives, Recharts, shadcn-style glass components
-- **Deployment:** Vercel (serverless)
+## Stack (do not substitute without a strong reason)
+
+- **Backend:** Python 3.12, FastAPI, SQLAlchemy 2.0 async, Alembic, Pydantic v2
+- **Workers:** Celery + Redis
+- **DB:** PostgreSQL 16 (Supabase) + Supabase Auth
+- **Frontend:** React 18 + Vite + TypeScript, Tailwind, shadcn/ui, Recharts
+- **AI:** Anthropic `claude-sonnet-4-6`
+- **Email/SMS/Billing:** Resend / Twilio / Stripe
+- **Dev env:** `docker-compose.yml` is canonical (postgres, redis, api, worker, frontend)
 
 ## Architecture
 
-### Database (`lib/db.ts`)
-- Uses `@supabase/supabase-js` with service role key (server-side only)
-- All query functions are **async** — every call site must `await`
-- Tables use **quoted camelCase** column names in Postgres (e.g. `"voiceId"`, `"churnScore"`)
-- Price cache table has a 2-hour TTL
-- Seed script (`scripts/seed.ts`) uses the `postgres` npm package for DDL
+### Adapter pattern (mandatory)
+Every integration implements `integrations/base.py::DataSourceAdapter`. Downstream
+code (scoring, campaigns, dashboard) **only** touches normalized Pydantic types
+(`schemas/normalized.py`). Adding an integration requires **zero changes outside
+`integrations/`**. CSV is the reference implementation; Square/Stripe are live;
+Mindbody is a `NotImplementedError` stub.
 
-### DB Tables
-- `businesses` — business profiles by type (coffee_shop, gym, boutique)
-- `products` — product catalog
-- `competitors` — competitor pricing data (uses `prices` JSON text column, not separate amazon/target/walmart)
-- `customers` — customer records with churn scores
-- `transactions` — customer transaction history
-- `surveys` — customer satisfaction surveys
-- `business_profiles` — user-configurable business info (location, description, popular products)
-- `price_cache` — cached competitor prices (uses `prices` JSON text column)
+### Scoring engine (`scoring/`)
+A **transparent weighted heuristic** — not ML. Owners must trust the score.
+`engine.py` is **pure functions, no side effects, no I/O**. Inputs are plain
+dataclasses; outputs are `score (0–100)`, `band (low/med/high)`, and
+`reasons: list[str]` in plain English (e.g. _"Visited 2x/week for 6 months, no
+visits in 21 days"_) — reasons are a first-class product feature, surface them
+everywhere. Weights/thresholds are configurable per vertical (`scoring/config.py`);
+a med-spa client returning in 5 months is normal, a gym member gone 3 weeks is not.
+The interface accepts a drop-in ML model later.
 
-### API Routes (`app/api/`)
-- `orchestrate` — multi-agent pipeline: churn → recommendations → pricing → email synthesis
-- `market-search` — Perplexity-powered competitor price lookup with DB caching
-- `briefing` — AI daily briefing generation
-- `churn` — standalone churn analysis
-- `email` — email generation
-- `recommend` — product recommendations
-- `voice` — ElevenLabs TTS
-- `action` — action tracking
-- `profile` — GET/POST business profile
-- `businesses`, `customers`, `products` — CRUD endpoints
+### Campaign generation (`campaigns/`)
+Claude generates email/SMS copy and dashboard "why at risk" summaries. Request
+strict JSON; parse defensively (strip fences, retry once, fall back to a static
+template). **Never block the send pipeline on the LLM.** Default mode is
+**approve-to-send**. Log every generation (prompt + output + model version).
 
-### Pages (`app/`)
-- `/` — main dashboard with stat cards, risk heatmap, customer cards
-- `/customers` — full customer database with search, filters, sort. Won-back customers are filtered out via `wonBackIds`
-- `/retention` — action-oriented retention queue, sorted by urgency. Customers disappear when marked retained
-- `/prices` — competitor price comparison cards. Fetches from API (DB-cached), auto-reloads every 2 hours
-- `/business` — business profile editor
+### Models (`models/`) — multi-tenant from day one
+`Business`, `User`, `IntegrationConnection`, `Customer` (deduped by email/phone),
+`Transaction`, `Visit`, `EngagementEvent`, `RiskScore` (append-only log),
+`Campaign`, `CampaignSend`, `AutomationRule`, `RecoveryAttribution`, `Subscription`,
+`SyncRun`. Multi-location is a column, never a rewrite.
 
-### State Management (`components/pulse/client-layout.tsx`)
-- `PulseContext` provides: `customers`, `businessType`, `businessData`, `catalogData`, `revenueRecovered`, `wonBackCount`, `wonBackIds`, `addWonBack`, `businessProfile`, `setBusinessProfile`
-- `addWonBack(customer)` adds to `wonBackIds` Set and updates revenue/count
-- Both `/customers` and `/retention` pages filter by `wonBackIds` for consistency
+## Conventions & guardrails
 
-### Key Libraries
-- `lib/rfm.ts` — Customer type, churn risk utilities (calculateAtRiskRevenue, getCriticalCount, getAverageDaysSince)
-- `lib/data/` — JSON seed data (business.json, catalog.json, competitors.json, customers.json, surveys.json)
+- **Conventional commits**, small PR-sized changes.
+- All secrets in `.env` (see `.env.example`). Never commit secrets. OAuth tokens
+  are **Fernet-encrypted at rest** (`core/security.py`, key from `FERNET_KEY`).
+- Every external call: timeout + retry/backoff + a logged `SyncRun` row.
+- **CAN-SPAM:** unsubscribe link in every email. **TCPA:** no SMS before 9am /
+  after 8pm local; honor STOP and the per-customer `do_not_contact` flag.
+- **HIPAA:** never ingest medical/treatment data — only name, contact, visit
+  timestamps, spend. Provide a per-business data-deletion endpoint.
+- **Testing:** pytest + httpx (backend), Vitest (frontend). ≥70% coverage on the
+  scoring engine and adapters — these are the trust-critical core.
 
-## Environment Variables
+## Pricing tiers (billing target)
 
-Required in `.env.local` (and Vercel project settings):
-```
-NEXT_PUBLIC_SUPABASE_URL
-SUPABASE_SERVICE_ROLE_KEY
-POSTGRES_URL          # used by seed script only
-ANTHROPIC_API_KEY
-PERPLEXITY_API_KEY
-ELEVENLABS_API_KEY
-```
+| Tier | Price | Limits |
+|---|---|---|
+| Starter | $199/mo | 1 integration, 1,000 customers, email only |
+| Growth | $299/mo | all integrations, 2,500 customers, email+SMS, automation |
+| Pro | $499/mo | unlimited customers, multi-location ready |
+
+14-day trial (card required), annual = 2 months free, `founders_rate` coupon.
+Enforce limits in middleware: nag at 90%, never hard-block.
+
+## Build order (each phase ends runnable + tested)
+
+0. Skeleton — compose, FastAPI health, Vite app, CI ✅
+1. Data core — models, CSV adapter, ingest + dedupe ✅
+2. Scoring engine — pure functions, nightly job, risk badges ✅
+3. Square integration — OAuth, sync, webhooks, incremental re-score
+4. Campaigns — Claude generation, approve-to-send, Resend, unsubscribe
+5. Automations + SMS — rule engine, Twilio, TCPA quiet hours, attribution
+6. Billing + polish — Stripe tiers, onboarding flow, seed script
 
 ## Commands
 
-- `npm run dev` — start dev server
-- `npm run build` — production build
-- `npm run seed` — drop/recreate all tables and seed Supabase from JSON files
-
-## Conventions
-
-- Glass morphism UI: `glass-card`, `glass-inset` CSS classes
-- Fonts: `var(--font-display)` for headings, `var(--font-body)` for text
-- Colors: cyan `#0891b2` primary, slate grays for text, red/amber/green for status
-- Components live in `components/pulse/`
-- No ORMs — direct Supabase client queries in `lib/db.ts`
+```bash
+docker compose up --build       # full stack
+cd backend && uv sync           # backend deps (Python 3.12)
+uv run uvicorn app.main:app --reload
+uv run pytest                   # tests
+uv run python -m app.scripts.seed   # offline demo data
+cd frontend && npm install && npm run dev
+```
