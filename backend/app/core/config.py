@@ -37,9 +37,28 @@ class Settings(BaseSettings):
     # Secrets at rest
     fernet_key: str = ""
 
-    # Anthropic
+    # Token Router — every LLM ("AAM") call is routed through this gateway.
+    # Protocol selects how we speak to it: "openai" => /chat/completions,
+    # "anthropic" => /messages. Direct Anthropic is only a no-router fallback.
+    token_router_api_key: str = ""
+    token_router_base_url: str = ""  # e.g. https://api.tokenrouter.io/v1
+    token_router_model: str = "claude-sonnet-4-6"
+    token_router_protocol: Literal["openai", "anthropic"] = "openai"
+
+    # Anthropic (fallback only when Token Router is not configured)
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-6"
+
+    # Convex — auth backend (multi-tenant: each business is a tenant)
+    convex_url: str = ""  # deployment URL, e.g. https://your-app.convex.cloud
+    convex_api_key: str = ""  # shared secret authorizing API -> Convex calls
+    # Backend-issued session JWT signed after Convex verifies credentials.
+    auth_jwt_secret: str = "dev-insecure-change-me-please-set-a-real-secret"
+    auth_jwt_ttl_hours: int = 24 * 7
+
+    @property
+    def llm_configured(self) -> bool:
+        return bool(self.token_router_api_key or self.anthropic_api_key)
 
     # Email / SMS
     resend_api_key: str = ""

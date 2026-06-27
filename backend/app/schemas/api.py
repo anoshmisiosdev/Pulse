@@ -60,3 +60,28 @@ class GeneratedCopyOut(BaseModel):
     body: str
     generated_by: str
     model: str | None = None
+
+
+# ── auth ──
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class RegisterIn(BaseModel):
+    email: str
+    password: str
+    business_name: str
+
+
+class AuthUser(BaseModel):
+    user_id: str
+    email: str | None = None
+    business_id: str
+    business_name: str
+    role: str = "owner"
+
+
+class LoginOut(BaseModel):
+    token: str
+    user: AuthUser

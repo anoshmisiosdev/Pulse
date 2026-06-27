@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { usePulse } from "../context/PulseContext";
+import { useAuth } from "../context/AuthContext";
 import { formatCurrency } from "../lib/api";
 
 const NAV = [
@@ -11,7 +12,9 @@ const NAV = [
 ];
 
 export default function AppShell({ children }: { children: ReactNode }) {
-  const { businessName } = usePulse();
+  const { businessName: dataBusiness } = usePulse();
+  const { user, logout } = useAuth();
+  const businessName = user?.business_name ?? dataBusiness;
   const [navOpen, setNavOpen] = useState(false);
   const [briefing, setBriefing] = useState(false);
 
@@ -86,6 +89,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   {n.label}
                 </NavLink>
               ))}
+            </div>
+
+            <div className="absolute inset-x-5 bottom-5 border-t border-white/50 pt-4">
+              <p className="truncate text-sm font-medium text-slate-700">{businessName}</p>
+              {user?.email && <p className="truncate text-xs text-slate-400">{user.email}</p>}
+              <button
+                onClick={logout}
+                className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-white/70"
+              >
+                Sign out
+              </button>
             </div>
           </nav>
         </div>

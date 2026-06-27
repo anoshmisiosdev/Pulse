@@ -1,12 +1,25 @@
 import { Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PulseProvider, usePulse } from "./context/PulseContext";
 import Dashboard from "./pages/Dashboard";
 import Customers from "./pages/Customers";
 import Retention from "./pages/Retention";
 import Automations from "./pages/Automations";
+import Login from "./pages/Login";
 
-function LoadingGate({ children }: { children: React.ReactNode }) {
+function Spinner({ label }: { label: string }) {
+  return (
+    <div className="grid min-h-[60vh] place-items-center">
+      <div className="flex items-center gap-3 text-slate-500">
+        <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function DataGate({ children }: { children: React.ReactNode }) {
   const { loading, error } = usePulse();
   if (error) {
     return (
@@ -19,32 +32,38 @@ function LoadingGate({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (loading) {
-    return (
-      <div className="grid min-h-[60vh] place-items-center">
-        <div className="flex items-center gap-3 text-slate-500">
-          <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
-          Scoring your customers…
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <Spinner label="Scoring your customers…" />;
   return <>{children}</>;
 }
 
-export default function App() {
+function AuthedApp() {
   return (
     <PulseProvider>
       <AppShell>
-        <LoadingGate>
+        <DataGate>
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/retention" element={<Retention />} />
             <Route path="/automations" element={<Automations />} />
           </Routes>
-        </LoadingGate>
+        </DataGate>
       </AppShell>
     </PulseProvider>
+  );
+}
+
+function Gate() {
+  const { user, loading } = useAuth();
+  if (loading) return <Spinner label="Loading…" />;
+  if (!user) return <Login />;
+  return <AuthedApp />;
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <Gate />
+    </AuthProvider>
   );
 }

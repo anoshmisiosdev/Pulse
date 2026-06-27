@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import campaigns, health, integrations
+from app.api import auth, campaigns, health, integrations
 from app.core.config import settings
 
 logging.basicConfig(level=settings.log_level)
@@ -48,6 +48,7 @@ app.add_middleware(
 
 API_PREFIX = "/api"
 app.include_router(health.router, prefix=API_PREFIX)
+app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(integrations.router, prefix=API_PREFIX)
 app.include_router(campaigns.router, prefix=API_PREFIX)
 

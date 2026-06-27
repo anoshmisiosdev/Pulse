@@ -62,12 +62,61 @@ export interface GeneratedCopy {
   model: string | null;
 }
 
+export interface AuthUser {
+  user_id: string;
+  email: string | null;
+  business_id: string;
+  business_name: string;
+  role: string;
+}
+
+const TOKEN_KEY = "pulse_token";
+export const tokenStore = {
+  get: () => localStorage.getItem(TOKEN_KEY),
+  set: (t: string) => localStorage.setItem(TOKEN_KEY, t),
+  clear: () => localStorage.removeItem(TOKEN_KEY),
+};
+
+function authHeaders(): Record<string, string> {
+  const t = tokenStore.get();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
 async function asJson<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error((await res.text()) || `Request failed (${res.status})`);
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? detail;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(detail);
+  }
   return res.json() as Promise<T>;
 }
 
 export const api = {
+  async login(email: string, password: string): Promise<{ token: string; user: AuthUser }> {
+    const res = await fetch(`${BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const out = await asJson<{ token: string; user: AuthUser }>(res);
+    tokenStore.set(out.token);
+    return out;
+  },
+
+  async me(): Promise<AuthUser> {
+    const res = await fetch(`${BASE}/api/auth/me`, { headers: authHeaders() });
+    return asJson<AuthUser>(res);
+  },
+
+  logout(): void {
+    tokenStore.clear();
+  },
+
   async previewCsv(file: File, vertical: string, businessName: string): Promise<Portfolio> {
     const form = new FormData();
     form.append("file", file);
@@ -75,12 +124,16 @@ export const api = {
     const res = await fetch(`${BASE}/api/integrations/csv/preview?${qs}`, {
       method: "POST",
       body: form,
+      headers: authHeaders(),
     });
     return asJson<Portfolio>(res);
   },
 
   async demo(count = 50): Promise<Portfolio> {
-    const res = await fetch(`${BASE}/api/integrations/demo?count=${count}`, { method: "POST" });
+    const res = await fetch(`${BASE}/api/integrations/demo?count=${count}`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
     return asJson<Portfolio>(res);
   },
 
@@ -95,7 +148,7 @@ export const api = {
   }): Promise<GeneratedCopy> {
     const res = await fetch(`${BASE}/api/campaigns/generate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(input),
     });
     return asJson<GeneratedCopy>(res);

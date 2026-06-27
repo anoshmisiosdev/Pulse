@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 
 from app.campaigns.templates import fallback_email, fallback_sms
 from app.core.config import settings
+from app.core.llm import active_model, complete_text
 
 logger = logging.getLogger("pulse.campaigns")
 
@@ -121,35 +122,19 @@ def _fallback(ctx: CampaignContext) -> GeneratedCopy:
 
 
 async def generate_campaign(ctx: CampaignContext) -> GeneratedCopy:
-    """Generate copy via Claude, degrading to a static template on any failure."""
-    if not settings.anthropic_api_key:
+    """Generate copy via Token Router, degrading to a static template on any failure."""
+    if not settings.llm_configured:
         return _fallback(ctx)
 
-    try:
-        from anthropic import AsyncAnthropic  # lazy: keep SDK off the import path
-    except ImportError:
-        logger.warning("anthropic SDK not installed; using fallback copy")
-        return _fallback(ctx)
-
-    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
     system, user = _build_prompt(ctx)
+    model = active_model()
 
     for attempt in (1, 2):  # generate, then one retry on parse failure
         try:
-            resp = await client.messages.create(
-                model=settings.anthropic_model,
-                max_tokens=700,
-                system=system,
-                messages=[{"role": "user", "content": user}],
-            )
-            raw = "".join(
-                block.text for block in resp.content if getattr(block, "type", None) == "text"
-            )
+            raw = await complete_text(system, user, max_tokens=700)
             copy = parse_model_json(raw, ctx.channel)
-            copy.model = settings.anthropic_model
-            logger.info(
-                "campaign generated", extra={"channel": ctx.channel, "attempt": attempt}
-            )
+            copy.model = model
+            logger.info("campaign generated", extra={"channel": ctx.channel, "attempt": attempt})
             return copy
         except Exception as exc:  # network, parse, or API error — never blocks the send
             logger.warning("generation attempt %s failed: %s", attempt, exc)
