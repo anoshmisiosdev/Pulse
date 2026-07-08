@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://pulse:pulse@localhost:5432/pulse"
     # Set true when database_url points at Supabase's transaction pooler (pgBouncer).
     db_use_pgbouncer: bool = False
+    # asyncpg SSL mode: "" (off, local) | "require" (Supabase) | "verify-full".
+    db_ssl: str = ""
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
