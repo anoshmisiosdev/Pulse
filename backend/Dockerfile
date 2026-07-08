@@ -18,4 +18,5 @@ RUN uv sync --no-install-project --all-extras --dev || uv sync --no-install-proj
 COPY . .
 
 EXPOSE 8000
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Shell form so $PORT (set by Render/Railway/Fly) is honored; falls back to 8000.
+CMD uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
