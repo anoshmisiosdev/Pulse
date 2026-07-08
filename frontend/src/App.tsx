@@ -54,9 +54,11 @@ function AuthedApp() {
 }
 
 function Gate() {
-  const { user, loading } = useAuth();
+  const { user, loading, configured } = useAuth();
   if (loading) return <Spinner label="Loading…" />;
-  if (!user) return <Login />;
+  // When Supabase auth isn't configured (local dev), skip the wall and use the
+  // backend's demo tenant. Once configured, login is required.
+  if (configured && !user) return <Login />;
   return <AuthedApp />;
 }
 

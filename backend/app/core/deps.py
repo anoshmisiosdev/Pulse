@@ -1,8 +1,10 @@
 """Shared FastAPI dependencies: auth + tenant resolution.
 
-A verified Pulse session token (issued after Convex auth) resolves to a tenant we
-scope every query by. In development, if auth isn't configured, we fall back to a
-demo tenant so the dashboard is usable offline without logging in.
+A verified Supabase access token resolves to a tenant we scope every query by.
+One owner = one tenant for now: ``business_id`` defaults to the Supabase user id
+(``sub``), overridable via ``app_metadata.business_id`` once teams exist. In dev,
+if Supabase isn't configured, we fall back to a demo tenant so the dashboard is
+usable without logging in.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from dataclasses import dataclass
 from fastapi import Depends, Header, HTTPException, status
 
 from app.core.config import settings
-from app.core.security import decode_session_token
+from app.core.security import verify_supabase_jwt
 
 DEMO_BUSINESS_ID = "00000000-0000-0000-0000-000000000001"
 
@@ -26,16 +28,26 @@ class CurrentUser:
     role: str = "owner"
 
 
-def _auth_enabled() -> bool:
-    return bool(settings.convex_url and settings.convex_api_key)
+def _tenant_from_claims(claims: dict) -> CurrentUser:
+    app_meta = claims.get("app_metadata") or {}
+    user_meta = claims.get("user_metadata") or {}
+    sub = claims["sub"]
+    email = claims.get("email")
+    return CurrentUser(
+        user_id=sub,
+        email=email,
+        business_id=str(app_meta.get("business_id") or sub),
+        business_name=user_meta.get("business_name") or email or "My Business",
+        role=app_meta.get("role", "owner"),
+    )
 
 
 async def get_current_user(
     authorization: str | None = Header(default=None),
 ) -> CurrentUser:
-    """Resolve the caller from a Bearer session token, or a demo user in dev."""
+    """Resolve the caller from a Supabase Bearer token, or a demo user in dev."""
     if not authorization:
-        if not settings.is_production and not _auth_enabled():
+        if not settings.is_production and not settings.auth_configured:
             return CurrentUser(
                 user_id="demo-user",
                 email="demo@pulse.app",
@@ -49,17 +61,11 @@ async def get_current_user(
 
     token = authorization.removeprefix("Bearer ").strip()
     try:
-        claims = decode_session_token(token)
+        claims = verify_supabase_jwt(token)
     except ValueError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
-    return CurrentUser(
-        user_id=claims["sub"],
-        email=claims.get("email"),
-        business_id=claims.get("business_id") or DEMO_BUSINESS_ID,
-        business_name=claims.get("business_name", "My Business"),
-        role=claims.get("role", "owner"),
-    )
+    return _tenant_from_claims(claims)
 
 
 CurrentUserDep = Depends(get_current_user)

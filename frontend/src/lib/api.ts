@@ -70,16 +70,14 @@ export interface AuthUser {
   role: string;
 }
 
-const TOKEN_KEY = "pulse_token";
-export const tokenStore = {
-  get: () => localStorage.getItem(TOKEN_KEY),
-  set: (t: string) => localStorage.setItem(TOKEN_KEY, t),
-  clear: () => localStorage.removeItem(TOKEN_KEY),
-};
+// The current Supabase access token, kept in sync by AuthContext.
+let accessToken: string | null = null;
+export function setAccessToken(t: string | null): void {
+  accessToken = t;
+}
 
 function authHeaders(): Record<string, string> {
-  const t = tokenStore.get();
-  return t ? { Authorization: `Bearer ${t}` } : {};
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 }
 
 async function asJson<T>(res: Response): Promise<T> {
@@ -97,24 +95,9 @@ async function asJson<T>(res: Response): Promise<T> {
 }
 
 export const api = {
-  async login(email: string, password: string): Promise<{ token: string; user: AuthUser }> {
-    const res = await fetch(`${BASE}/api/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    const out = await asJson<{ token: string; user: AuthUser }>(res);
-    tokenStore.set(out.token);
-    return out;
-  },
-
   async me(): Promise<AuthUser> {
     const res = await fetch(`${BASE}/api/auth/me`, { headers: authHeaders() });
     return asJson<AuthUser>(res);
-  },
-
-  logout(): void {
-    tokenStore.clear();
   },
 
   async previewCsv(file: File, vertical: string, businessName: string): Promise<Portfolio> {

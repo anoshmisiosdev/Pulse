@@ -1,15 +1,14 @@
-"""Secrets-at-rest encryption and session-token signing.
+"""Secrets-at-rest encryption and Supabase token verification.
 
 OAuth tokens for integrations are Fernet-encrypted before they touch the DB.
-After Convex verifies a login, we mint a short-lived HS256 session JWT carrying the
-tenant identity (business_id) that the API verifies on each request.
+Login is handled by Supabase on the frontend; the backend verifies the resulting
+Supabase access token (JWT) on each request and derives the tenant from its claims.
 """
 
 from __future__ import annotations
 
 import base64
 import hashlib
-from datetime import UTC
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -45,38 +44,46 @@ def decrypt_token(ciphertext: str) -> str:
         raise ValueError("Could not decrypt token (wrong FERNET_KEY?)") from exc
 
 
-def create_session_token(
-    *,
-    user_id: str,
-    business_id: str,
-    email: str | None,
-    business_name: str = "My Business",
-    role: str = "owner",
-) -> str:
-    """Sign a session JWT after Convex has verified the login (HS256)."""
-    from datetime import datetime, timedelta
+_jwks_client = None  # cached PyJWKClient for asymmetric Supabase projects
 
+
+def _jwks_url() -> str:
+    return f"{settings.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
+
+
+def verify_supabase_jwt(token: str) -> dict:
+    """Verify a Supabase access token and return its claims.
+
+    Supports both HS256 (legacy shared JWT secret) and asymmetric RS256/ES256
+    (verified via the project's JWKS endpoint). Raises ``ValueError`` on any
+    failure so callers map it to a 401.
+    """
     import jwt
 
-    now = datetime.now(UTC)
-    payload = {
-        "sub": user_id,
-        "business_id": business_id,
-        "email": email,
-        "business_name": business_name,
-        "role": role,
-        "iat": now,
-        "exp": now + timedelta(hours=settings.auth_jwt_ttl_hours),
-        "iss": "pulse",
-    }
-    return jwt.encode(payload, settings.auth_jwt_secret, algorithm="HS256")
-
-
-def decode_session_token(token: str) -> dict:
-    """Verify a Pulse session token. Raises ``ValueError`` on any failure (-> 401)."""
-    import jwt
+    if not settings.supabase_url:
+        raise ValueError("Supabase is not configured (SUPABASE_URL)")
 
     try:
-        return jwt.decode(token, settings.auth_jwt_secret, algorithms=["HS256"], issuer="pulse")
+        alg = jwt.get_unverified_header(token).get("alg", "")
+        if alg == "HS256":
+            if not settings.supabase_jwt_secret:
+                raise ValueError("SUPABASE_JWT_SECRET is required for HS256 tokens")
+            return jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                algorithms=["HS256"],
+                audience="authenticated",
+            )
+        # Asymmetric: fetch (and cache) the project's signing keys.
+        global _jwks_client
+        if _jwks_client is None:
+            _jwks_client = jwt.PyJWKClient(_jwks_url())
+        signing_key = _jwks_client.get_signing_key_from_jwt(token)
+        return jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256", "ES256"],
+            audience="authenticated",
+        )
     except jwt.PyJWTError as exc:
-        raise ValueError(f"Invalid session: {exc}") from exc
+        raise ValueError(f"Invalid token: {exc}") from exc

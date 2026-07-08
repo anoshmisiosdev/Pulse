@@ -5,7 +5,6 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,17 +21,26 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_base_url: str = "http://localhost:8000"
     frontend_origin: str = "http://localhost:5173"
+    # Extra CORS origins (comma-separated), e.g. your Vercel domain(s).
+    extra_cors_origins: str = ""
 
     # Database / Redis
+    # Supabase Postgres. Use the *pooler* URL (port 6543) for the app at runtime,
+    # and the *direct* URL (port 5432) for Alembic migrations. asyncpg driver.
     database_url: str = "postgresql+asyncpg://pulse:pulse@localhost:5432/pulse"
+    # Set true when database_url points at Supabase's transaction pooler (pgBouncer).
+    db_use_pgbouncer: bool = False
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
 
-    # Supabase Auth
+    # Supabase Auth. The frontend logs in with the anon key; the backend verifies
+    # the resulting JWT. HS256 uses the legacy JWT secret; asymmetric (RS256/ES256)
+    # projects are verified via the JWKS endpoint automatically.
     supabase_url: str = ""
     supabase_anon_key: str = ""
     supabase_jwt_secret: str = ""
+    supabase_service_role_key: str = ""  # server-only admin ops (optional)
 
     # Secrets at rest
     fernet_key: str = ""
@@ -49,16 +57,14 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-6"
 
-    # Convex — auth backend (multi-tenant: each business is a tenant)
-    convex_url: str = ""  # deployment URL, e.g. https://your-app.convex.cloud
-    convex_api_key: str = ""  # shared secret authorizing API -> Convex calls
-    # Backend-issued session JWT signed after Convex verifies credentials.
-    auth_jwt_secret: str = "dev-insecure-change-me-please-set-a-real-secret"
-    auth_jwt_ttl_hours: int = 24 * 7
-
     @property
     def llm_configured(self) -> bool:
         return bool(self.token_router_api_key or self.anthropic_api_key)
+
+    @property
+    def auth_configured(self) -> bool:
+        """True once Supabase Auth is wired (URL is enough to verify via JWKS)."""
+        return bool(self.supabase_url)
 
     # Email / SMS
     resend_api_key: str = ""
@@ -83,7 +89,12 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.environment == "production"
 
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    @property
+    def cors_origins(self) -> list[str]:
+        """Allowed browser origins: the frontend origin plus any extras from env."""
+        origins = {self.frontend_origin}
+        origins.update(o.strip() for o in self.extra_cors_origins.split(",") if o.strip())
+        return sorted(origins)
 
 
 @lru_cache

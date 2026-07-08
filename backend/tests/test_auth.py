@@ -1,74 +1,96 @@
-"""Auth: session-token round-trip + endpoint guards (no live Convex needed)."""
+"""Auth: Supabase JWT verification + tenant resolution."""
 
 from __future__ import annotations
 
+import jwt
 import pytest
 from starlette.testclient import TestClient
 
 from app.core.config import settings
-from app.core.security import create_session_token, decode_session_token
+from app.core.deps import _tenant_from_claims
+from app.core.security import verify_supabase_jwt
 from app.main import app
 
 client = TestClient(app)
+SECRET = "test-supabase-jwt-secret"
+
+
+def _hs256_token(secret: str = SECRET, **overrides) -> str:
+    payload = {
+        "sub": "user-123",
+        "email": "owner@hayward.coffee",
+        "aud": "authenticated",
+        "user_metadata": {"business_name": "Hayward Coffee Co."},
+        "app_metadata": {},
+        **overrides,
+    }
+    return jwt.encode(payload, secret, algorithm="HS256")
 
 
 @pytest.fixture
-def convex_unconfigured(monkeypatch):
-    """Force the 'no Convex' code paths regardless of the local .env."""
-    monkeypatch.setattr(settings, "convex_url", "")
-    monkeypatch.setattr(settings, "convex_api_key", "")
+def supabase_hs256(monkeypatch):
+    monkeypatch.setattr(settings, "supabase_url", "https://demo.supabase.co")
+    monkeypatch.setattr(settings, "supabase_jwt_secret", SECRET)
 
 
-def test_session_token_roundtrip():
-    token = create_session_token(
-        user_id="u1", business_id="biz-1", email="o@x.com",
-        business_name="Acme", role="owner",
-    )
-    claims = decode_session_token(token)
-    assert claims["sub"] == "u1"
-    assert claims["business_id"] == "biz-1"
-    assert claims["business_name"] == "Acme"
-    assert claims["iss"] == "pulse"
+@pytest.fixture
+def supabase_unconfigured(monkeypatch):
+    monkeypatch.setattr(settings, "supabase_url", "")
+    monkeypatch.setattr(settings, "supabase_jwt_secret", "")
 
 
-def test_decode_rejects_tampered_token():
-    token = create_session_token(user_id="u1", business_id="b", email=None)
+# ── token verification ────────────────────────────────────────────────────────
+def test_verify_valid_hs256_token(supabase_hs256):
+    claims = verify_supabase_jwt(_hs256_token())
+    assert claims["sub"] == "user-123"
+    assert claims["email"] == "owner@hayward.coffee"
+
+
+def test_verify_rejects_wrong_secret(supabase_hs256):
     with pytest.raises(ValueError):
-        decode_session_token(token + "x")
+        verify_supabase_jwt(_hs256_token(secret="not-the-secret"))
 
 
-def test_me_dev_demo_fallback_without_auth(convex_unconfigured):
-    # With no auth configured, dev falls back to a demo tenant.
-    r = client.get("/api/auth/me")
-    assert r.status_code == 200
-    assert r.json()["business_name"]
+def test_verify_requires_configuration(supabase_unconfigured):
+    with pytest.raises(ValueError):
+        verify_supabase_jwt(_hs256_token())
 
 
-def test_me_with_valid_token_returns_tenant():
-    token = create_session_token(
-        user_id="u9", business_id="biz-9", email="owner@cafe.com",
-        business_name="Bean There", role="owner",
+# ── tenant resolution ─────────────────────────────────────────────────────────
+def test_tenant_defaults_business_id_to_user_id():
+    user = _tenant_from_claims(
+        {"sub": "abc", "email": "a@b.com", "user_metadata": {"business_name": "Acme"}}
     )
-    r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert user.business_id == "abc"
+    assert user.business_name == "Acme"
+
+
+def test_tenant_honors_app_metadata_business_id():
+    user = _tenant_from_claims(
+        {
+            "sub": "abc",
+            "email": "a@b.com",
+            "app_metadata": {"business_id": "biz-9", "role": "staff"},
+        }
+    )
+    assert user.business_id == "biz-9"
+    assert user.role == "staff"
+
+
+# ── /api/auth/me ──────────────────────────────────────────────────────────────
+def test_me_with_valid_token_returns_tenant(supabase_hs256):
+    r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {_hs256_token()}"})
     assert r.status_code == 200
-    body = r.json()
-    assert body["business_id"] == "biz-9"
-    assert body["business_name"] == "Bean There"
+    assert r.json()["business_name"] == "Hayward Coffee Co."
 
 
-def test_me_rejects_garbage_token():
-    r = client.get("/api/auth/me", headers={"Authorization": "Bearer not-a-jwt"})
+def test_me_rejects_garbage_token(supabase_hs256):
+    r = client.get("/api/auth/me", headers={"Authorization": "Bearer not.a.jwt"})
     assert r.status_code == 401
 
 
-def test_login_503_when_convex_unconfigured(convex_unconfigured):
-    r = client.post("/api/auth/login", json={"email": "a@b.com", "password": "x"})
-    assert r.status_code == 503
-
-
-def test_register_requires_admin_key():
-    r = client.post(
-        "/api/auth/register",
-        json={"email": "a@b.com", "password": "x", "business_name": "Acme"},
-    )
-    assert r.status_code == 403
+def test_me_demo_fallback_when_unconfigured(supabase_unconfigured):
+    # No Supabase + no auth header in dev -> demo tenant so the dashboard works.
+    r = client.get("/api/auth/me")
+    assert r.status_code == 200
+    assert r.json()["business_name"]

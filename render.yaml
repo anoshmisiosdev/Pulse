@@ -1,0 +1,69 @@
+# Render Blueprint for the Pulse backend (FastAPI + Celery + Redis).
+# The frontend deploys separately on Vercel; Postgres is Supabase (external).
+# Set the `sync: false` secrets in the Render dashboard after first apply.
+services:
+  - type: web
+    name: pulse-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    plan: starter
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL # Supabase pooler URL (port 6543)
+        sync: false
+      - key: DB_USE_PGBOUNCER
+        value: "true"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_JWT_SECRET # only if your project uses HS256; else JWKS is used
+        sync: false
+      - key: EXTRA_CORS_ORIGINS # your Vercel domain, e.g. https://pulse.vercel.app
+        sync: false
+      - key: FERNET_KEY
+        sync: false
+      - key: TOKEN_ROUTER_API_KEY
+        sync: false
+      - key: TOKEN_ROUTER_BASE_URL
+        sync: false
+      - key: TOKEN_ROUTER_MODEL
+        value: claude-opus-4-8
+      - key: REDIS_URL
+        fromService: { type: keyvalue, name: pulse-redis, property: connectionString }
+      - key: CELERY_BROKER_URL
+        fromService: { type: keyvalue, name: pulse-redis, property: connectionString }
+      - key: CELERY_RESULT_BACKEND
+        fromService: { type: keyvalue, name: pulse-redis, property: connectionString }
+
+  - type: worker
+    name: pulse-worker
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerCommand: uv run celery -A app.workers.celery_app.celery worker --beat --loglevel=info
+    plan: starter
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DB_USE_PGBOUNCER
+        value: "true"
+      - key: TOKEN_ROUTER_API_KEY
+        sync: false
+      - key: TOKEN_ROUTER_BASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService: { type: keyvalue, name: pulse-redis, property: connectionString }
+      - key: CELERY_BROKER_URL
+        fromService: { type: keyvalue, name: pulse-redis, property: connectionString }
+      - key: CELERY_RESULT_BACKEND
+        fromService: { type: keyvalue, name: pulse-redis, property: connectionString }
+
+  - type: keyvalue
+    name: pulse-redis
+    plan: starter
+    ipAllowList: [] # only reachable from Render services

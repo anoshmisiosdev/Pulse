@@ -12,14 +12,18 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 
-engine = create_async_engine(
-    settings.database_url,
-    echo=False,
-    pool_pre_ping=True,
-)
+# Supabase's transaction pooler (pgBouncer) doesn't support prepared statements or
+# server-side pooling, so disable asyncpg's statement cache and let pgBouncer pool.
+_engine_kwargs: dict = {"echo": False, "pool_pre_ping": True}
+if settings.db_use_pgbouncer:
+    _engine_kwargs["poolclass"] = NullPool
+    _engine_kwargs["connect_args"] = {"statement_cache_size": 0}
+
+engine = create_async_engine(settings.database_url, **_engine_kwargs)
 
 SessionLocal = async_sessionmaker(
     bind=engine,
