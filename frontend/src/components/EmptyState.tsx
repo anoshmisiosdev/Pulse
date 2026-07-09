@@ -24,8 +24,8 @@ export default function EmptyState() {
         </p>
         <Link
           to="/setup"
-          className="mt-5 block w-full rounded-full px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px"
-          style={{ background: "var(--accent)", boxShadow: "0 6px 16px -6px rgba(180,83,42,.7)" }}
+          className="mt-5 block w-full rounded-full px-4 py-3 text-sm font-semibold transition hover:-translate-y-px"
+          style={{ background: "var(--accent)", color: "#fff", boxShadow: "0 6px 16px -6px rgba(180,83,42,.7)" }}
         >
           Connect your data
         </Link>
