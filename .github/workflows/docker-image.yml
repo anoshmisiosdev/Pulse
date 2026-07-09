@@ -8,7 +8,7 @@ on:
 jobs:
   deploy:
     # Use your self-hosted runner (and label) so it can access Docker + your backend
-    runs-on: [self-hosted, gcp-backend]
+    runs-on: self-hosted
 
     steps:
       - name: Show current directory
