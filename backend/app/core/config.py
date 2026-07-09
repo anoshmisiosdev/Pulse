@@ -75,10 +75,14 @@ class Settings(BaseSettings):
     twilio_auth_token: str = ""
     twilio_from_number: str = ""
 
-    # Square
+    # Square OAuth app (Developer Dashboard → your app). Enables "Connect with Square".
     square_app_id: str = ""
     square_app_secret: str = ""
     square_environment: Literal["sandbox", "production"] = "sandbox"
+
+    # Stripe Connect platform (Dashboard → Settings → Connect). Enables
+    # "Connect with Stripe"; token exchange authenticates with stripe_secret_key.
+    stripe_connect_client_id: str = ""
 
     # Stripe
     stripe_secret_key: str = ""

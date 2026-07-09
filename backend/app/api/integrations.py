@@ -3,13 +3,16 @@ CSV, or preview one in memory. Connected data persists per tenant in Postgres.""
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser, CurrentUserDep
-from app.core.security import decrypt_token, encrypt_token
+from app.core.security import decrypt_state, decrypt_token, encrypt_state, encrypt_token
 from app.integrations.base import IntegrationError
 from app.integrations.csv_adapter import parse_csv, template_csv
 from app.integrations.registry import get_adapter_class
@@ -22,7 +25,7 @@ from app.schemas.api import (
     PortfolioSummaryOut,
 )
 from app.schemas.normalized import SyncResult
-from app.services import ingest
+from app.services import ingest, oauth
 from app.services.activity import (
     ScoredCustomer,
     build_scored_customers,
@@ -113,6 +116,101 @@ async def csv_preview(
         customers=_to_risk(scored),
         warnings=sync.warnings,
     )
+
+
+@router.get("/oauth/availability")
+async def oauth_availability() -> dict[str, bool]:
+    """Which providers can offer a "Connect with …" button (OAuth app configured)."""
+    return oauth.availability()
+
+
+@router.get("/oauth/{provider}/start")
+async def oauth_start(
+    provider: str,
+    vertical: str = Query("other"),
+    business_name: str = Query(""),
+    return_to: str = Query(""),
+    user: CurrentUser = CurrentUserDep,
+) -> dict:
+    """Return the provider authorize URL. The signed state carries the tenant so
+    the (unauthenticated) callback knows who the data belongs to."""
+    provider = provider.lower()
+    if provider not in LIVE_PROVIDERS:
+        raise HTTPException(422, detail="provider must be 'stripe' or 'square'")
+    if not oauth.availability().get(provider):
+        raise HTTPException(
+            422, detail=f"OAuth for {provider} isn't configured — paste an API key instead"
+        )
+    # Only send users back to origins we trust.
+    if return_to and return_to.rstrip("/") not in [o.rstrip("/") for o in settings.cors_origins]:
+        return_to = ""
+    state = encrypt_state(
+        {
+            "b": user.business_id,
+            "n": business_name or user.business_name,
+            "v": vertical,
+            "r": return_to or settings.frontend_origin,
+            "p": provider,
+        }
+    )
+    return {"url": oauth.authorize_url(provider, state)}
+
+
+@router.get("/oauth/{provider}/callback")
+async def oauth_callback(
+    provider: str,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Provider redirects here after approval. Exchange the code, pull the data,
+    then send the browser back to the app."""
+    provider = provider.lower()
+
+    def bounce(target: str, ok: bool, msg: str = "") -> RedirectResponse:
+        qs = f"connected={provider}" if ok else f"error={quote(msg[:200])}"
+        return RedirectResponse(f"{target.rstrip('/')}/setup?{qs}", status_code=303)
+
+    fallback = settings.frontend_origin
+    try:
+        claims = decrypt_state(state or "")
+    except ValueError:
+        return bounce(fallback, ok=False, msg="Sign-in link expired — try connecting again")
+    target = claims.get("r") or fallback
+
+    if error:  # user hit "Deny" on the provider's consent screen
+        return bounce(target, ok=False, msg=f"{provider.title()} connection was declined")
+    if not code or claims.get("p") != provider:
+        return bounce(target, ok=False, msg="Missing authorization code")
+
+    try:
+        tokens = await oauth.exchange_code(provider, code)
+        adapter = get_adapter_class(provider)()
+        await adapter.connect(
+            {"access_token": tokens["access_token"], "environment": settings.square_environment}
+        )
+        sync = await _run_sync(adapter)
+    except IntegrationError as exc:
+        return bounce(target, ok=False, msg=str(exc))
+
+    if not sync.customers:
+        return bounce(
+            target, ok=False, msg=f"Connected, but no customers found on this {provider} account"
+        )
+
+    await ingest.ensure_business(
+        db, claims["b"], claims.get("n") or "My Business", claims.get("v") or "other"
+    )
+    await ingest.upsert_connection(
+        db,
+        claims["b"],
+        provider,
+        encrypt_token(tokens["access_token"]),
+        refresh_enc=encrypt_token(tokens["refresh_token"]) if tokens.get("refresh_token") else None,
+    )
+    await ingest.persist_sync(db, claims["b"], provider, sync)
+    return bounce(target, ok=True)
 
 
 @router.post("/connect", response_model=PortfolioOut)

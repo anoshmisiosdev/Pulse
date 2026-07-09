@@ -144,6 +144,30 @@ export const api = {
     return asJson<Portfolio>(res);
   },
 
+  /** Which providers can show a "Connect with …" button. */
+  async oauthAvailability(): Promise<{ stripe: boolean; square: boolean }> {
+    const res = await fetch(`${BASE}/api/integrations/oauth/availability`);
+    return asJson(res);
+  },
+
+  /** Get the provider authorize URL, then send the browser there. */
+  async oauthStart(
+    provider: "stripe" | "square",
+    vertical: string,
+    businessName: string
+  ): Promise<string> {
+    const qs = new URLSearchParams({
+      vertical,
+      business_name: businessName,
+      return_to: window.location.origin,
+    });
+    const res = await fetch(`${BASE}/api/integrations/oauth/${provider}/start?${qs}`, {
+      headers: authHeaders(),
+    });
+    const data = await asJson<{ url: string }>(res);
+    return data.url;
+  },
+
   /** Re-pull from every connected provider using the stored token. */
   async resync(): Promise<Portfolio> {
     const res = await fetch(`${BASE}/api/integrations/sync`, {

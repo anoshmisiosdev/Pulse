@@ -44,6 +44,24 @@ def decrypt_token(ciphertext: str) -> str:
         raise ValueError("Could not decrypt token (wrong FERNET_KEY?)") from exc
 
 
+def encrypt_state(payload: dict) -> str:
+    """Sign+encrypt an OAuth ``state`` payload (Fernet embeds the timestamp)."""
+    import json
+
+    return _fernet().encrypt(json.dumps(payload).encode()).decode()
+
+
+def decrypt_state(token: str, max_age_seconds: int = 600) -> dict:
+    """Verify and decode an OAuth ``state``; rejects tampered or stale tokens."""
+    import json
+
+    try:
+        raw = _fernet().decrypt(token.encode(), ttl=max_age_seconds)
+        return json.loads(raw)
+    except (InvalidToken, ValueError) as exc:
+        raise ValueError("Invalid or expired OAuth state") from exc
+
+
 _jwks_client = None  # cached PyJWKClient for asymmetric Supabase projects
 
 

@@ -325,7 +325,11 @@ async def wipe_business_data(db: AsyncSession, business_id: str) -> None:
 
 
 async def upsert_connection(
-    db: AsyncSession, business_id: str, source: str, token_enc: str | None
+    db: AsyncSession,
+    business_id: str,
+    source: str,
+    token_enc: str | None,
+    refresh_enc: str | None = None,
 ) -> IntegrationConnection:
     bid = _uuid(business_id)
     conn = (
@@ -342,6 +346,8 @@ async def upsert_connection(
     conn.status = "active"
     if token_enc:
         conn.access_token_enc = token_enc
+    if refresh_enc:
+        conn.refresh_token_enc = refresh_enc
     conn.last_synced_at = datetime.now(UTC)
     await db.flush()
     return conn
