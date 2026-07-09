@@ -69,3 +69,33 @@ class AuthUser(BaseModel):
     business_id: str
     business_name: str
     role: str = "owner"
+
+
+# ── integrations / per-tenant portfolio ──
+class ConnectIn(BaseModel):
+    provider: str  # "stripe" | "square"
+    credential: str  # Stripe secret key / Square access token
+    environment: str = "production"  # square only: production | sandbox
+    vertical: str = "other"
+    business_name: str = ""
+
+
+class ConnectionOut(BaseModel):
+    source: str
+    status: str
+    last_synced_at: str | None = None
+
+
+class SyncRunOut(BaseModel):
+    source: str
+    status: str
+    customers_synced: int
+    transactions_synced: int
+    visits_synced: int
+    error: str | None = None
+
+
+class PortfolioOut(CSVPreviewOut):
+    # "empty" -> no data yet: frontend routes the owner to /setup.
+    status: str = "ready"
+    connections: list[ConnectionOut] = []

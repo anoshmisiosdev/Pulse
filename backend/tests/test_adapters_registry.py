@@ -29,13 +29,11 @@ async def test_mindbody_is_an_explicit_stub():
         await adapter.connect({})
 
 
-async def test_square_and_stripe_require_token_then_stub_sync():
+async def test_square_and_stripe_require_a_token():
+    """Live adapters refuse to connect with no credential (no network needed)."""
     from app.integrations.base import IntegrationError
 
     for source in ("square", "stripe"):
         adapter = ADAPTERS[source]()
         with pytest.raises(IntegrationError):
-            await adapter.connect({})  # no token
-        await adapter.connect({"access_token": "tok"})
-        with pytest.raises(NotImplementedError):
-            await adapter.sync_customers()
+            await adapter.connect({})

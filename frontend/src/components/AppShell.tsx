@@ -9,6 +9,7 @@ const NAV = [
   { to: "/customers", label: "Customers" },
   { to: "/retention", label: "Retention" },
   { to: "/automations", label: "Automations" },
+  { to: "/setup", label: "Data sources" },
 ];
 
 export default function AppShell({ children }: { children: ReactNode }) {

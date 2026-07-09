@@ -46,12 +46,21 @@ export interface PortfolioSummary {
   revenue_series: { month: string; amount: number }[];
 }
 
+export interface Connection {
+  source: string;
+  status: string;
+  last_synced_at: string | null;
+}
+
 export interface Portfolio {
   business_name: string;
   vertical: string;
   summary: PortfolioSummary;
   customers: CustomerRisk[];
   warnings: string[];
+  /** "empty" = no data source connected yet; "ready" = tenant data loaded. */
+  status?: "empty" | "ready";
+  connections?: Connection[];
 }
 
 export interface GeneratedCopy {
@@ -98,6 +107,50 @@ export const api = {
   async me(): Promise<AuthUser> {
     const res = await fetch(`${BASE}/api/auth/me`, { headers: authHeaders() });
     return asJson<AuthUser>(res);
+  },
+
+  /** The tenant's persisted dashboard data. status:"empty" → route to /setup. */
+  async portfolio(): Promise<Portfolio> {
+    const res = await fetch(`${BASE}/api/portfolio`, { headers: authHeaders() });
+    return asJson<Portfolio>(res);
+  },
+
+  /** Connect Stripe/Square, pull all customer data, persist it for this tenant. */
+  async connect(input: {
+    provider: "stripe" | "square";
+    credential: string;
+    environment?: "production" | "sandbox";
+    vertical: string;
+    business_name: string;
+  }): Promise<Portfolio> {
+    const res = await fetch(`${BASE}/api/integrations/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(input),
+    });
+    return asJson<Portfolio>(res);
+  },
+
+  /** Persisting CSV import (unlike previewCsv, which is in-memory only). */
+  async importCsv(file: File, vertical: string, businessName: string): Promise<Portfolio> {
+    const form = new FormData();
+    form.append("file", file);
+    const qs = new URLSearchParams({ vertical, business_name: businessName });
+    const res = await fetch(`${BASE}/api/integrations/csv/import?${qs}`, {
+      method: "POST",
+      body: form,
+      headers: authHeaders(),
+    });
+    return asJson<Portfolio>(res);
+  },
+
+  /** Re-pull from every connected provider using the stored token. */
+  async resync(): Promise<Portfolio> {
+    const res = await fetch(`${BASE}/api/integrations/sync`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<Portfolio>(res);
   },
 
   async previewCsv(file: File, vertical: string, businessName: string): Promise<Portfolio> {

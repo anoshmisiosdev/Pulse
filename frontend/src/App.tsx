@@ -1,5 +1,6 @@
-import { Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
+import EmptyState from "./components/EmptyState";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PulseProvider, usePulse } from "./context/PulseContext";
 import Dashboard from "./pages/Dashboard";
@@ -7,6 +8,7 @@ import Customers from "./pages/Customers";
 import Retention from "./pages/Retention";
 import Automations from "./pages/Automations";
 import Login from "./pages/Login";
+import Setup, { SETUP_SKIPPED_KEY } from "./pages/Setup";
 
 function Spinner({ label }: { label: string }) {
   return (
@@ -19,35 +21,56 @@ function Spinner({ label }: { label: string }) {
   );
 }
 
+/** Gates data pages: routes empty tenants to setup, shows sample banner, etc. */
 function DataGate({ children }: { children: React.ReactNode }) {
-  const { loading, error } = usePulse();
-  if (error) {
+  const { status, error } = usePulse();
+
+  if (status === "error") {
     return (
       <div className="grid min-h-[60vh] place-items-center text-center">
         <div className="glass p-8">
           <p className="font-display text-lg font-semibold text-slate-800">Couldn't reach Pulse</p>
           <p className="mt-1 text-sm text-slate-500">{error}</p>
-          <p className="mt-2 text-xs text-slate-400">Is the API running on :8000?</p>
+          <p className="mt-2 text-xs text-slate-400">Is the API running?</p>
         </div>
       </div>
     );
   }
-  if (loading) return <Spinner label="Scoring your customers…" />;
-  return <>{children}</>;
+  if (status === "loading") return <Spinner label="Loading your customers…" />;
+
+  if (status === "empty") {
+    // First visit with no data → take them to setup. If they chose to skip,
+    // show the "no data" screen that points back to setup instead.
+    if (!localStorage.getItem(SETUP_SKIPPED_KEY)) {
+      return <Navigate to="/setup" replace />;
+    }
+    return <EmptyState />;
+  }
+
+  return (
+    <>
+      {status === "sample" && (
+        <div className="mb-4 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
+          <span>You're exploring <b>sample data</b>.</span>
+          <Link to="/setup" className="font-semibold underline">Connect your real data →</Link>
+        </div>
+      )}
+      {children}
+    </>
+  );
 }
 
 function AuthedApp() {
   return (
     <PulseProvider>
       <AppShell>
-        <DataGate>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/customers" element={<Customers />} />
-            <Route path="/retention" element={<Retention />} />
-            <Route path="/automations" element={<Automations />} />
-          </Routes>
-        </DataGate>
+        <Routes>
+          <Route path="/setup" element={<Setup />} />
+          <Route path="/" element={<DataGate><Dashboard /></DataGate>} />
+          <Route path="/customers" element={<DataGate><Customers /></DataGate>} />
+          <Route path="/retention" element={<DataGate><Retention /></DataGate>} />
+          <Route path="/automations" element={<DataGate><Automations /></DataGate>} />
+        </Routes>
       </AppShell>
     </PulseProvider>
   );

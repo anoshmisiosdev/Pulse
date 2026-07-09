@@ -42,6 +42,8 @@ class Customer(UUIDMixin, Base):
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Optional POS metadata surfaced in outreach ("they love X").
+    favorite_item: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Compliance flags honored everywhere outreach happens.
     do_not_contact: Mapped[bool] = mapped_column(Boolean, default=False)

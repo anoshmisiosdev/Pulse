@@ -59,13 +59,19 @@ const RELATIVE_TIMES = [
   "today, 9:12am", "today, 8:40am", "yesterday", "yesterday", "2 days ago", "2 days ago",
 ];
 
+export type DataStatus = "loading" | "error" | "empty" | "ready" | "sample";
+
 interface PulseCtx {
   loading: boolean;
   error: string | null;
+  /** empty = no data source connected yet; sample = exploring demo data. */
+  status: DataStatus;
   businessName: string;
   vertical: string;
   portfolio: Portfolio | null;
   customers: CustomerRisk[];
+  refresh: () => Promise<void>;
+  applyPortfolio: (p: Portfolio) => void;
   reloadDemo: () => Promise<void>;
   loadCsv: (file: File, vertical: string, name: string) => Promise<void>;
   wonBackIds: Set<string>;
@@ -84,43 +90,63 @@ const Ctx = createContext<PulseCtx | null>(null);
 
 export function PulseProvider({ children }: { children: ReactNode }) {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<DataStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [wonBackIds, setWonBackIds] = useState<Set<string>>(new Set());
   const [contactedIds, setContactedIds] = useState<Set<string>>(new Set());
   const [revenueRecovered, setRevenueRecovered] = useState(0);
   const [rules, setRules] = useState<AutomationRule[]>(DEFAULT_RULES);
 
+  // Load THIS tenant's persisted data. "empty" routes the owner to /setup.
+  const refresh = useCallback(async () => {
+    setStatus("loading");
+    setError(null);
+    try {
+      const p = await api.portfolio();
+      setPortfolio(p);
+      setStatus(p.status === "empty" ? "empty" : "ready");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load");
+      setStatus("error");
+    }
+  }, []);
+
+  // Used by the setup page after a successful connect/import.
+  const applyPortfolio = useCallback((p: Portfolio) => {
+    setPortfolio(p);
+    setStatus(p.status === "empty" ? "empty" : "ready");
+    setWonBackIds(new Set());
+    setContactedIds(new Set());
+    setRevenueRecovered(0);
+  }, []);
+
+  // Ephemeral sample data — lets an owner explore before connecting anything.
   const reloadDemo = useCallback(async () => {
-    setLoading(true);
+    setStatus("loading");
     setError(null);
     try {
       setPortfolio(await api.demo(50));
+      setStatus("sample");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
+      setStatus("error");
     }
   }, []);
 
   const loadCsv = useCallback(async (file: File, vertical: string, name: string) => {
-    setLoading(true);
+    setStatus("loading");
     setError(null);
     try {
-      setPortfolio(await api.previewCsv(file, vertical, name));
-      setWonBackIds(new Set());
-      setContactedIds(new Set());
-      setRevenueRecovered(0);
+      applyPortfolio(await api.importCsv(file, vertical, name));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setLoading(false);
+      setStatus("error");
     }
-  }, []);
+  }, [applyPortfolio]);
 
   useEffect(() => {
-    reloadDemo();
-  }, [reloadDemo]);
+    refresh();
+  }, [refresh]);
 
   const markContacted = useCallback((id: string) => {
     setContactedIds((prev) => new Set(prev).add(id));
@@ -169,12 +195,15 @@ export function PulseProvider({ children }: { children: ReactNode }) {
   }, [customers, rules]);
 
   const value: PulseCtx = {
-    loading,
+    loading: status === "loading",
     error,
+    status,
     businessName: portfolio?.business_name ?? "Pulse",
     vertical: portfolio?.vertical ?? "other",
     portfolio,
     customers,
+    refresh,
+    applyPortfolio,
     reloadDemo,
     loadCsv,
     wonBackIds,
