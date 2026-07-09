@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { usePulse, type ActivityItem, type AutomationRule, type Mode } from "../context/PulseContext";
 import { SEGMENTS } from "../lib/segments";
 
@@ -9,48 +10,60 @@ const MODES: { id: Mode; label: string; blurb: string }[] = [
 
 export default function Automations() {
   const { rules, setRuleMode, toggleRule, activity, markContacted } = usePulse();
+  const [approved, setApproved] = useState<Record<string, boolean>>({});
 
-  const sent = activity.filter((a) => a.status === "sent").length;
-  const awaiting = activity.filter((a) => a.status === "awaiting_approval").length;
+  const approvedCount = activity.filter((a) => a.status === "awaiting_approval" && approved[a.id]).length;
+  const sent = activity.filter((a) => a.status === "sent").length + approvedCount;
+  const awaiting = activity.filter((a) => a.status === "awaiting_approval").length - approvedCount;
   const suggested = activity.filter((a) => a.status === "suggested").length;
 
+  const approve = (a: ActivityItem) => {
+    setApproved((m) => ({ ...m, [a.id]: true }));
+    markContacted(a.customerId);
+  };
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-4xl font-extrabold tracking-tight">Automations</h1>
-        <p className="mt-1 text-slate-500">
+    <div className="space-y-7">
+      <div className="anim-fade-up">
+        <h1 className="text-[38px] font-bold tracking-tight" style={{ color: "var(--ink)" }}>Automations</h1>
+        <p className="mt-1 italic" style={{ color: "var(--muted)", fontSize: "15.5px" }}>
           Set it once — Pulse watches every customer and acts the moment churn risk rises.
         </p>
       </div>
 
-      <div className="glass grid grid-cols-3 gap-4 p-6">
-        <Metric n={sent} label="Sent on autopilot" color="#10b981" />
-        <Metric n={awaiting} label="Awaiting your approval" color="#f59e0b" />
-        <Metric n={suggested} label="Suggested for review" color="#6366f1" />
+      {/* stat bar */}
+      <div className="glass anim-fade-up grid grid-cols-3 p-6" style={{ animationDelay: "0.05s" }}>
+        <Metric n={sent} label="Sent on autopilot" color="#5C8A4A" divider />
+        <Metric n={awaiting} label="Awaiting your approval" color="#C0632F" divider />
+        <Metric n={suggested} label="Suggested for review" color="#A58C74" />
       </div>
 
-      <div className="space-y-4">
-        <h2 className="font-display text-lg font-bold">Rules</h2>
-        {rules.map((rule) => (
-          <RuleCard
-            key={rule.id}
-            rule={rule}
-            onMode={(m) => setRuleMode(rule.id, m)}
-            onToggle={() => toggleRule(rule.id)}
-          />
-        ))}
+      <div>
+        <h2 className="font-display mb-4 text-xl font-semibold" style={{ color: "var(--ink)" }}>Rules</h2>
+        <div className="flex flex-col gap-4">
+          {rules.map((rule) => (
+            <RuleCard
+              key={rule.id}
+              rule={rule}
+              onMode={(m) => setRuleMode(rule.id, m)}
+              onToggle={() => toggleRule(rule.id)}
+            />
+          ))}
+        </div>
       </div>
 
-      <div className="space-y-3">
-        <h2 className="font-display text-lg font-bold">What Pulse did for you</h2>
-        <div className="glass divide-y divide-slate-100 overflow-hidden">
+      <div>
+        <h2 className="font-display mb-4 text-xl font-semibold" style={{ color: "var(--ink)" }}>
+          What Pulse did for you
+        </h2>
+        <div className="glass overflow-hidden">
           {activity.length === 0 && (
-            <p className="px-5 py-8 text-sm text-slate-400">
+            <p className="px-6 py-8 text-sm" style={{ color: "var(--muted-2)" }}>
               No active rules. Turn one on above and Pulse will start working.
             </p>
           )}
           {activity.map((a) => (
-            <ActivityRow key={a.id} item={a} onApprove={() => markContacted(a.customerId)} />
+            <FeedRow key={a.id} item={a} approved={!!approved[a.id]} onApprove={() => approve(a)} />
           ))}
         </div>
       </div>
@@ -58,93 +71,112 @@ export default function Automations() {
   );
 }
 
-function RuleCard({
-  rule, onMode, onToggle,
-}: { rule: AutomationRule; onMode: (m: Mode) => void; onToggle: () => void }) {
+function RuleCard({ rule, onMode, onToggle }: {
+  rule: AutomationRule; onMode: (m: Mode) => void; onToggle: () => void;
+}) {
   return (
-    <div className={`glass p-5 ${rule.enabled ? "" : "opacity-60"}`}>
-      <div className="flex items-start justify-between gap-4">
+    <div
+      className="glass p-6"
+      style={{ opacity: rule.enabled ? 1 : 0.62, transition: "opacity .25s ease", borderRadius: 18 }}
+    >
+      <div className="mb-[18px] flex items-start justify-between gap-4">
         <div>
-          <p className="font-display text-lg font-bold text-slate-900">{rule.name}</p>
-          <p className="mt-1 text-sm text-slate-500">
-            Targets{" "}
-            {rule.segments.map((s, i) => (
-              <span key={s}>
-                <span className="font-medium" style={{ color: SEGMENTS[s].color }}>{SEGMENTS[s].label}</span>
-                {i < rule.segments.length - 1 ? ", " : ""}
-              </span>
-            ))}{" "}
-            · via {rule.channel} · offers {rule.incentive}
+          <p className="mb-1 text-[17px] font-bold" style={{ color: "var(--ink)" }}>{rule.name}</p>
+          <p className="text-[13.5px]" style={{ color: "var(--muted)" }}>
+            Targets {rule.segments.map((s) => SEGMENTS[s].label).join(", ")} · via {rule.channel} · offers {rule.incentive}
           </p>
         </div>
         <button
           onClick={onToggle}
-          className={`relative h-6 w-11 shrink-0 rounded-full transition ${rule.enabled ? "bg-emerald-500" : "bg-slate-300"}`}
           aria-label="Toggle rule"
+          className="relative h-[27px] w-[46px] shrink-0 rounded-full"
+          style={{ background: rule.enabled ? "var(--sage)" : "#D8C6B0", transition: "background .25s ease" }}
         >
-          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${rule.enabled ? "left-[22px]" : "left-0.5"}`} />
+          <span
+            className="absolute top-[3px] h-[21px] w-[21px] rounded-full bg-white"
+            style={{
+              left: rule.enabled ? 22 : 3,
+              boxShadow: "0 2px 5px rgba(0,0,0,.2)",
+              transition: "left .25s cubic-bezier(.2,.8,.2,1)",
+            }}
+          />
         </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        {MODES.map((m) => (
-          <button
-            key={m.id}
-            onClick={() => onMode(m.id)}
-            disabled={!rule.enabled}
-            className={`rounded-xl border p-3 text-left transition disabled:cursor-not-allowed ${
-              rule.mode === m.id
-                ? "border-transparent bg-primary text-white shadow-sm"
-                : "border-slate-200 bg-white/50 text-slate-600 hover:border-slate-300"
-            }`}
-          >
-            <p className="text-sm font-semibold">{m.label}</p>
-            <p className={`mt-0.5 text-xs ${rule.mode === m.id ? "text-white/80" : "text-slate-400"}`}>
-              {m.blurb}
-            </p>
-          </button>
-        ))}
+      <div className="flex gap-2.5" style={{ pointerEvents: rule.enabled ? "auto" : "none" }}>
+        {MODES.map((m) => {
+          const active = rule.mode === m.id && rule.enabled;
+          return (
+            <button
+              key={m.id}
+              onClick={() => onMode(m.id)}
+              className="flex-1 rounded-xl border p-4 text-left"
+              style={{
+                background: active ? "var(--ink-strong)" : "var(--surface-2)",
+                color: active ? "var(--cream-text)" : "var(--ink-strong)",
+                borderColor: active ? "var(--ink-strong)" : "var(--border)",
+                transition: "all .2s ease",
+                cursor: rule.enabled ? "pointer" : "default",
+              }}
+            >
+              <p className="mb-1 text-sm font-bold">{m.label}</p>
+              <p className="text-[11.5px] leading-snug" style={{ color: active ? "#CDB9A8" : "var(--muted-2)" }}>
+                {m.blurb}
+              </p>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function ActivityRow({ item, onApprove }: { item: ActivityItem; onApprove: () => void }) {
+function FeedRow({ item, approved, onApprove }: {
+  item: ActivityItem; approved: boolean; onApprove: () => void;
+}) {
+  const effective = approved && item.status === "awaiting_approval" ? "sent" : item.status;
   const status = {
-    sent: { text: `Sent win-back ${item.channel}`, color: "text-emerald-600", dot: "#10b981" },
-    awaiting_approval: { text: "Drafted — awaiting approval", color: "text-amber-600", dot: "#f59e0b" },
-    suggested: { text: "Flagged for review", color: "text-indigo-600", dot: "#6366f1" },
-  }[item.status];
+    sent: { text: `Sent win-back ${item.channel}`, color: "#4F7A40", dot: "#5C8A4A" },
+    awaiting_approval: { text: "Drafted — awaiting approval", color: "#C0632F", dot: "#C0632F" },
+    suggested: { text: "Flagged for review", color: "#A9781F", dot: "#D99A4E" },
+  }[effective];
 
   return (
-    <div className="flex items-center justify-between gap-4 px-5 py-3.5">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: status.dot }} />
-        <div className="min-w-0">
-          <p className="truncate text-sm">
-            <span className={`font-semibold ${status.color}`}>{status.text}</span>{" "}
-            <span className="text-slate-700">to {item.name}</span>
-          </p>
-          <p className="truncate text-xs text-slate-400">{item.reason}</p>
-        </div>
+    <div className="flex items-center gap-3.5 border-b px-6 py-4" style={{ borderColor: "var(--border-soft)" }}>
+      <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: status.dot }} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[14.5px]">
+          <b style={{ color: status.color, fontWeight: 700 }}>{status.text}</b>{" "}
+          <span style={{ color: "#6B5647" }}>to {item.name}</span>
+        </p>
+        <p className="mt-0.5 truncate text-[12.5px]" style={{ color: "var(--muted-2)" }}>{item.reason}</p>
       </div>
-      <div className="flex shrink-0 items-center gap-3">
-        {item.status === "awaiting_approval" && (
-          <button onClick={onApprove} className="rounded-lg bg-primary px-3 py-1 text-xs font-semibold text-white">
-            Approve
-          </button>
-        )}
-        <span className="text-xs text-slate-400">{item.when}</span>
-      </div>
+      {effective === "awaiting_approval" && (
+        <button
+          onClick={onApprove}
+          className="shrink-0 rounded-full px-4 py-[7px] text-[13px] font-semibold text-white transition hover:brightness-95"
+          style={{ background: "var(--accent)" }}
+        >
+          Approve
+        </button>
+      )}
+      <span className="min-w-[78px] shrink-0 text-right text-[12.5px]" style={{ color: "var(--muted-2)" }}>
+        {approved ? "just now" : item.when}
+      </span>
     </div>
   );
 }
 
-function Metric({ n, label, color }: { n: number; label: string; color: string }) {
+function Metric({ n, label, color, divider }: {
+  n: number; label: string; color: string; divider?: boolean;
+}) {
   return (
-    <div className="text-center">
-      <p className="font-display text-3xl font-bold" style={{ color }}>{n}</p>
-      <p className="mt-1 text-xs text-slate-500">{label}</p>
+    <div
+      className="text-center"
+      style={divider ? { borderRight: "1px solid var(--border)" } : undefined}
+    >
+      <p className="font-display text-[34px] font-bold leading-none" style={{ color }}>{n}</p>
+      <p className="mt-1.5 text-[13px]" style={{ color: "var(--muted)" }}>{label}</p>
     </div>
   );
 }

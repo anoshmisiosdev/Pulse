@@ -6,13 +6,15 @@ import RiskBadge from "../components/RiskBadge";
 import CustomerDrawer from "../components/CustomerDrawer";
 
 type Tab = "all" | Segment;
-type Sort = "score" | "value" | "recent";
+type SortKey = "health" | "risk" | "seen";
+type SortDir = "asc" | "desc";
 
 export default function Customers() {
   const { customers } = usePulse();
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<Sort>("score");
+  const [sortKey, setSortKey] = useState<SortKey>("health");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selected, setSelected] = useState<CustomerRisk | null>(null);
 
   const counts = useMemo(() => {
@@ -34,85 +36,112 @@ export default function Customers() {
           (c.favorite_item ?? "").toLowerCase().includes(q)
       );
     }
+    const dir = sortDir === "asc" ? 1 : -1;
     return [...r].sort((a, b) => {
-      if (sort === "value") return b.estimated_annual_value - a.estimated_annual_value;
-      if (sort === "recent")
-        return (b.days_since_last_visit ?? 0) - (a.days_since_last_visit ?? 0);
-      return b.score - a.score;
+      let av: number, bv: number;
+      if (sortKey === "health") { av = a.score; bv = b.score; }
+      else if (sortKey === "risk") { av = a.estimated_annual_value; bv = b.estimated_annual_value; }
+      else { av = -(a.days_since_last_visit ?? 9999); bv = -(b.days_since_last_visit ?? 9999); }
+      return (av - bv) * dir;
     });
-  }, [customers, tab, query, sort]);
+  }, [customers, tab, query, sortKey, sortDir]);
 
-  const TABS: { id: Tab; label: string; color?: string }[] = [
-    { id: "all", label: "Everyone" },
-    ...SEGMENT_ORDER.map((s) => ({ id: s, label: SEGMENTS[s].label, color: SEGMENTS[s].color })),
+  const toggleSort = (k: SortKey) => {
+    if (sortKey === k) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else { setSortKey(k); setSortDir("desc"); }
+  };
+  const arrow = (k: SortKey) => (sortKey === k ? (sortDir === "asc" ? "↑" : "↓") : "↕");
+
+  const TABS: { id: Tab; label: string; color: string }[] = [
+    { id: "all", label: "Everyone", color: "#3B2A20" },
+    ...SEGMENT_ORDER.map((s) => ({ id: s as Tab, label: SEGMENTS[s].label, color: SEGMENTS[s].color })),
   ];
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="font-display text-4xl font-extrabold tracking-tight">Customer Database</h1>
-        <p className="mt-1 text-slate-500">
-          {customers.length} customers tracked — tap any row to see details and take action
+    <div className="space-y-4">
+      <div className="anim-fade-up">
+        <h1 className="text-[38px] font-bold tracking-tight" style={{ color: "var(--ink)" }}>
+          Customer Database
+        </h1>
+        <p className="mt-1 italic" style={{ color: "var(--muted)", fontSize: "15.5px" }}>
+          {customers.length} customers tracked — click any row to see details and take action
         </p>
       </div>
 
-      <div className="glass flex items-center gap-2 px-4 py-3">
+      <div
+        className="anim-fade-up flex items-center gap-3 rounded-[14px] border px-5 py-3.5 transition focus-within:shadow-[0_0_0_3px_rgba(180,83,42,.12)]"
+        style={{ background: "var(--surface)", borderColor: "var(--border)", animationDelay: "0.05s" }}
+      >
         <SearchIcon />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by name, email, or favorite item…"
-          className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
+          className="w-full bg-transparent text-[15px] outline-none"
+          style={{ color: "var(--ink)" }}
         />
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
-              tab === t.id ? "bg-primary text-white" : "glass text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            {t.color && <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />}
-            {t.label}
-            <span className={`text-xs ${tab === t.id ? "text-white/80" : "text-slate-400"}`}>
-              {counts[t.id]}
-            </span>
-          </button>
-        ))}
+      <div className="anim-fade-up flex flex-wrap gap-2" style={{ animationDelay: "0.1s" }}>
+        {TABS.map((t) => {
+          const on = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className="flex items-center gap-2 rounded-full border px-4 py-2 text-[13.5px] font-semibold transition"
+              style={
+                on
+                  ? { background: "var(--ink-strong)", borderColor: "var(--ink-strong)", color: "var(--cream-text)" }
+                  : { background: "var(--surface)", borderColor: "var(--border)", color: "#6B5647" }
+              }
+            >
+              <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
+              {t.label}
+              <span className="font-bold opacity-60">{counts[t.id]}</span>
+            </button>
+          );
+        })}
       </div>
 
-      <div className="glass overflow-hidden">
-        <div className="grid grid-cols-[2fr_1fr_1fr_1fr] gap-2 border-b border-slate-100 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          <span>Name</span>
-          <button className="text-left text-cyan-600" onClick={() => setSort("score")}>Health ↕</button>
-          <button className="text-left" onClick={() => setSort("value")}>$ at risk ↕</button>
-          <button className="text-left" onClick={() => setSort("recent")}>Last seen ↕</button>
+      <div className="glass anim-fade-up overflow-hidden" style={{ animationDelay: "0.15s" }}>
+        <div
+          className="grid grid-cols-[1fr_150px_120px_150px] gap-4 border-b px-6 py-4"
+          style={{ background: "var(--surface-2)", borderColor: "var(--border)" }}
+        >
+          <HeaderCell>Name</HeaderCell>
+          <HeaderCell sortable onClick={() => toggleSort("health")}>Health {arrow("health")}</HeaderCell>
+          <HeaderCell sortable onClick={() => toggleSort("risk")}>$ at risk {arrow("risk")}</HeaderCell>
+          <HeaderCell sortable onClick={() => toggleSort("seen")}>Last seen {arrow("seen")}</HeaderCell>
         </div>
-        <div className="max-h-[60vh] overflow-y-auto scroll-thin">
+        <div className="max-h-[620px] overflow-y-auto scroll-thin">
           {rows.map((c) => (
             <button
               key={c.customer_id}
               onClick={() => setSelected(c)}
-              className="grid w-full grid-cols-[2fr_1fr_1fr_1fr] items-center gap-2 border-b border-slate-50 px-5 py-3.5 text-left transition hover:bg-white/60"
+              className="grid w-full grid-cols-[1fr_150px_120px_150px] items-center gap-4 border-b px-6 py-[15px] text-left transition hover:bg-[#F6ECDD]"
+              style={{ borderColor: "var(--border-soft)" }}
             >
               <div className="min-w-0">
-                <p className="truncate font-semibold text-slate-900">{c.name}</p>
-                <p className="truncate text-xs text-slate-400">{c.email}</p>
+                <p className="truncate text-[15px] font-bold" style={{ color: "var(--ink)" }}>{c.name}</p>
+                <p className="truncate text-[12.5px]" style={{ color: "var(--muted-2)" }}>{c.email}</p>
               </div>
               <div><RiskBadge segment={c.segment} score={c.score} /></div>
-              <div className={`font-semibold ${c.band === "high" ? "text-red-600" : "text-slate-700"}`}>
-                {c.estimated_annual_value > 0 ? `$${c.estimated_annual_value.toFixed(0)}` : "—"}
+              <div
+                className="font-display text-[15px] font-bold"
+                style={{ color: c.estimated_annual_value >= 500 ? "#A23B1E" : "var(--ink)" }}
+              >
+                {c.estimated_annual_value > 0 ? `$${c.estimated_annual_value.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}
               </div>
-              <div className="text-sm text-slate-600">
-                {c.last_visit ?? "—"}
-                <p className="text-xs text-slate-400">{relativeDays(c.days_since_last_visit)}</p>
+              <div>
+                <p className="text-sm" style={{ color: "var(--ink-strong)" }}>{c.last_visit ?? "—"}</p>
+                <p className="text-xs" style={{ color: "var(--muted-2)" }}>{relativeDays(c.days_since_last_visit)}</p>
               </div>
             </button>
           ))}
-          {rows.length === 0 && <p className="px-5 py-8 text-sm text-slate-400">No customers match.</p>}
+          {rows.length === 0 && (
+            <p className="px-6 py-8 text-sm" style={{ color: "var(--muted-2)" }}>No customers match.</p>
+          )}
         </div>
       </div>
 
@@ -121,9 +150,28 @@ export default function Customers() {
   );
 }
 
+function HeaderCell({ children, sortable, onClick }: {
+  children: React.ReactNode; sortable?: boolean; onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={!sortable}
+      className="select-none text-left text-xs font-bold uppercase"
+      style={{
+        letterSpacing: "0.08em",
+        color: sortable ? "var(--accent)" : "var(--muted-2)",
+        cursor: sortable ? "pointer" : "default",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 function SearchIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A58C74" strokeWidth="2">
       <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
     </svg>
   );

@@ -5,8 +5,9 @@ import { urgencyOf } from "../lib/segments";
 import CustomerDrawer from "../components/CustomerDrawer";
 
 export default function Retention() {
-  const { customers } = usePulse();
+  const { customers, markContacted } = usePulse();
   const [selected, setSelected] = useState<CustomerRisk | null>(null);
+  const [done, setDone] = useState<Record<string, boolean>>({});
 
   const { urgent, atRisk, watching } = useMemo(() => {
     const byUrgency = (u: string) =>
@@ -17,78 +18,120 @@ export default function Retention() {
   }, [customers]);
 
   const total = urgent.length + atRisk.length + watching.length;
+  const doneCount = Object.values(done).filter(Boolean).length;
+  const remaining = Math.max(0, total - doneCount);
+  const progressPct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+
+  const mark = (c: CustomerRisk) => {
+    setDone((d) => ({ ...d, [c.customer_id]: true }));
+    markContacted(c.customer_id);
+  };
+  const undo = (id: string) => setDone((d) => ({ ...d, [id]: false }));
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-4xl font-extrabold tracking-tight">Retention</h1>
-        <p className="mt-1 text-slate-500">
+      <div className="anim-fade-up">
+        <h1 className="text-[38px] font-bold tracking-tight" style={{ color: "var(--ink)" }}>Retention</h1>
+        <p className="mt-1 italic" style={{ color: "var(--muted)", fontSize: "15.5px" }}>
           Your action plan to win customers back — sorted by who needs you most
         </p>
       </div>
 
-      <div className="glass flex items-center justify-between p-5">
-        <div className="flex items-center gap-4">
-          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-cyan-50 text-cyan-600">
-            <TargetIcon />
+      {/* summary */}
+      <div
+        className="anim-fade-up flex flex-col gap-6 rounded-[20px] p-7 sm:flex-row sm:items-center"
+        style={{
+          animationDelay: "0.05s",
+          background: "linear-gradient(115deg,#3B2A20,#4A3527)",
+          color: "var(--cream-text)",
+        }}
+      >
+        <div className="flex-1">
+          <p className="font-display text-[26px] font-bold">
+            {remaining} customers still need you today
+          </p>
+          <div className="mt-2.5 h-[9px] overflow-hidden rounded-full" style={{ background: "rgba(244,236,224,.18)" }}>
+            <div
+              className="h-full rounded-full"
+              style={{
+                background: "var(--sage)",
+                width: `${progressPct}%`,
+                transition: "width .5s cubic-bezier(.2,.8,.2,1)",
+              }}
+            />
           </div>
-          <div>
-            <p className="font-display text-xl font-bold">{total} customers to reach out to</p>
-            <p className="text-sm text-slate-500">Tap a customer below to send them a message and win them back</p>
-          </div>
+          <p className="mt-2 text-[13.5px]" style={{ color: "#CDB9A8" }}>
+            {doneCount} of {total} reached out today — pick up where you left off
+          </p>
         </div>
-        <div className="flex gap-6 text-center">
-          <Counter n={urgent.length} label="Urgent" color="#ef4444" />
-          <Counter n={atRisk.length} label="At Risk" color="#f59e0b" />
-          <Counter n={watching.length} label="Watching" color="#eab308" />
+        <div className="flex shrink-0 gap-7">
+          <Counter n={urgent.length} label="Urgent" color="#E88A5A" />
+          <Counter n={atRisk.length} label="At Risk" color="#E0A074" />
+          <Counter n={watching.length} label="Watching" color="#D9C48A" />
         </div>
       </div>
 
       {urgent.length > 0 && (
-        <Section title="Reach Out Now" note="these customers need you" dot="#ef4444">
-          <div className="space-y-3">
+        <Section title="Reach Out Now" note="these customers need you" dot="#A23B1E" delay={0.1}>
+          <div className="flex flex-col gap-3">
             {urgent.map((c, i) => (
-              <UrgentRow key={c.customer_id} rank={i + 1} customer={c} onOpen={() => setSelected(c)} />
+              <UrgentRow
+                key={c.customer_id}
+                rank={i + 1}
+                customer={c}
+                done={!!done[c.customer_id]}
+                onAct={() => { mark(c); setSelected(c); }}
+                onUndo={() => undo(c.customer_id)}
+              />
             ))}
           </div>
         </Section>
       )}
 
       {(atRisk.length > 0 || watching.length > 0) && (
-        <Section title="Keep an Eye On" note="not urgent, but worth watching" dot="#eab308">
+        <Section title="Keep an Eye On" note="not urgent, but worth watching" dot="#D99A4E" delay={0.15}>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {[...atRisk, ...watching].map((c) => (
-              <button
-                key={c.customer_id}
-                onClick={() => setSelected(c)}
-                className="glass glass-hover flex items-center justify-between px-4 py-3.5 text-left"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="h-2 w-2 rounded-full bg-amber-400" />
-                  <div>
-                    <p className="font-semibold text-slate-900">{c.name}</p>
-                    <p className="text-xs text-slate-500">
+            {[...atRisk, ...watching].map((c) => {
+              const d = !!done[c.customer_id];
+              return (
+                <button
+                  key={c.customer_id}
+                  onClick={() => (d ? undo(c.customer_id) : mark(c))}
+                  className="flex items-center gap-3 rounded-[14px] border px-[18px] py-[15px] text-left transition"
+                  style={{
+                    background: d ? "#EEF3E8" : "var(--surface)",
+                    borderColor: d ? "#CFE0C2" : "var(--border)",
+                    opacity: d ? 0.72 : 1,
+                  }}
+                >
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: d ? "var(--sage)" : "var(--amber)" }} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] font-bold" style={{ color: "var(--ink)" }}>{c.name}</p>
+                    <p className="truncate text-[12.5px]" style={{ color: "var(--muted)" }}>
                       {relativeDays(c.days_since_last_visit)}
                       {c.favorite_item && ` · ${c.favorite_item}`}
                     </p>
                   </div>
-                </div>
-                <ArrowIcon />
-              </button>
-            ))}
+                  <span className="shrink-0 text-[15px] font-bold" style={{ color: d ? "var(--sage)" : "var(--muted-2)" }}>
+                    {d ? "✓" : "→"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </Section>
       )}
 
-      <div className="glass p-6">
-        <div className="mb-3 flex items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-full bg-indigo-50 text-indigo-500"><SparkIcon /></span>
-          <h3 className="font-display text-lg font-bold">Quick Tips</h3>
+      {/* quick tips */}
+      <div className="glass p-7">
+        <div className="mb-4 flex items-center gap-2.5">
+          <span className="text-[17px]">✦</span>
+          <h3 className="font-display text-[19px] font-semibold" style={{ color: "var(--ink)" }}>Quick Tips</h3>
         </div>
-        <ul className="space-y-2 text-sm text-slate-600">
-          <Tip><b>Start at the top.</b> The first customer is your most urgent — reach out today.</Tip>
-          <Tip><b>Personalize it.</b> Mention their favorite item by name — it shows you care.</Tip>
-          <Tip><b>Offer something small.</b> A free drink or 10% off is enough — the gesture matters more than the discount.</Tip>
+        <ul className="flex flex-col gap-3 text-sm" style={{ color: "#6B5647" }}>
+          <Tip><b style={{ color: "var(--ink)" }}>Start at the top.</b> The first customer is your most urgent — reach out today.</Tip>
+          <Tip><b style={{ color: "var(--ink)" }}>Personalize it.</b> Mention their favorite item by name — it shows you care.</Tip>
+          <Tip><b style={{ color: "var(--ink)" }}>Offer something small.</b> A free drink or 10% off is enough — the gesture matters more than the discount.</Tip>
         </ul>
       </div>
 
@@ -97,71 +140,105 @@ export default function Retention() {
   );
 }
 
-function UrgentRow({ rank, customer, onOpen }: { rank: number; customer: CustomerRisk; onOpen: () => void }) {
+function UrgentRow({ rank, customer, done, onAct, onUndo }: {
+  rank: number; customer: CustomerRisk; done: boolean; onAct: () => void; onUndo: () => void;
+}) {
   return (
-    <div className="glass glass-hover flex items-center justify-between p-4">
-      <div className="flex items-center gap-4">
-        <span className="grid h-8 w-8 place-items-center rounded-full bg-red-50 font-display font-bold text-red-500">{rank}</span>
-        <div>
-          <p className="flex items-center gap-2 font-semibold text-slate-900">
-            {customer.name}
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">Urgent</span>
-          </p>
-          <p className="text-xs text-slate-500">
-            Last visited {relativeDays(customer.days_since_last_visit)}
-            {customer.favorite_item && ` · Loves ${customer.favorite_item}`}
-          </p>
+    <div
+      className="flex items-center gap-4 rounded-2xl border px-5 py-4 transition-all"
+      style={{
+        background: done ? "#EEF3E8" : "var(--surface)",
+        borderColor: done ? "#CFE0C2" : "var(--border)",
+        borderLeft: `4px solid ${done ? "#5C8A4A" : "#A23B1E"}`,
+        opacity: done ? 0.78 : 1,
+      }}
+    >
+      <span
+        className="font-display flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[15px] font-extrabold"
+        style={done ? { background: "var(--sage)", color: "#fff" } : { background: "#F7E3DC", color: "#A23B1E" }}
+      >
+        {done ? "✓" : rank}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-2.5 text-base font-bold" style={{ color: "var(--ink)" }}>
+          <span className="truncate">{customer.name}</span>
+          {!done && (
+            <span
+              className="rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase"
+              style={{ background: "#F7E3DC", color: "#A23B1E", letterSpacing: "0.04em" }}
+            >
+              Urgent
+            </span>
+          )}
+        </p>
+        <p className="mt-0.5 truncate text-[13px]" style={{ color: "var(--muted)" }}>
+          Last visited {relativeDays(customer.days_since_last_visit)}
+          {customer.favorite_item && ` · Loves ${customer.favorite_item}`}
+        </p>
+      </div>
+      {done ? (
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="text-sm font-bold" style={{ color: "var(--sage-text)" }}>✓ Reached out</span>
+          <button onClick={onUndo} className="text-[13px] underline" style={{ color: "var(--muted-2)" }}>
+            Undo
+          </button>
         </div>
-      </div>
-      <div className="flex items-center gap-2 text-cyan-600">
-        <IconBtn onClick={onOpen}><MailIcon /></IconBtn>
-        <IconBtn onClick={onOpen}><PhoneIcon /></IconBtn>
-        <IconBtn onClick={onOpen}><GiftIcon /></IconBtn>
-        <button onClick={onOpen} className="ml-1 text-slate-400 hover:text-slate-700"><ArrowIcon /></button>
-      </div>
+      ) : (
+        <div className="flex shrink-0 gap-2">
+          <IconBtn onClick={onAct}><MailIcon /></IconBtn>
+          <IconBtn onClick={onAct}><PhoneIcon /></IconBtn>
+          <IconBtn onClick={onAct}><GiftIcon /></IconBtn>
+        </div>
+      )}
     </div>
   );
 }
 
-function Section({ title, note, dot, children }: { title: string; note: string; dot: string; children: React.ReactNode }) {
+function Section({ title, note, dot, delay, children }: {
+  title: string; note: string; dot: string; delay: number; children: React.ReactNode;
+}) {
   return (
-    <div>
-      <div className="mb-3 flex items-center gap-2">
-        <span className="h-2.5 w-2.5 rounded-full" style={{ background: dot }} />
-        <h2 className="font-display text-lg font-bold">{title}</h2>
-        <span className="text-sm text-slate-400">— {note}</span>
+    <div className="anim-fade-up" style={{ animationDelay: `${delay}s` }}>
+      <div className="mb-4 flex items-center gap-2.5">
+        <span className="h-[9px] w-[9px] rounded-full" style={{ background: dot }} />
+        <h2 className="font-display text-xl font-semibold" style={{ color: "var(--ink)" }}>{title}</h2>
+        <span className="text-sm" style={{ color: "var(--muted-2)" }}>— {note}</span>
       </div>
       {children}
     </div>
   );
 }
+
 function Counter({ n, label, color }: { n: number; label: string; color: string }) {
   return (
-    <div>
-      <p className="font-display text-2xl font-bold" style={{ color }}>{n}</p>
-      <p className="text-xs uppercase tracking-wide text-slate-400">{label}</p>
+    <div className="text-center">
+      <p className="font-display text-[28px] font-bold" style={{ color }}>{n}</p>
+      <p className="mt-0.5 text-[11px] uppercase" style={{ color: "#CDB9A8", letterSpacing: "0.1em" }}>{label}</p>
     </div>
   );
 }
+
 function IconBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="grid h-9 w-9 place-items-center rounded-full bg-cyan-50 hover:bg-cyan-100">
+    <button
+      onClick={onClick}
+      className="flex h-[38px] w-[38px] items-center justify-center rounded-[10px] transition hover:!bg-[#B4532A] hover:!text-white"
+      style={{ background: "var(--surface-2)", color: "var(--accent)" }}
+    >
       {children}
     </button>
   );
 }
+
 function Tip({ children }: { children: React.ReactNode }) {
   return (
-    <li className="flex items-start gap-2">
-      <span className="mt-0.5 text-emerald-500">✓</span>
+    <li className="flex items-start gap-2.5">
+      <span className="font-bold" style={{ color: "var(--sage)" }}>✓</span>
       <span>{children}</span>
     </li>
   );
 }
 
-function TargetIcon() { return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" /></svg>; }
-function ArrowIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>; }
 function MailIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 5L2 7" /></svg>; }
 function PhoneIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" /></svg>; }
 function GiftIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 12 20 22 4 22 4 12" /><rect x="2" y="7" width="20" height="5" /><line x1="12" y1="22" x2="12" y2="7" /><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" /><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" /></svg>; }
-function SparkIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1" /></svg>; }

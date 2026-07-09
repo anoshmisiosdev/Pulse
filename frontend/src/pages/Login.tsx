@@ -48,10 +48,13 @@ export default function Login() {
     <div className="grid min-h-screen place-items-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center justify-center gap-2">
-          <div className="grid h-10 w-10 place-items-center rounded-2xl border border-slate-900/10 bg-white/70">
-            <PulseGlyph />
-          </div>
-          <span className="font-display text-2xl font-bold tracking-tight">Pulse</span>
+          <span
+            className="font-logo inline-flex h-10 w-10 items-center justify-center rounded-full text-2xl"
+            style={{ background: "var(--ink-strong)", color: "var(--cream-text)" }}
+          >
+            P
+          </span>
+          <span className="font-display text-2xl font-bold tracking-tight" style={{ color: "var(--ink)" }}>Pulse</span>
         </div>
 
         <form onSubmit={onSubmit} className="glass-strong space-y-4 p-7">
@@ -85,7 +88,7 @@ export default function Login() {
                 required
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                className="mt-1 w-full rounded-xl border border-slate-300 bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-[#B4532A] focus:ring-1 focus:ring-[#B4532A]"
                 placeholder="Hayward Coffee Co."
               />
             </label>
@@ -98,7 +101,7 @@ export default function Login() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-[#B4532A] focus:ring-1 focus:ring-[#B4532A]"
               placeholder="owner@yourbusiness.com"
               autoComplete="email"
             />
@@ -112,7 +115,7 @@ export default function Login() {
               minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-[#B4532A] focus:ring-1 focus:ring-[#B4532A]"
               placeholder="••••••••"
               autoComplete={isSignup ? "new-password" : "current-password"}
             />
@@ -141,7 +144,8 @@ export default function Login() {
                 setError(null);
                 setNotice(null);
               }}
-              className="font-semibold text-cyan-600 hover:underline"
+              className="font-semibold hover:underline"
+              style={{ color: "var(--accent)" }}
             >
               {isSignup ? "Sign in" : "Create an account"}
             </button>
@@ -149,14 +153,6 @@ export default function Login() {
         </form>
       </div>
     </div>
-  );
-}
-
-function PulseGlyph() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0891b2" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 12h4l2-7 4 14 2-7h6" />
-    </svg>
   );
 }
 

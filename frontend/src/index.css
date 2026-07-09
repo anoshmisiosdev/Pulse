@@ -1,133 +1,138 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Spectral:wght@500;600;700&family=Instrument+Serif&display=swap');
 @import 'tailwindcss';
 
-/* ===== Design System: Glass Intelligence — Pulse ===== */
+/* ===== Design System: Coffeehouse Editorial — Pulse ===== */
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --primary: #0891b2;
-  --primary-foreground: #ffffff;
-  --primary-light: #22d3ee;
-  --primary-dark: #0e7490;
+  --bg-page: #F0E7D8;
+  --surface: #FBF6EE;
+  --surface-2: #F6ECDD;
+  --surface-3: #EFE3D3;
+  --ink: #2A211C;
+  --ink-strong: #3B2A20;
+  --muted: #8A7565;
+  --muted-2: #A58C74;
+  --border: #EADDCC;
+  --border-soft: #F0E6D6;
+  --accent: #B4532A;
+  --accent-dark: #A23B1E;
+  --accent-2: #C76B3A;
+  --amber: #D99A4E;
+  --sage: #5C8A4A;
+  --sage-text: #4F7A40;
+  --cream-text: #F4ECE0;
+  --on-espresso-accent: #E0A074;
 
-  --color-critical: #ef4444;
-  --color-at-risk: #f59e0b;
-  --color-watch: #eab308;
-  --color-loyal: #10b981;
-  --color-won-back: #6366f1;
-  --color-dimmed: #94a3b8;
+  /* kept for shared components (App spinner, buttons) */
+  --primary: #B4532A;
+  --primary-dark: #A23B1E;
 
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-tertiary: #94a3b8;
-
-  --glass-bg: rgba(255, 255, 255, 0.55);
-  --glass-bg-heavy: rgba(255, 255, 255, 0.78);
-  --glass-border: rgba(255, 255, 255, 0.5);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
-  --glass-shadow-hover: 0 12px 40px rgba(0, 0, 0, 0.1);
-
-  --font-display: 'Outfit', system-ui, sans-serif;
-  --font-body: 'DM Sans', system-ui, sans-serif;
-  --radius: 16px;
+  --font-display: 'Spectral', Georgia, serif;
+  --font-body: 'Hanken Grotesk', system-ui, sans-serif;
+  --radius: 18px;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --color-primary: var(--primary);
-  --color-primary-light: var(--primary-light);
   --color-primary-dark: var(--primary-dark);
-  --color-critical: var(--color-critical);
-  --color-at-risk: var(--color-at-risk);
-  --color-watch: var(--color-watch);
-  --color-loyal: var(--color-loyal);
-  --color-won-back: var(--color-won-back);
   --font-display: var(--font-display);
 }
 
 body {
   margin: 0;
   font-family: var(--font-body);
-  color: var(--foreground);
-  background: var(--background);
+  color: var(--ink);
+  background: var(--bg-page);
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(1200px 600px at 80% -10%, #FBF6EE 0%, #F0E7D8 55%, #EBE0CE 100%);
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
 }
 
-/* ===== Animated gradient mesh background ===== */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background:
-    radial-gradient(ellipse at 20% 20%, #e0f2fe 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 10%, #ede9fe 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 80%, #fef3c7 0%, transparent 50%),
-    radial-gradient(ellipse at 90% 70%, #dbeafe 0%, transparent 40%),
-    linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  background-size: 200% 200%;
-  animation: gradientDrift 22s ease-in-out infinite alternate;
-}
+a { color: var(--accent); }
+a:hover { color: var(--accent-dark); }
 
-@keyframes gradientDrift {
-  0%   { background-position: 0% 0%; }
-  100% { background-position: 100% 100%; }
-}
+.font-display { font-family: var(--font-display); }
+.font-logo { font-family: 'Instrument Serif', serif; }
 
-/* ===== Glassmorphism ===== */
+/* Cream cards (class names kept from the previous system so shared
+   screens like Login stay styled) */
 .glass {
-  background: var(--glass-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius);
-  box-shadow: var(--glass-shadow);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
 }
 
 .glass-strong {
-  background: var(--glass-bg-heavy);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 20px 40px -24px rgba(59, 42, 32, 0.4);
 }
 
 .glass-hover {
   transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 .glass-hover:hover {
-  box-shadow: var(--glass-shadow-hover);
-  transform: translateY(-2px);
+  box-shadow: 0 16px 30px -20px rgba(59, 42, 32, 0.5);
+  transform: translateY(-3px);
 }
-
-.font-display { font-family: var(--font-display); }
 
 .stat-number {
   font-family: var(--font-display);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
   line-height: 1;
 }
 
-/* Drawer slide-in */
-@keyframes slideIn {
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+/* ===== Motion ===== */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.anim-fade-up { animation: fadeUp 0.6s ease both; }
+
+@keyframes pulseFade {
+  0%        { transform: scale(1); opacity: 0.55; }
+  70%, 100% { transform: scale(2.4); opacity: 0; }
+}
+
+@keyframes growUp {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+@keyframes growRight {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+@keyframes drawerIn {
   from { transform: translateX(100%); }
   to   { transform: translateX(0); }
 }
-.animate-slide-in { animation: slideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+.animate-slide-in { animation: drawerIn 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
 
 @keyframes fadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-.animate-fade-in { animation: fadeIn 0.2s ease; }
+.animate-fade-in { animation: fadeIn 0.25s ease; }
 
-/* Thin scrollbars inside glass panels */
+/* Thin scrollbars inside panels */
 .scroll-thin::-webkit-scrollbar { width: 6px; }
-.scroll-thin::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.3); border-radius: 3px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: rgba(165, 140, 116, 0.4); border-radius: 3px; }
