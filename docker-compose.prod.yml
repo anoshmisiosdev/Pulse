@@ -1,0 +1,22 @@
+# Production stack: backend in a container, connected to your Supabase Postgres.
+# Reads the repo-root .env (Supabase DATABASE_URL, DB_SSL=require, SUPABASE_*).
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Point Nginx Proxy Manager at this container's port 8000.
+services:
+  api:
+    build:
+      context: ./backend
+    env_file: .env # Supabase DATABASE_URL / DB_SSL / SUPABASE_* / EXTRA_CORS_ORIGINS
+    environment:
+      ENVIRONMENT: production
+    ports:
+      - "8000:8000" # NPM forwards here (Forward Hostname/IP = this host, Port 8000)
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
