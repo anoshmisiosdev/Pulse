@@ -29,6 +29,7 @@ export default function CustomerDrawer({
   const [loading, setLoading] = useState(false);
   const meta = SEGMENTS[customer.segment];
   const contacted = contactedIds.has(customer.customer_id);
+  const firstName = customer.name.split(" ")[0];
 
   async function generate(c: Channel) {
     setChannel(c);
@@ -57,151 +58,170 @@ export default function CustomerDrawer({
 
   return (
     <div className="fixed inset-0 z-50 flex animate-fade-in" onClick={onClose}>
-      <div className="flex-1 bg-slate-900/20" />
+      <div className="flex-1" style={{ background: "rgba(42,33,28,.4)" }} />
       <aside
-        className="h-full w-full max-w-md animate-slide-in overflow-y-auto glass-strong scroll-thin p-6"
+        className="flex h-full w-full max-w-[420px] animate-slide-in flex-col overflow-y-auto scroll-thin"
         onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--surface)",
+          boxShadow: "-24px 0 60px -20px rgba(42,33,28,.5)",
+        }}
       >
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between border-b px-7 py-6" style={{ borderColor: "var(--border)" }}>
           <div>
-            <h2 className="font-display text-2xl font-bold">{customer.name}</h2>
-            <p className="text-sm text-slate-500">{customer.email}</p>
+            <h2 className="font-display text-2xl font-bold" style={{ color: "var(--ink)" }}>{customer.name}</h2>
+            <p className="text-[13.5px]" style={{ color: "var(--muted-2)" }}>{customer.email}</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">✕</button>
+          <button
+            onClick={onClose}
+            className="flex h-[34px] w-[34px] items-center justify-center rounded-full transition hover:brightness-95"
+            style={{ background: "var(--border-soft)", color: "var(--muted)" }}
+          >
+            ✕
+          </button>
         </div>
 
-        <div className="mt-3 flex items-center gap-3">
+        <div className="flex-1 px-7 py-6">
           <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${meta.bg}`}
+            className="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[13.5px] font-bold"
+            style={{ background: meta.badgeBg, color: meta.badgeText }}
           >
-            {meta.health} {customer.score}
+            <span className="h-2 w-2 rounded-full" style={{ background: meta.badgeText }} />
+            {meta.health} · risk {customer.score}
           </span>
-          <span className="flex items-center gap-1 text-sm text-slate-500">
-            <TrendIcon /> {customer.trend_pct < 0 ? `down ${Math.abs(customer.trend_pct)}%` : "steady"}
-          </span>
-        </div>
 
-        {/* Quick facts */}
-        <div className="mt-5 grid grid-cols-3 gap-2 text-center">
-          <Fact label="At risk" value={formatCurrency(customer.estimated_annual_value)} />
-          <Fact label="Visits" value={String(customer.visit_count)} />
-          <Fact label="Last seen" value={relativeDays(customer.days_since_last_visit)} />
-        </div>
-
-        {/* Churn agent analysis */}
-        <div className="mt-5 rounded-2xl border-l-4 border-red-400 bg-white/60 p-4">
-          <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-xs font-semibold text-cyan-700">
-            Claude: Churn Agent
-          </span>
-          <p className="mt-2 text-sm text-slate-700">
-            {(customer.pattern && CHURN_NARRATIVE[customer.pattern]) ??
-              "Visiting on a healthy cadence — keep doing what you're doing."}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {customer.pattern && (
-              <Tag className="bg-amber-100 text-amber-700">
-                ⚡ {PATTERNS[customer.pattern].toLowerCase()}
-              </Tag>
-            )}
-            <Tag className="bg-emerald-100 text-emerald-700">{customer.confidence} confidence</Tag>
-            {customer.favorite_item && (
-              <Tag className="bg-violet-100 text-violet-700">loves {customer.favorite_item}</Tag>
-            )}
-          </div>
-        </div>
-
-        {/* Outreach generation */}
-        <div className="mt-5">
-          <div className="grid grid-cols-3 gap-2">
-            <ChannelBtn active={channel === "email"} onClick={() => generate("email")} label="Email" icon={<MailIcon />} />
-            <ChannelBtn active={channel === "phone"} onClick={() => generate("phone")} label="Phone Script" icon={<PhoneIcon />} />
-            <ChannelBtn active={channel === "offer"} onClick={() => generate("offer")} label="Special Offer" icon={<GiftIcon />} />
+          <div className="mt-5 grid grid-cols-2 gap-3.5">
+            <Tile label="Revenue at risk" value={formatCurrency(customer.estimated_annual_value)} valueColor="#A23B1E" />
+            <Tile label="Last seen" value={relativeDays(customer.days_since_last_visit)} />
           </div>
 
-          <div className="mt-3 min-h-[120px] rounded-2xl bg-white/60 p-4 text-sm">
-            {!copy && !loading && (
-              <p className="text-slate-400">Pick a channel and Pulse will draft personalized outreach.</p>
-            )}
-            {loading && (
-              <p className="flex items-center gap-2 text-slate-400">
-                <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-500" />
-                <span className="rounded bg-cyan-50 px-1.5 py-0.5 text-xs text-cyan-700">Churn</span>
-                <span className="rounded bg-violet-50 px-1.5 py-0.5 text-xs text-violet-700">Synthesis</span>
-                AI writing…
+          {customer.favorite_item && (
+            <div className="mt-5 rounded-[14px] px-[18px] py-4" style={{ background: "var(--ink-strong)", color: "var(--cream-text)" }}>
+              <p className="eyebrow mb-1.5" style={{ color: "var(--on-espresso-accent)", letterSpacing: "0.14em" }}>
+                Favorite order
               </p>
-            )}
-            {copy && (
-              <>
-                {copy.subject && (
-                  <p className="mb-2 font-medium text-slate-800">Subject: {copy.subject}</p>
-                )}
-                <p className="whitespace-pre-wrap text-slate-700">{copy.body}</p>
-                <p className="mt-3 text-xs text-slate-400">
-                  {copy.generated_by === "claude"
-                    ? `Generated by ${copy.model}`
-                    : "Static fallback — set ANTHROPIC_API_KEY for live AI copy"}
-                </p>
-              </>
-            )}
-          </div>
-        </div>
+              <p className="font-display text-xl font-semibold">{customer.favorite_item}</p>
+            </div>
+          )}
 
-        {/* Actions */}
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <button
-            onClick={() => markContacted(customer.customer_id)}
-            disabled={contacted}
-            className="flex items-center justify-center gap-2 rounded-xl border border-cyan-300 px-4 py-2.5 text-sm font-semibold text-cyan-700 hover:bg-cyan-50 disabled:opacity-50"
-          >
-            <SendIcon /> {contacted ? "Contacted ✓" : "Contacted"}
-          </button>
-          <button
-            onClick={() => {
-              markWonBack(customer);
-              onClose();
-            }}
-            className="flex items-center justify-center gap-2 rounded-xl border border-amber-300 px-4 py-2.5 text-sm font-semibold text-amber-700 hover:bg-amber-50"
-          >
-            <ChatIcon /> Won Back
-          </button>
+          {/* Why at risk */}
+          <div className="mt-5 rounded-[14px] border-l-4 p-4" style={{ background: "var(--surface-2)", borderColor: "var(--accent)" }}>
+            <span
+              className="rounded-full px-2 py-0.5 text-xs font-semibold"
+              style={{ background: "#F7E3DC", color: "#A23B1E" }}
+            >
+              Why at risk
+            </span>
+            <p className="mt-2 text-sm" style={{ color: "var(--ink-strong)" }}>
+              {(customer.pattern && CHURN_NARRATIVE[customer.pattern]) ??
+                "Visiting on a healthy cadence — keep doing what you're doing."}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {customer.pattern && (
+                <Tag bg="#F4EAD1" color="#A9781F">⚡ {PATTERNS[customer.pattern].toLowerCase()}</Tag>
+              )}
+              <Tag bg="#E6EFDF" color="#4F7A40">{customer.confidence} confidence</Tag>
+            </div>
+          </div>
+
+          {/* Take action */}
+          <p className="eyebrow mt-6 mb-3" style={{ color: "var(--muted-2)", letterSpacing: "0.08em", fontSize: 12 }}>
+            Take action
+          </p>
+          <div className="flex flex-col gap-2.5">
+            <ActionBtn primary onClick={() => generate("email")}>
+              ✉ Send a win-back message
+            </ActionBtn>
+            <ActionBtn onClick={() => generate("phone")}>☎ Call {firstName}</ActionBtn>
+            <ActionBtn onClick={() => generate("offer")}>
+              🎁 Offer a free {customer.favorite_item ?? "drink"}
+            </ActionBtn>
+          </div>
+
+          {(loading || copy) && (
+            <div className="mt-4 rounded-[14px] p-4 text-sm" style={{ background: "var(--surface-2)" }}>
+              {loading && (
+                <p className="flex items-center gap-2" style={{ color: "var(--muted-2)" }}>
+                  <span
+                    className="h-3 w-3 animate-spin rounded-full border-2"
+                    style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }}
+                  />
+                  Pulse is writing your {channel === "phone" ? "call script" : channel === "offer" ? "offer" : "email"}…
+                </p>
+              )}
+              {copy && (
+                <>
+                  {copy.subject && (
+                    <p className="mb-2 font-semibold" style={{ color: "var(--ink)" }}>Subject: {copy.subject}</p>
+                  )}
+                  <p className="whitespace-pre-wrap" style={{ color: "var(--ink-strong)" }}>{copy.body}</p>
+                  <p className="mt-3 text-xs" style={{ color: "var(--muted-2)" }}>
+                    {copy.generated_by === "claude"
+                      ? `Generated by ${copy.model}`
+                      : "Static fallback — set ANTHROPIC_API_KEY for live AI copy"}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <button
+              onClick={() => markContacted(customer.customer_id)}
+              disabled={contacted}
+              className="rounded-full border px-4 py-2.5 text-sm font-semibold transition hover:brightness-95 disabled:opacity-50"
+              style={{ borderColor: "var(--border)", color: "var(--ink-strong)", background: "var(--surface-2)" }}
+            >
+              {contacted ? "✓ Contacted" : "Mark contacted"}
+            </button>
+            <button
+              onClick={() => {
+                markWonBack(customer);
+                onClose();
+              }}
+              className="rounded-full px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-95"
+              style={{ background: "var(--sage)" }}
+            >
+              Won back 🎉
+            </button>
+          </div>
         </div>
       </aside>
     </div>
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Tile({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
-    <div className="rounded-xl bg-white/60 px-2 py-3">
-      <p className="font-display text-base font-bold text-slate-800">{value}</p>
-      <p className="text-xs text-slate-500">{label}</p>
+    <div className="rounded-[14px] p-4" style={{ background: "var(--surface-2)" }}>
+      <p className="mb-1.5 text-xs" style={{ color: "var(--muted-2)" }}>{label}</p>
+      <p className="font-display text-[22px] font-bold" style={{ color: valueColor ?? "var(--ink)" }}>{value}</p>
     </div>
   );
 }
-function Tag({ children, className }: { children: React.ReactNode; className: string }) {
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${className}`}>{children}</span>;
-}
-function ChannelBtn({
-  active, onClick, label, icon,
-}: { active: boolean; onClick: () => void; label: string; icon: React.ReactNode }) {
+
+function Tag({ children, bg, color }: { children: React.ReactNode; bg: string; color: string }) {
   return (
-    <button
-      onClick={onClick}
-      className={`flex flex-col items-center gap-1 rounded-xl border px-2 py-2.5 text-xs font-semibold transition ${
-        active ? "border-transparent bg-primary text-white" : "border-slate-200 bg-white/60 text-slate-600 hover:border-slate-300"
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
+    <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: bg, color }}>
+      {children}
+    </span>
   );
 }
 
-function TrendIcon() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 17 13.5 8.5 8.5 13.5 2 7" /><polyline points="16 17 22 17 22 11" /></svg>;
+function ActionBtn({ children, onClick, primary }: {
+  children: React.ReactNode; onClick: () => void; primary?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-3 rounded-xl px-4 py-3.5 text-left text-sm font-semibold transition hover:brightness-95"
+      style={
+        primary
+          ? { background: "var(--accent)", color: "#fff" }
+          : { background: "var(--surface)", border: "1px solid var(--border)", color: "var(--ink-strong)" }
+      }
+    >
+      {children}
+    </button>
+  );
 }
-function MailIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 5L2 7" /></svg>; }
-function PhoneIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" /></svg>; }
-function GiftIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 12 20 22 4 22 4 12" /><rect x="2" y="7" width="20" height="5" /><line x1="12" y1="22" x2="12" y2="7" /><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" /><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" /></svg>; }
-function SendIcon() { return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>; }
-function ChatIcon() { return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>; }

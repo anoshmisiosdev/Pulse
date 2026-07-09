@@ -5,11 +5,12 @@ export default function RiskBadge({ segment, score }: { segment: Segment; score?
   const meta = SEGMENTS[segment];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${meta.bg}`}
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+      style={{ background: meta.badgeBg, color: meta.badgeText }}
     >
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.color }} />
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.badgeText }} />
       {meta.health}
-      {score !== undefined && <span className="opacity-70">{score}</span>}
+      {score !== undefined && <span className="font-extrabold">{score}</span>}
     </span>
   );
 }
