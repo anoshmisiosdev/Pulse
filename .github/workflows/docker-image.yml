@@ -1,0 +1,29 @@
+name: Deploy backend on push
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    # Use your self-hosted runner (and label) so it can access Docker + your backend
+    runs-on: [self-hosted, gcp-backend]
+
+    steps:
+      - name: Show current directory
+        run: pwd && ls -la
+
+      # If your repo is already checked out on the runner at /opt/pulse, you can
+      # just git pull and deploy there. Adjust this path to your actual backend dir.
+      - name: Pull latest code on runner
+        run: |
+          cd ~/Pulse
+          git fetch origin
+          git reset --hard origin/main
+
+      - name: Rebuild and restart backend with Docker Compose
+        run: |
+          cd ~/Pulse
+          docker compose pull
+          docker compose up -d --build
