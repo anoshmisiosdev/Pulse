@@ -162,10 +162,10 @@ export default function Setup() {
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-6">
-        <h1 className="font-display text-3xl font-extrabold tracking-tight">
+        <h1 className="font-display text-3xl font-extrabold tracking-tight" style={{ color: "var(--ink)" }}>
           {hasData ? "Data sources" : "Connect your customer data"}
         </h1>
-        <p className="mt-1 text-slate-500">
+        <p className="mt-1 italic" style={{ color: "var(--muted)" }}>
           Pulse watches your payment system and flags customers who are about to
           slip away. Pick where your customers live.
         </p>
@@ -177,14 +177,17 @@ export default function Setup() {
             key={p.id}
             onClick={() => { setProvider(p.id); setError(null); }}
             className={`glass glass-hover relative p-4 text-left transition ${
-              provider === p.id ? "ring-2 ring-cyan-500" : ""
+              provider === p.id ? "ring-2 ring-[#B4532A]" : ""
             }`}
           >
-            <span className="absolute right-3 top-3 rounded-full bg-cyan-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-700">
+            <span
+              className="absolute right-3 top-3 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+              style={{ background: "var(--surface-3)", color: "var(--accent-dark)" }}
+            >
               {p.badge}
             </span>
-            <p className="font-display text-lg font-bold">{p.name}</p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">{p.blurb}</p>
+            <p className="font-display text-lg font-bold" style={{ color: "var(--ink)" }}>{p.name}</p>
+            <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--muted)" }}>{p.blurb}</p>
           </button>
         ))}
       </div>
@@ -192,26 +195,28 @@ export default function Setup() {
       <div className="glass mt-4 space-y-4 p-6">
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Business name</span>
+            <span className="text-sm font-medium" style={{ color: "var(--ink-strong)" }}>Business name</span>
             <input
               value={businessName}
               onChange={(e) => setBusinessName(e.target.value)}
               placeholder="Hayward Coffee Co."
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+              className="mt-1 w-full rounded-xl border bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-[#B4532A] focus:ring-1 focus:ring-[#B4532A]"
+              style={{ borderColor: "var(--border)", color: "var(--ink)" }}
             />
           </label>
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Business type</span>
+            <span className="text-sm font-medium" style={{ color: "var(--ink-strong)" }}>Business type</span>
             <select
               value={vertical}
               onChange={(e) => setVertical(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-cyan-500"
+              className="mt-1 w-full rounded-xl border bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-[#B4532A]"
+              style={{ borderColor: "var(--border)", color: "var(--ink)" }}
             >
               {VERTICALS.map((v) => (
                 <option key={v.id} value={v.id}>{v.label}</option>
               ))}
             </select>
-            <span className="mt-1 block text-xs text-slate-400">
+            <span className="mt-1 block text-xs" style={{ color: "var(--muted-2)" }}>
               Sets the visit cadence used for churn scoring.
             </span>
           </label>
@@ -224,8 +229,11 @@ export default function Setup() {
                 <button
                   onClick={handleOauth}
                   disabled={busy}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-sm font-semibold text-white disabled:opacity-60"
-                  style={{ background: provider === "stripe" ? "#635bff" : "#0f1419" }}
+                  className="flex w-full items-center justify-center gap-2 rounded-full px-4 py-3.5 text-sm font-semibold text-white transition hover:-translate-y-px disabled:opacity-60"
+                  style={{
+                    background: provider === "stripe" ? "#635bff" : "var(--ink-strong)",
+                    boxShadow: "0 6px 16px -6px rgba(59,42,32,.45)",
+                  }}
                 >
                   {busy ? (
                     phase ?? "Redirecting…"
@@ -235,13 +243,14 @@ export default function Setup() {
                     </>
                   )}
                 </button>
-                <p className="text-center text-xs text-slate-400">
+                <p className="text-center text-xs" style={{ color: "var(--muted-2)" }}>
                   You'll approve read-only access on {provider === "stripe" ? "Stripe" : "Square"}'s
                   site — no keys to copy. We pull customers &amp; payments and bring you right back.
                 </p>
                 <button
                   onClick={() => setManualOpen((v) => !v)}
-                  className="mx-auto block text-xs font-medium text-slate-400 underline hover:text-slate-600"
+                  className="mx-auto block text-xs font-medium underline transition hover:brightness-75"
+                  style={{ color: "var(--muted-2)" }}
                 >
                   {manualOpen ? "Hide manual option" : "Or paste an API key manually"}
                 </button>
@@ -251,7 +260,7 @@ export default function Setup() {
             {(!oauthAvailable || manualOpen) && (
               <>
                 <label className="block">
-                  <span className="text-sm font-medium text-slate-700">
+                  <span className="text-sm font-medium" style={{ color: "var(--ink-strong)" }}>
                     {provider === "stripe" ? "Stripe secret key" : "Square access token"}
                   </span>
                   <input
@@ -259,9 +268,10 @@ export default function Setup() {
                     value={credential}
                     onChange={(e) => setCredential(e.target.value)}
                     placeholder={provider === "stripe" ? "sk_live_… or rk_live_…" : "EAAA…"}
-                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white/70 px-3 py-2.5 font-mono text-sm outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                    className="mt-1 w-full rounded-xl border bg-white/70 px-3 py-2.5 font-mono text-sm outline-none focus:border-[#B4532A] focus:ring-1 focus:ring-[#B4532A]"
+                    style={{ borderColor: "var(--border)", color: "var(--ink)" }}
                   />
-                  <span className="mt-1 block text-xs text-slate-400">
+                  <span className="mt-1 block text-xs" style={{ color: "var(--muted-2)" }}>
                     {provider === "stripe"
                       ? "Stripe Dashboard → Developers → API keys. A restricted key with read access to Customers and Charges is enough."
                       : "Square Developer Dashboard → your app → Production → Access token."}{" "}
@@ -271,8 +281,8 @@ export default function Setup() {
                 <button
                   onClick={handleConnect}
                   disabled={busy || !credential.trim()}
-                  className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                  style={{ background: "var(--primary)" }}
+                  className="w-full rounded-full px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px disabled:opacity-50"
+                  style={{ background: "var(--accent)", boxShadow: "0 6px 16px -6px rgba(180,83,42,.7)" }}
                 >
                   {busy ? phase ?? "Connecting…" : `Connect ${provider === "stripe" ? "Stripe" : "Square"} & pull customers`}
                 </button>
@@ -291,13 +301,14 @@ export default function Setup() {
             <button
               onClick={() => fileRef.current?.click()}
               disabled={busy}
-              className="w-full rounded-xl border-2 border-dashed border-slate-300 px-4 py-6 text-sm font-medium text-slate-600 hover:border-cyan-400 disabled:opacity-50"
+              className="w-full rounded-xl border-2 border-dashed px-4 py-6 text-sm font-medium transition hover:border-[#C76B3A] disabled:opacity-50"
+              style={{ borderColor: "var(--border)", color: "var(--muted)", background: "var(--surface-2)" }}
             >
               {busy ? phase ?? "Importing…" : "Choose a CSV file (name, email, phone, last visit, total spent)"}
             </button>
-            <p className="text-center text-xs text-slate-400">
+            <p className="text-center text-xs" style={{ color: "var(--muted-2)" }}>
               Need the format?{" "}
-              <a href={api.templateUrl()} className="text-cyan-600 underline">
+              <a href={api.templateUrl()} className="underline">
                 Download the template
               </a>
             </p>
@@ -310,9 +321,13 @@ export default function Setup() {
       </div>
 
       {!hasData && (
-        <p className="mt-5 text-center text-sm text-slate-400">
+        <p className="mt-5 text-center text-sm" style={{ color: "var(--muted-2)" }}>
           Not ready?{" "}
-          <button onClick={skip} className="font-semibold text-slate-500 underline hover:text-slate-700">
+          <button
+            onClick={skip}
+            className="font-semibold underline transition hover:brightness-75"
+            style={{ color: "var(--muted)" }}
+          >
             Skip for now
           </button>{" "}
           — you can connect any time.
