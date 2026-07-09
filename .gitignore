@@ -15,6 +15,7 @@ coverage.xml
 node_modules/
 dist/
 .vite/
+.next/
 *.local
 
 # Env / secrets
@@ -32,3 +33,8 @@ fernet.key
 # Docker volumes (local)
 .postgres-data/
 .redis-data/
+
+# Local workspace/runtime artifacts
+AGENTS.md
+outputs/
+backend/celerybeat-schedule

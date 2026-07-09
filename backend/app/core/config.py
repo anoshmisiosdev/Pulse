@@ -63,6 +63,32 @@ class Settings(BaseSettings):
     def llm_configured(self) -> bool:
         return bool(self.token_router_api_key or self.anthropic_api_key)
 
+    # Competitor research uses Perplexity for grounded web results and DeepSeek
+    # for strict structured parsing. Google Maps is used only for geocoding.
+    strict_free_tier: bool = True
+    google_maps_api_key: str = ""
+
+    # Competitor price source discovery and extraction.
+    # Perplexity Search returns structured web results; TokenMart provides the
+    # OpenAI-compatible gateway used to call the DeepSeek model.
+    perplexity_api_key: str = ""
+    perplexity_search_base_url: str = "https://api.perplexity.ai"
+    enable_perplexity_search: bool = True
+    perplexity_search_country: str = "US"
+    perplexity_search_context_size: str = "high"
+    perplexity_max_results: int = 5
+    perplexity_max_queries_per_competitor: int = 3
+    tokenmart_api_key: str = ""
+    tokenmart_base_url: str = "https://model.service-inference.ai/v1"
+    tokenmart_model: str = "deepseek-v4-flash"
+    # Legacy direct-provider/gateway settings remain as fallbacks while existing
+    # deployments migrate to TOKENMART_* variables.
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-v4-flash"
+    enable_deepseek_extraction: bool = True
+    deepseek_use_token_router: bool = False
+
     @property
     def auth_configured(self) -> bool:
         """True once Supabase Auth is wired (URL is enough to verify via JWKS)."""

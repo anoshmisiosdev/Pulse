@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import Customers from "./pages/Customers";
 import Retention from "./pages/Retention";
 import Automations from "./pages/Automations";
+import Pricing from "./pages/Pricing";
 import Login from "./pages/Login";
 import Setup, { SETUP_SKIPPED_KEY } from "./pages/Setup";
 
@@ -70,6 +71,7 @@ function AuthedApp() {
           <Route path="/customers" element={<DataGate><Customers /></DataGate>} />
           <Route path="/retention" element={<DataGate><Retention /></DataGate>} />
           <Route path="/automations" element={<DataGate><Automations /></DataGate>} />
+          <Route path="/pricing" element={<Pricing />} />
         </Routes>
       </AppShell>
     </PulseProvider>

@@ -79,6 +79,110 @@ export interface AuthUser {
   role: string;
 }
 
+export interface CompetitorPriceResearchInput {
+  businessName?: string;
+  businessWebsite?: string;
+  businessPhone?: string;
+  businessCategory: string;
+  targetOffer: string;
+  location: {
+    address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+    country?: string;
+    latitude?: number;
+    longitude?: number;
+  };
+  radiusMiles?: number;
+  maxCompetitors?: number;
+  maxSourcesPerCompetitor?: number;
+  currentPrice?: number | null;
+}
+
+export interface CompetitorPrice {
+  offerName: string;
+  normalizedOfferName: string;
+  priceMin: number | null;
+  priceMax: number | null;
+  currency: string;
+  priceType: string;
+  sourceUrl: string;
+  sourceTitle: string | null;
+  evidenceText: string;
+  observedAt: string;
+  confidence: number;
+  confidenceReasons: string[];
+  matchQuality: "exact" | "close" | "weak";
+  priceChannel: "in_store" | "delivery" | "unknown";
+  corroborated: boolean;
+  includedInMarketSummary: boolean;
+}
+
+export interface CompetitorPriceCompetitor {
+  name: string;
+  address: string | null;
+  website: string | null;
+  distanceMiles: number | null;
+  rating: number | null;
+  reviewCount: number | null;
+  prices: CompetitorPrice[];
+  confidence: number;
+  radiusVerified: boolean;
+  exclusionReasons: string[];
+}
+
+export interface CompetitorPriceMarketSummary {
+  sampleSize: number;
+  priceLow: number | null;
+  priceMedian: number | null;
+  priceHigh: number | null;
+  priceAverage: number | null;
+  priceIqr: number | null;
+  currency: string;
+  recommendedPositioning: string;
+  confidence: number;
+}
+
+export interface CompetitorPriceResearchResponse {
+  query: {
+    businessCategory: string;
+    targetOffer: string;
+    locationLabel: string;
+    radiusMiles: number;
+  };
+  competitors: CompetitorPriceCompetitor[];
+  marketSummary: CompetitorPriceMarketSummary;
+  channelSummaries: {
+    inStore: CompetitorPriceMarketSummary;
+    delivery: CompetitorPriceMarketSummary;
+  } | null;
+  warnings: string[];
+  metadata: {
+    modelsUsed: string[];
+    groundingUsed: {
+      googleSearch: boolean;
+      googleMaps: boolean;
+      urlContext: boolean;
+      perplexitySearch?: boolean;
+      deepseekExtraction?: boolean;
+      deepseekResearch?: boolean;
+      googleGeocoding?: boolean;
+    };
+    generatedAt: string;
+    cached: boolean;
+    durationMs: number | null;
+    researchStats: {
+      competitorsDiscovered: number;
+      competitorsIncluded: number;
+      sourcesDiscovered: number;
+      sourcesChecked: number;
+      sourcesAccepted: number;
+      corroboratedCompetitors: number;
+    };
+  };
+}
+
 // The current Supabase access token, kept in sync by AuthContext.
 let accessToken: string | null = null;
 export function setAccessToken(t: string | null): void {
@@ -212,6 +316,17 @@ export const api = {
       body: JSON.stringify(input),
     });
     return asJson<GeneratedCopy>(res);
+  },
+
+  async researchCompetitorPrices(
+    input: CompetitorPriceResearchInput
+  ): Promise<CompetitorPriceResearchResponse> {
+    const res = await fetch(`${BASE}/api/competitor-prices/research`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(input),
+    });
+    return asJson<CompetitorPriceResearchResponse>(res);
   },
 
   templateUrl(): string {

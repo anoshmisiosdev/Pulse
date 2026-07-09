@@ -16,6 +16,7 @@ campaigns — before the owner notices a problem.
 | Database | PostgreSQL 16 (Supabase), Supabase Auth |
 | Frontend | React 18 + Vite + TypeScript, Tailwind, shadcn/ui, Recharts |
 | AI | Anthropic `claude-sonnet-4-6` |
+| Price research | Perplexity Search, DeepSeek V4 Flash, Google geocoding |
 | Email / SMS | Resend / Twilio |
 | Billing | Stripe Checkout + Customer Portal |
 
@@ -46,6 +47,39 @@ cd backend && uv run python -m app.scripts.seed   # ~300-customer fake fitness s
 
 Then upload `backend/app/scripts/sample_customers.csv` via the onboarding screen,
 or hit `POST /api/integrations/csv/preview`.
+
+## Competitor price research
+
+Pulse includes an MVP local price research workflow at
+`POST /api/competitor-prices/research` and the frontend `/pricing` page. Set
+`GOOGLE_MAPS_API_KEY`, `PERPLEXITY_API_KEY`, and a DeepSeek-compatible key
+server-side to enable the full flow. Perplexity supplies grounded competitor and
+menu/order evidence, DeepSeek structures competitors and extracts strict JSON
+prices, and Google Maps geocoding verifies the requested radius.
+
+```bash
+GOOGLE_MAPS_API_KEY=...
+STRICT_FREE_TIER=true
+
+PERPLEXITY_API_KEY=...
+ENABLE_PERPLEXITY_SEARCH=true
+PERPLEXITY_SEARCH_CONTEXT_SIZE=high
+PERPLEXITY_MAX_RESULTS=5
+PERPLEXITY_MAX_QUERIES_PER_COMPETITOR=3
+
+# TokenMart's OpenAI-compatible DeepSeek gateway.
+TOKENMART_API_KEY=...
+TOKENMART_BASE_URL=https://model.service-inference.ai/v1
+TOKENMART_MODEL=deepseek-v4-flash
+ENABLE_DEEPSEEK_EXTRACTION=true
+```
+
+When `STRICT_FREE_TIER=true`, fresh research runs are capped and cached for 24
+hours. Strict free-tier mode also limits fresh runs to 3 competitors and 3 source
+attempts per competitor, stopping early after two independent sources corroborate
+a price. Perplexity is required for grounded competitor discovery. If source-page
+discovery fails, only already-known first-party URLs are used; the application
+does not generate ungrounded competitors or prices.
 
 ## Repo layout
 

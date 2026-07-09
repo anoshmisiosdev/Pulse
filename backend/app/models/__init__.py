@@ -8,6 +8,12 @@ from app.models.campaign import (
     CampaignSend,
     RecoveryAttribution,
 )
+from app.models.competitor_price import (
+    CompetitorPriceCompetitor,
+    CompetitorPriceObservation,
+    CompetitorPriceResearchRun,
+    CompetitorPriceSource,
+)
 from app.models.customer import (
     Customer,
     EngagementEvent,
@@ -32,4 +38,8 @@ __all__ = [
     "AutomationRule",
     "RecoveryAttribution",
     "Subscription",
+    "CompetitorPriceResearchRun",
+    "CompetitorPriceCompetitor",
+    "CompetitorPriceSource",
+    "CompetitorPriceObservation",
 ]

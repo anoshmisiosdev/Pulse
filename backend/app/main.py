@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, campaigns, health, integrations, portfolio
+from app.api import auth, campaigns, competitor_prices, health, integrations, portfolio
 from app.core.config import settings
 
 logging.basicConfig(level=settings.log_level)
@@ -62,6 +62,7 @@ app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(integrations.router, prefix=API_PREFIX)
 app.include_router(portfolio.router, prefix=API_PREFIX)
 app.include_router(campaigns.router, prefix=API_PREFIX)
+app.include_router(competitor_prices.router, prefix=API_PREFIX)
 
 
 @app.get("/")
