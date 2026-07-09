@@ -18,12 +18,12 @@ jobs:
       # just git pull and deploy there. Adjust this path to your actual backend dir.
       - name: Pull latest code on runner
         run: |
-          cd ~/Pulse
+          cd /opt/Pulse
           git fetch origin
           git reset --hard origin/main
 
       - name: Rebuild and restart backend with Docker Compose
         run: |
-          cd ~/Pulse
+          cd /opt/Pulse
           docker compose pull
           docker compose -f docker-compose.prod.yml up -d --build
