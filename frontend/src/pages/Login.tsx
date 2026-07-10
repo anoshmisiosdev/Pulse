@@ -52,9 +52,9 @@ export default function Login() {
             className="font-logo inline-flex h-10 w-10 items-center justify-center rounded-full text-2xl"
             style={{ background: "var(--ink-strong)", color: "var(--cream-text)" }}
           >
-            P
+            C
           </span>
-          <span className="font-display text-2xl font-bold tracking-tight" style={{ color: "var(--ink)" }}>Pulse</span>
+          <span className="font-display text-2xl font-bold tracking-tight" style={{ color: "var(--ink)" }}>Churnary</span>
         </div>
 
         <form onSubmit={onSubmit} className="glass-strong space-y-4 p-7">
@@ -136,7 +136,7 @@ export default function Login() {
           </button>
 
           <p className="text-center text-xs text-slate-500">
-            {isSignup ? "Already have an account?" : "New to Pulse?"}{" "}
+            {isSignup ? "Already have an account?" : "New to Churnary?"}{" "}
             <button
               type="button"
               onClick={() => {

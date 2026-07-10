@@ -30,7 +30,7 @@ function DataGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="grid min-h-[60vh] place-items-center text-center">
         <div className="glass p-8">
-          <p className="font-display text-lg font-semibold text-slate-800">Couldn't reach Pulse</p>
+          <p className="font-display text-lg font-semibold text-slate-800">Couldn't reach Churnary</p>
           <p className="mt-1 text-sm text-slate-500">{error}</p>
           <p className="mt-2 text-xs text-slate-400">Is the API running?</p>
         </div>

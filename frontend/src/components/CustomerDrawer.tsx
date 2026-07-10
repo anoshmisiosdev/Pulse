@@ -146,7 +146,7 @@ export default function CustomerDrawer({
                     className="h-3 w-3 animate-spin rounded-full border-2"
                     style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }}
                   />
-                  Pulse is writing your {channel === "phone" ? "call script" : channel === "offer" ? "offer" : "email"}…
+                  Churnary is writing your {channel === "phone" ? "call script" : channel === "offer" ? "offer" : "email"}…
                 </p>
               )}
               {copy && (

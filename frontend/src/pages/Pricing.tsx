@@ -136,7 +136,7 @@ export default function Pricing() {
             value={form.targetOffer}
             required
             placeholder="Cappuccino"
-            help="This is the exact offer Pulse searches for at nearby competitors."
+            help="This is the exact offer Churnary searches for at nearby competitors."
             onChange={(v) => setForm({ ...form, targetOffer: v })}
           />
           <Field

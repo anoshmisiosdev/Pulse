@@ -37,10 +37,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 className="font-logo inline-flex h-[30px] w-[30px] items-center justify-center rounded-full text-[19px]"
                 style={{ background: "var(--ink-strong)", color: "var(--cream-text)" }}
               >
-                P
+                C
               </span>
               <span className="font-display text-[21px] font-bold tracking-tight" style={{ color: "var(--ink)" }}>
-                Pulse
+                Churnary
               </span>
             </div>
             <nav className="hidden items-center gap-1 md:flex">
@@ -167,7 +167,7 @@ function BriefingModal({ onClose }: { onClose: () => void }) {
                   {" "}Your top priority is <strong style={{ color: "var(--ink)" }}>{top.name}</strong> — {top.reasons[0]?.toLowerCase()}.
                 </>
               )}
-              {" "}Pulse has already sent <strong style={{ color: "var(--ink)" }}>{sentToday} win-back messages</strong> on autopilot,
+              {" "}Churnary has already sent <strong style={{ color: "var(--ink)" }}>{sentToday} win-back messages</strong> on autopilot,
               and you've recovered <strong style={{ color: "var(--sage-text)" }}>{formatCurrency(revenueRecovered)}</strong> so far.
             </>
           )}

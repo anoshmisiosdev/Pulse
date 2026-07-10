@@ -198,7 +198,7 @@ export function PulseProvider({ children }: { children: ReactNode }) {
     loading: status === "loading",
     error,
     status,
-    businessName: portfolio?.business_name ?? "Pulse",
+    businessName: portfolio?.business_name ?? "Churnary",
     vertical: portfolio?.vertical ?? "other",
     portfolio,
     customers,

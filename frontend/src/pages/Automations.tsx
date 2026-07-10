@@ -3,9 +3,9 @@ import { usePulse, type ActivityItem, type AutomationRule, type Mode } from "../
 import { SEGMENTS } from "../lib/segments";
 
 const MODES: { id: Mode; label: string; blurb: string }[] = [
-  { id: "suggest", label: "Suggest", blurb: "Pulse flags who to contact. You write & send." },
-  { id: "approve", label: "Approve", blurb: "Pulse drafts everything. You tap approve to send." },
-  { id: "auto", label: "Autopilot", blurb: "Pulse drafts and sends automatically, within guardrails." },
+  { id: "suggest", label: "Suggest", blurb: "Churnary flags who to contact. You write & send." },
+  { id: "approve", label: "Approve", blurb: "Churnary drafts everything. You tap approve to send." },
+  { id: "auto", label: "Autopilot", blurb: "Churnary drafts and sends automatically, within guardrails." },
 ];
 
 export default function Automations() {
@@ -27,7 +27,7 @@ export default function Automations() {
       <div className="anim-fade-up">
         <h1 className="text-[38px] font-bold tracking-tight" style={{ color: "var(--ink)" }}>Automations</h1>
         <p className="mt-1 italic" style={{ color: "var(--muted)", fontSize: "15.5px" }}>
-          Set it once — Pulse watches every customer and acts the moment churn risk rises.
+          Set it once — Churnary watches every customer and acts the moment churn risk rises.
         </p>
       </div>
 
@@ -54,12 +54,12 @@ export default function Automations() {
 
       <div>
         <h2 className="font-display mb-4 text-xl font-semibold" style={{ color: "var(--ink)" }}>
-          What Pulse did for you
+          What Churnary did for you
         </h2>
         <div className="glass overflow-hidden">
           {activity.length === 0 && (
             <p className="px-6 py-8 text-sm" style={{ color: "var(--muted-2)" }}>
-              No active rules. Turn one on above and Pulse will start working.
+              No active rules. Turn one on above and Churnary will start working.
             </p>
           )}
           {activity.map((a) => (
