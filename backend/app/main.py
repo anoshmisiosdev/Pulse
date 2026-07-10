@@ -5,9 +5,8 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from app.api import auth, campaigns, competitor_prices, health, integrations, portfolio
 from app.core.config import settings
@@ -49,24 +48,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    # A response raised from here still passes back through CORSMiddleware,
-    # unlike an exception that propagates past it to Starlette's outer
-    # ServerErrorMiddleware — that path emits a 500 with no CORS headers,
-    # which browsers then misreport as a CORS failure instead of a 500.
-    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
-
-
 API_PREFIX = "/api"
 app.include_router(health.router, prefix=API_PREFIX)
 app.include_router(auth.router, prefix=API_PREFIX)
@@ -79,3 +60,19 @@ app.include_router(competitor_prices.router, prefix=API_PREFIX)
 @app.get("/")
 async def root() -> dict:
     return {"service": "pulse-api", "docs": "/docs", "health": "/api/health"}
+
+
+# Wrapped around the finished app, not added via app.add_middleware: Starlette
+# special-cases 500/Exception handlers into ServerErrorMiddleware, which sits
+# outside every middleware added the normal way. A CORSMiddleware added via
+# add_middleware never sees those responses, so a real unhandled crash comes
+# back with no Access-Control-Allow-Origin header — the browser then reports
+# it as a CORS failure and hides the actual 500. Wrapping here puts CORS
+# outside ServerErrorMiddleware too, so every response gets the header.
+app = CORSMiddleware(
+    app,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
