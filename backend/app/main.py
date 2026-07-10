@@ -41,7 +41,10 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(
+# The FastAPI instance itself — kept under its own name so tests can still
+# reach FastAPI-only attributes (e.g. `dependency_overrides`) after `app` below
+# is reassigned to the CORS-wrapped ASGI callable.
+fastapi_app = FastAPI(
     title="Pulse API",
     version="0.1.0",
     summary="AI customer retention for small local businesses",
@@ -49,15 +52,15 @@ app = FastAPI(
 )
 
 API_PREFIX = "/api"
-app.include_router(health.router, prefix=API_PREFIX)
-app.include_router(auth.router, prefix=API_PREFIX)
-app.include_router(integrations.router, prefix=API_PREFIX)
-app.include_router(portfolio.router, prefix=API_PREFIX)
-app.include_router(campaigns.router, prefix=API_PREFIX)
-app.include_router(competitor_prices.router, prefix=API_PREFIX)
+fastapi_app.include_router(health.router, prefix=API_PREFIX)
+fastapi_app.include_router(auth.router, prefix=API_PREFIX)
+fastapi_app.include_router(integrations.router, prefix=API_PREFIX)
+fastapi_app.include_router(portfolio.router, prefix=API_PREFIX)
+fastapi_app.include_router(campaigns.router, prefix=API_PREFIX)
+fastapi_app.include_router(competitor_prices.router, prefix=API_PREFIX)
 
 
-@app.get("/")
+@fastapi_app.get("/")
 async def root() -> dict:
     return {"service": "pulse-api", "docs": "/docs", "health": "/api/health"}
 
@@ -70,7 +73,7 @@ async def root() -> dict:
 # it as a CORS failure and hides the actual 500. Wrapping here puts CORS
 # outside ServerErrorMiddleware too, so every response gets the header.
 app = CORSMiddleware(
-    app,
+    fastapi_app,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
