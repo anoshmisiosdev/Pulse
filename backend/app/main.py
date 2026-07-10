@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api import auth, campaigns, competitor_prices, health, integrations, portfolio
 from app.core.config import settings
@@ -55,6 +56,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    # A response raised from here still passes back through CORSMiddleware,
+    # unlike an exception that propagates past it to Starlette's outer
+    # ServerErrorMiddleware — that path emits a 500 with no CORS headers,
+    # which browsers then misreport as a CORS failure instead of a 500.
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
 
 API_PREFIX = "/api"
 app.include_router(health.router, prefix=API_PREFIX)

@@ -21,7 +21,10 @@ SECRET_KEYS=(
 )
 
 for key in "${SECRET_KEYS[@]}"; do
-  value="$(grep -m1 "^${key}=" "$ENV_FILE" | cut -d= -f2- || true)"
+  # Strip a trailing \r defensively — a CRLF-saved .env would otherwise smuggle
+  # a control character into the SSM value and break anything that parses it
+  # as a URL/host (e.g. urllib rejects "host.co\r" outright).
+  value="$(grep -m1 "^${key}=" "$ENV_FILE" | cut -d= -f2- | tr -d '\r' || true)"
   if [[ -z "$value" ]]; then
     echo "SKIP  $key (not set in .env)"
     continue
