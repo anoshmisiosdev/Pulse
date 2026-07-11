@@ -56,8 +56,11 @@ h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
 }
 
-a { color: var(--accent); }
-a:hover { color: var(--accent-dark); }
+/* In the base layer so Tailwind utilities (e.g. text-white) can override. */
+@layer base {
+  a { color: var(--accent); }
+  a:hover { color: var(--accent-dark); }
+}
 
 .font-display { font-family: var(--font-display); }
 .font-logo { font-family: 'Instrument Serif', serif; }
