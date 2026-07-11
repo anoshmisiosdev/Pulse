@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
@@ -47,7 +48,7 @@ export default function Login() {
   return (
     <div className="grid min-h-screen place-items-center px-4">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center justify-center gap-2">
+        <Link to="/" className="mb-6 flex items-center justify-center gap-2">
           <span
             className="font-logo inline-flex h-10 w-10 items-center justify-center rounded-full text-2xl"
             style={{ background: "var(--ink-strong)", color: "var(--cream-text)" }}
@@ -55,7 +56,10 @@ export default function Login() {
             P
           </span>
           <span className="font-display text-2xl font-bold tracking-tight" style={{ color: "var(--ink)" }}>Pulse</span>
-        </div>
+        </Link>
+        <p className="mb-4 -mt-3 text-center text-xs">
+          <Link to="/" className="hover:underline" style={{ color: "var(--muted-2)" }}>← Back to home</Link>
+        </p>
 
         <form onSubmit={onSubmit} className="glass-strong space-y-4 p-7">
           <div>
