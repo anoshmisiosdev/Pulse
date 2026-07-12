@@ -22,8 +22,10 @@ from app.models.customer import (
     Visit,
 )
 from app.models.integration import IntegrationConnection, SyncRun
+from app.models.knowledge import BusinessKnowledge
 
 __all__ = [
+    "BusinessKnowledge",
     "Business",
     "User",
     "IntegrationConnection",

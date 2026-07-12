@@ -89,6 +89,20 @@ class Settings(BaseSettings):
     enable_deepseek_extraction: bool = True
     deepseek_use_token_router: bool = False
 
+    # RAG embeddings — AWS Bedrock (Cohere Embed v4), same account as pulse-db.
+    # Dimensions must match the model's actual output size — the pgvector column
+    # (app/models/knowledge.py) is fixed at create time, so switching models later
+    # requires a migration. The App Runner instance role (pulse-apprunner-instance)
+    # holds bedrock:InvokeModel scoped to this exact model ARN; local dev uses
+    # whatever AWS credentials are in the shell (aws sts get-caller-identity).
+    bedrock_region: str = "us-east-1"
+    bedrock_embedding_model: str = "cohere.embed-v4:0"
+    embedding_dimensions: int = 1536
+
+    @property
+    def rag_configured(self) -> bool:
+        return bool(self.bedrock_embedding_model)
+
     @property
     def auth_configured(self) -> bool:
         """True once Supabase Auth is wired (URL is enough to verify via JWKS)."""

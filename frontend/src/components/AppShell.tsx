@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { usePulse } from "../context/PulseContext";
 import { useAuth } from "../context/AuthContext";
 import { formatCurrency } from "../lib/api";
+import KnowledgeChat from "./KnowledgeChat";
 
 const NAV = [
   { to: "/", label: "Dashboard", end: true },
@@ -141,6 +142,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <main className="mx-auto max-w-6xl px-6 py-9 pb-20">{children}</main>
 
       {briefing && <BriefingModal onClose={() => setBriefing(false)} />}
+      <KnowledgeChat />
     </div>
   );
 }

@@ -33,6 +33,12 @@ class CampaignContext:
     risk_reasons: list[str] = field(default_factory=list)
     history_summary: str = ""
     unsubscribe_url: str = "https://app.pulse/u/unsub"
+    # Retrieved via app.services.rag.knowledge_store.search_knowledge — the
+    # business's own services/brand-voice/past-campaign notes, most relevant
+    # to this send first. Empty when retrieval is unavailable; generation
+    # still works, just without that grounding (same degrade-gracefully
+    # philosophy as the LLM call itself).
+    knowledge_snippets: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -92,12 +98,19 @@ def _build_prompt(ctx: CampaignContext) -> tuple[str, str]:
         f"Tone: {ctx.tone}. Never fabricate facts, discounts, or claims not provided. "
         f"Respond with STRICT JSON only, exactly this shape: {shape}. No markdown, no prose."
     )
+    knowledge_block = ""
+    if ctx.knowledge_snippets:
+        bullets = "\n".join(f"- {s}" for s in ctx.knowledge_snippets)
+        knowledge_block = (
+            f"About this business (use if relevant, don't force it in):\n{bullets}\n\n"
+        )
     user = (
         f"Customer: {ctx.customer_name}\n"
         f"Why they're at risk: {reasons}\n"
         f"History: {ctx.history_summary or 'n/a'}\n"
         f"Incentive to offer: {incentive}\n"
         f"Channel: {ctx.channel}\n\n"
+        f"{knowledge_block}"
         f"Constraints:\n{rules}\n"
         f"Write the message now as JSON."
     )

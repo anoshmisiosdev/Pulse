@@ -62,6 +62,19 @@ class GeneratedCopyOut(BaseModel):
     model: str | None = None
 
 
+# ── RAG knowledge base (grounds campaign generation in the business's own voice) ──
+class KnowledgeIn(BaseModel):
+    kind: str = "note"  # service | brand_voice | campaign_example | note
+    content: str
+
+
+class KnowledgeOut(BaseModel):
+    id: str
+    kind: str
+    content: str
+    created_at: str
+
+
 # ── auth ── (Supabase issues the session; we only echo the resolved tenant)
 class AuthUser(BaseModel):
     user_id: str

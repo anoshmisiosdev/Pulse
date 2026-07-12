@@ -71,6 +71,15 @@ export interface GeneratedCopy {
   model: string | null;
 }
 
+export type KnowledgeKind = "service" | "brand_voice" | "campaign_example" | "note";
+
+export interface KnowledgeItem {
+  id: string;
+  kind: KnowledgeKind;
+  content: string;
+  created_at: string;
+}
+
 export interface AuthUser {
   user_id: string;
   email: string | null;
@@ -331,6 +340,33 @@ export const api = {
 
   templateUrl(): string {
     return `${BASE}/api/integrations/csv/template`;
+  },
+
+  /** Everything taught so far — retrieved into campaign generation (RAG). */
+  async listKnowledge(): Promise<KnowledgeItem[]> {
+    const res = await fetch(`${BASE}/api/knowledge`, { headers: authHeaders() });
+    return asJson<KnowledgeItem[]>(res);
+  },
+
+  /** Add a snippet (service, brand voice, past campaign example, or a general
+   * note) that future campaign generations can draw on. */
+  async addKnowledge(kind: KnowledgeKind, content: string): Promise<KnowledgeItem> {
+    const res = await fetch(`${BASE}/api/knowledge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ kind, content }),
+    });
+    return asJson<KnowledgeItem>(res);
+  },
+
+  async deleteKnowledge(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/knowledge/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok && res.status !== 204) {
+      throw new Error(`Request failed (${res.status})`);
+    }
   },
 };
 
