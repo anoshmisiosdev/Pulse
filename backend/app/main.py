@@ -8,7 +8,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, campaigns, competitor_prices, health, integrations, knowledge, portfolio
+from app.api import (
+    auth,
+    automations,
+    campaigns,
+    competitor_prices,
+    health,
+    integrations,
+    knowledge,
+    portfolio,
+)
 from app.core.config import settings
 
 logging.basicConfig(level=settings.log_level)
@@ -30,6 +39,18 @@ async def lifespan(app: FastAPI):
         # create_all never ALTERs. Stands in for Alembic until it's wired into CI.
         column_patches = [
             "ALTER TABLE customers ADD COLUMN IF NOT EXISTS favorite_item VARCHAR(255)",
+            "ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS automation_rule_id UUID",
+            "ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS provider_message_id VARCHAR(255)",
+            "ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS failure_reason TEXT",
+            "CREATE INDEX IF NOT EXISTS ix_campaign_sends_provider_message_id "
+            "ON campaign_sends (provider_message_id)",
+            "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS cooldown_days INTEGER "
+            "DEFAULT 14 NOT NULL",
+            "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS campaign_id UUID",
+            "ALTER TABLE engagement_events ADD COLUMN IF NOT EXISTS campaign_send_id UUID",
+            "ALTER TABLE engagement_events ADD COLUMN IF NOT EXISTS detail TEXT",
+            "CREATE INDEX IF NOT EXISTS ix_engagement_events_campaign_send_id "
+            "ON engagement_events (campaign_send_id)",
         ]
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -59,6 +80,7 @@ fastapi_app.include_router(portfolio.router, prefix=API_PREFIX)
 fastapi_app.include_router(campaigns.router, prefix=API_PREFIX)
 fastapi_app.include_router(competitor_prices.router, prefix=API_PREFIX)
 fastapi_app.include_router(knowledge.router, prefix=API_PREFIX)
+fastapi_app.include_router(automations.router, prefix=API_PREFIX)
 
 
 @fastapi_app.get("/")

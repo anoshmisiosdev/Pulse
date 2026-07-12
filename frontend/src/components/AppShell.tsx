@@ -1,8 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { usePulse } from "../context/PulseContext";
 import { useAuth } from "../context/AuthContext";
-import { formatCurrency } from "../lib/api";
+import { api, formatCurrency } from "../lib/api";
 import KnowledgeChat from "./KnowledgeChat";
 
 const NAV = [
@@ -148,10 +148,26 @@ export default function AppShell({ children }: { children: ReactNode }) {
 }
 
 function BriefingModal({ onClose }: { onClose: () => void }) {
-  const { businessName, customers, portfolio, activity, revenueRecovered } = usePulse();
+  const { businessName, customers, portfolio, revenueRecovered } = usePulse();
   const s = portfolio?.summary;
   const top = customers[0];
-  const sentToday = activity.filter((a) => a.status === "sent").length;
+  const [sentToday, setSentToday] = useState(0);
+
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    api
+      .listSends(100)
+      .then((sends) =>
+        setSentToday(
+          sends.filter(
+            (send) =>
+              (send.status === "sent" || send.status === "delivered") &&
+              send.sent_at?.slice(0, 10) === today
+          ).length
+        )
+      )
+      .catch(() => setSentToday(0));
+  }, []);
 
   return (
     <div

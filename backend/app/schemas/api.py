@@ -62,6 +62,62 @@ class GeneratedCopyOut(BaseModel):
     model: str | None = None
 
 
+# ── Automations (rule engine + SMS/email send history) ──
+class AutomationRuleIn(BaseModel):
+    name: str
+    trigger_band: str = "high"  # low | med | high
+    channel: str = "sms"  # sms | email
+    incentive: str | None = None
+    mode: str = "approve"  # suggest | approve | auto
+    cooldown_days: int = 14
+    enabled: bool = True
+
+
+class AutomationRulePatch(BaseModel):
+    name: str | None = None
+    trigger_band: str | None = None
+    channel: str | None = None
+    incentive: str | None = None
+    mode: str | None = None
+    cooldown_days: int | None = None
+    enabled: bool | None = None
+
+
+class AutomationRuleOut(BaseModel):
+    id: str
+    name: str
+    trigger_band: str
+    channel: str
+    incentive: str | None
+    mode: str
+    cooldown_days: int
+    enabled: bool
+    created_at: str
+
+
+class CampaignSendOut(BaseModel):
+    id: str
+    customer_id: str
+    customer_name: str
+    automation_rule_id: str | None
+    channel: str
+    subject: str | None
+    body: str
+    status: str
+    sent_at: str | None
+    failure_reason: str | None
+    created_at: str
+    opened: bool = False
+    clicked: bool = False
+    replied: bool = False
+
+
+class DispatchSummaryOut(BaseModel):
+    rules_evaluated: int
+    sends_created: int
+    skipped: dict[str, int]
+
+
 # ── RAG knowledge base (grounds campaign generation in the business's own voice) ──
 class KnowledgeIn(BaseModel):
     kind: str = "note"  # service | brand_voice | campaign_example | note

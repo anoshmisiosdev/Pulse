@@ -71,6 +71,57 @@ export interface GeneratedCopy {
   model: string | null;
 }
 
+export type TriggerBand = "low" | "med" | "high";
+export type AutomationChannel = "sms" | "email";
+export type AutomationMode = "suggest" | "approve" | "auto";
+
+export interface AutomationRule {
+  id: string;
+  name: string;
+  trigger_band: TriggerBand;
+  channel: AutomationChannel;
+  incentive: string | null;
+  mode: AutomationMode;
+  cooldown_days: number;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface AutomationRuleInput {
+  name: string;
+  trigger_band: TriggerBand;
+  channel: AutomationChannel;
+  incentive?: string | null;
+  mode: AutomationMode;
+  cooldown_days?: number;
+  enabled?: boolean;
+}
+
+export type CampaignSendStatus = "pending" | "approved" | "sent" | "delivered" | "failed" | "skipped";
+
+export interface CampaignSend {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  automation_rule_id: string | null;
+  channel: AutomationChannel;
+  subject: string | null;
+  body: string;
+  status: CampaignSendStatus;
+  sent_at: string | null;
+  failure_reason: string | null;
+  created_at: string;
+  opened: boolean;
+  clicked: boolean;
+  replied: boolean;
+}
+
+export interface DispatchSummary {
+  rules_evaluated: number;
+  sends_created: number;
+  skipped: Record<string, number>;
+}
+
 export type KnowledgeKind = "service" | "brand_voice" | "campaign_example" | "note";
 
 export interface KnowledgeItem {
@@ -367,6 +418,66 @@ export const api = {
     if (!res.ok && res.status !== 204) {
       throw new Error(`Request failed (${res.status})`);
     }
+  },
+
+  // ── Automations (SMS/email rule engine) ──────────────────────────────────
+  async listAutomationRules(): Promise<AutomationRule[]> {
+    const res = await fetch(`${BASE}/api/automations/rules`, { headers: authHeaders() });
+    return asJson<AutomationRule[]>(res);
+  },
+
+  async createAutomationRule(input: AutomationRuleInput): Promise<AutomationRule> {
+    const res = await fetch(`${BASE}/api/automations/rules`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(input),
+    });
+    return asJson<AutomationRule>(res);
+  },
+
+  async updateAutomationRule(
+    id: string,
+    patch: Partial<AutomationRuleInput>
+  ): Promise<AutomationRule> {
+    const res = await fetch(`${BASE}/api/automations/rules/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(patch),
+    });
+    return asJson<AutomationRule>(res);
+  },
+
+  async deleteAutomationRule(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/automations/rules/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok && res.status !== 204) {
+      throw new Error(`Request failed (${res.status})`);
+    }
+  },
+
+  async listSends(limit = 50): Promise<CampaignSend[]> {
+    const res = await fetch(`${BASE}/api/automations/sends?limit=${limit}`, {
+      headers: authHeaders(),
+    });
+    return asJson<CampaignSend[]>(res);
+  },
+
+  async approveSend(id: string): Promise<CampaignSend> {
+    const res = await fetch(`${BASE}/api/automations/sends/${id}/approve`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<CampaignSend>(res);
+  },
+
+  async triggerDispatch(): Promise<DispatchSummary> {
+    const res = await fetch(`${BASE}/api/automations/dispatch`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<DispatchSummary>(res);
   },
 };
 

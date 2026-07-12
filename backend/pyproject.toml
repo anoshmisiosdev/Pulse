@@ -22,13 +22,13 @@ dependencies = [
     "python-dateutil>=2.9",
     "pgvector>=0.3",
     "boto3>=1.35",
+    "resend>=2.5",
+    "twilio>=9.3",
 ]
 
 [project.optional-dependencies]
 integrations = [
     "stripe>=11.0",
-    "resend>=2.5",
-    "twilio>=9.3",
 ]
 
 [dependency-groups]

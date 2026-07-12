@@ -765,16 +765,16 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "python-multipart" },
     { name = "redis" },
+    { name = "resend" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "tenacity" },
+    { name = "twilio" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.optional-dependencies]
 integrations = [
-    { name = "resend" },
     { name = "stripe" },
-    { name = "twilio" },
 ]
 
 [package.dev-dependencies]
@@ -803,11 +803,11 @@ requires-dist = [
     { name = "python-dateutil", specifier = ">=2.9" },
     { name = "python-multipart", specifier = ">=0.0.12" },
     { name = "redis", specifier = ">=5.2" },
-    { name = "resend", marker = "extra == 'integrations'", specifier = ">=2.5" },
+    { name = "resend", specifier = ">=2.5" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
     { name = "stripe", marker = "extra == 'integrations'", specifier = ">=11.0" },
     { name = "tenacity", specifier = ">=9.0" },
-    { name = "twilio", marker = "extra == 'integrations'", specifier = ">=9.3" },
+    { name = "twilio", specifier = ">=9.3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]
 provides-extras = ["integrations"]

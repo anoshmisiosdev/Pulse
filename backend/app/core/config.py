@@ -111,9 +111,25 @@ class Settings(BaseSettings):
     # Email / SMS
     resend_api_key: str = ""
     resend_from_email: str = "hello@example.com"
+    # Signs POST /api/automations/resend/webhook (Resend uses Svix — the secret
+    # is the "whsec_..." value shown when you create the webhook endpoint).
+    resend_webhook_secret: str = ""
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_from_number: str = ""
+    # TCPA: no SMS before this local hour or at/after this one (24h, business's own timezone).
+    sms_quiet_hours_start: int = 9
+    sms_quiet_hours_end: int = 20
+    # How often the automation dispatcher re-evaluates rules (Celery beat, seconds).
+    automation_dispatch_interval_seconds: int = 900
+
+    @property
+    def resend_configured(self) -> bool:
+        return bool(self.resend_api_key)
+
+    @property
+    def twilio_configured(self) -> bool:
+        return bool(self.twilio_account_sid and self.twilio_auth_token and self.twilio_from_number)
 
     # Square OAuth app (Developer Dashboard → your app). Enables "Connect with Square".
     square_app_id: str = ""
