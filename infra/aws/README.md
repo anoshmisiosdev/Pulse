@@ -44,6 +44,21 @@ the VPC (it has no bastion yet), temporarily flip it public and restrict
 `pulse-rds-sg` to your IP, then revert both — see `rds-provision.sh` history
 in git for the exact commands used during the initial cutover.
 
+**Internet egress from App Runner**: switching egress to `VPC` mode (required
+for private RDS access) means App Runner ONLY reaches what's routable inside
+the VPC — RDS, yes; anything external (Supabase JWKS for RS256 token
+verification, AWS Bedrock, Stripe/Square/Resend/Twilio/Perplexity/TokenMart/
+Anthropic) needs real internet egress, which a VPC-only connector doesn't have
+by default. Fixed via NAT Gateway `pulse-nat` (subnet `subnet-00915037b1a22d60c`
+— the AZ excluded from the connector itself, so it's dedicated purely to
+hosting the NAT) + route table `pulse-apprunner-private-rt`, which routes
+`0.0.0.0/0` through it and is associated with all 5 of the connector's
+subnets. Without this, requests needing an external call hang until timeout
+(minutes) rather than failing fast — this is what caused the "stuck on
+customer loading" incident on 2026-07-12: RS256 JWT verification (JWKS fetch)
+and Bedrock embedding calls were both silently hanging. If you ever recreate
+the VPC connector or its subnets, this NAT setup needs to be redone too.
+
 ## Everyday operations
 
 **Deploy:** merge to `main` touching `backend/**`. CI pushes the image; App
@@ -92,6 +107,8 @@ aws apprunner describe-service --service-arn <arn> --query 'Service.{Status:Stat
 
 ## Cost
 
-Roughly $5–15/mo at current traffic: App Runner bills the 0.25 vCPU instance
-only while serving requests (plus a small provisioned-memory charge when idle);
-ECR storage is pennies.
+Roughly $5–15/mo at current traffic for App Runner + ECR (bills the 0.25 vCPU
+instance only while serving requests, plus a small provisioned-memory charge
+when idle; ECR storage is pennies) — **plus ~$32-35/mo for the NAT Gateway**
+(hourly charge regardless of traffic, plus ~$0.045/GB processed), which is
+required for any internet egress from the VPC-connected App Runner service.

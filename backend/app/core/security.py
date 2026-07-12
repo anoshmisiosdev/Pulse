@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 
+import jwt
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.config import settings
@@ -76,8 +77,6 @@ def verify_supabase_jwt(token: str) -> dict:
     (verified via the project's JWKS endpoint). Raises ``ValueError`` on any
     failure so callers map it to a 401.
     """
-    import jwt
-
     if not settings.supabase_url:
         raise ValueError("Supabase is not configured (SUPABASE_URL)")
 
