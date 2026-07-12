@@ -44,6 +44,7 @@ async def build_portfolio(db: AsyncSession, user: CurrentUser) -> PortfolioOut:
             ),
             customers=[],
             connections=connections,
+            location_label=biz.location_label if biz else None,
         )
 
     from app.api.integrations import _to_risk  # shared row shaping
@@ -57,6 +58,7 @@ async def build_portfolio(db: AsyncSession, user: CurrentUser) -> PortfolioOut:
         summary=PortfolioSummaryOut(**summary.__dict__),
         customers=_to_risk(scored),
         connections=connections,
+        location_label=biz.location_label if biz else None,
     )
 
 

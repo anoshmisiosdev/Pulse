@@ -4,7 +4,10 @@ import {
   formatCurrency,
   type CompetitorPrice,
   type CompetitorPriceCompetitor,
+  type CompetitorPriceHistoryItem,
+  type CompetitorPriceResearchInput,
   type CompetitorPriceResearchResponse,
+  type CompetitorPriceWatch,
 } from "../lib/api";
 import { usePulse } from "../context/PulseContext";
 
@@ -22,18 +25,18 @@ export type FormState = {
 
 const DEFAULT_FORM: FormState = {
   businessName: "",
-  businessCategory: "Coffee Shop",
-  targetOffer: "Cappuccino",
-  address: "3602 Thornton Ave",
-  city: "Fremont",
-  state: "CA",
-  zip: "94536",
+  businessCategory: "",
+  targetOffer: "",
+  address: "",
+  city: "",
+  state: "",
+  zip: "",
   radiusMiles: "10",
-  currentPrice: "4.00",
+  currentPrice: "",
 };
 
 export default function Pricing() {
-  const { businessName } = usePulse();
+  const { businessName, vertical, customers, portfolio } = usePulse();
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,12 +44,51 @@ export default function Pricing() {
   const [researchStartedAt, setResearchStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
+  const [history, setHistory] = useState<CompetitorPriceHistoryItem[]>([]);
+  const [watch, setWatch] = useState<CompetitorPriceWatch | null>(null);
+  const [watchSaving, setWatchSaving] = useState(false);
   const businessNameEdited = useRef(false);
 
   useEffect(() => {
     if (!businessName || businessNameEdited.current) return;
     setForm((current) => mergeTenantBusinessName(current, businessName));
   }, [businessName]);
+
+  useEffect(() => {
+    const defaults = deriveTenantPricingDefaults({
+      businessName,
+      vertical,
+      favoriteItems: customers.map((customer) => customer.favorite_item),
+      locationLabel: portfolio?.location_label ?? null,
+    });
+    setForm((current) => mergeEmptyFormValues(current, defaults));
+  }, [businessName, customers, portfolio?.location_label, vertical]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadSavedPricing() {
+      try {
+        const [latest, savedHistory, savedWatch] = await Promise.all([
+          api.latestCompetitorPrices(),
+          api.competitorPriceHistory(),
+          api.competitorPriceWatch(),
+        ]);
+        if (!active) return;
+        setResult(latest);
+        setHistory(savedHistory);
+        setWatch(savedWatch);
+        if (savedWatch) setForm(formFromResearchInput(savedWatch.request));
+      } catch {
+        // Research remains usable when no saved pricing state exists yet.
+      }
+    }
+    void loadSavedPricing();
+    const interval = window.setInterval(loadSavedPricing, 2 * 60 * 60 * 1000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     if (!loading || researchStartedAt === null) return undefined;
@@ -62,29 +104,16 @@ export default function Pricing() {
     const startedAt = Date.now();
     setLoading(true);
     setError(null);
+    setResult(null);
     setResearchStartedAt(startedAt);
     setElapsedMs(0);
     setLastDurationMs(null);
     let finalDurationMs: number | null = null;
     try {
-      const response = await api.researchCompetitorPrices({
-        businessName: form.businessName || businessName,
-        businessCategory: form.businessCategory,
-        targetOffer: form.targetOffer,
-        location: {
-          address: form.address || undefined,
-          city: form.city || undefined,
-          state: form.state || undefined,
-          zip: form.zip || undefined,
-          country: "US",
-        },
-        radiusMiles: Number(form.radiusMiles || 5),
-        maxCompetitors: 3,
-        maxSourcesPerCompetitor: 3,
-        currentPrice: form.currentPrice ? Number(form.currentPrice) : null,
-      });
+      const response = await api.researchCompetitorPrices(buildResearchInput(form, businessName));
       finalDurationMs = response.metadata.durationMs ?? Date.now() - startedAt;
       setResult(response);
+      setHistory(await api.competitorPriceHistory());
     } catch (err) {
       finalDurationMs = Date.now() - startedAt;
       setError(err instanceof Error ? err.message : "Research failed");
@@ -95,6 +124,24 @@ export default function Pricing() {
       }
       setResearchStartedAt(null);
       setLoading(false);
+    }
+  }
+
+  async function toggleMonitoring() {
+    setWatchSaving(true);
+    setError(null);
+    try {
+      setWatch(
+        await api.saveCompetitorPriceWatch({
+          enabled: !watch?.enabled,
+          intervalHours: 2,
+          request: watch?.enabled ? watch.request : buildResearchInput(form, businessName),
+        })
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update monitoring");
+    } finally {
+      setWatchSaving(false);
     }
   }
 
@@ -229,8 +276,25 @@ export default function Pricing() {
             />
           )}
           {error && <p className="text-sm font-medium text-red-600">{error}</p>}
+          <button
+            type="button"
+            disabled={
+              watchSaving ||
+              (!watch?.enabled && (!form.targetOffer || !form.city || !form.state))
+            }
+            onClick={toggleMonitoring}
+            className="rounded-xl border border-cyan-200 bg-white/70 px-4 py-2.5 text-sm font-semibold text-cyan-700 disabled:opacity-50"
+          >
+            {watchSaving
+              ? "Saving…"
+              : watch?.enabled
+                ? "Pause 2-hour monitoring"
+                : "Monitor every 2 hours"}
+          </button>
         </div>
       </form>
+
+      <PricingHistory history={history} />
 
       {result && (
         <>
@@ -385,10 +449,180 @@ export default function Pricing() {
               summary={result.channelSummaries?.delivery ?? null}
             />
           )}
+          <button
+            type="button"
+            onClick={() => exportPricingCsv(result)}
+            className="rounded-xl border border-slate-200 bg-white/70 px-4 py-2.5 text-sm font-semibold text-slate-700"
+          >
+            Export current research as CSV
+          </button>
         </>
       )}
     </div>
   );
+}
+
+export function PricingHistory({ history }: { history: CompetitorPriceHistoryItem[] }) {
+  if (history.length === 0) return null;
+  const alert = history.find(
+    (item) => item.changePercent !== null && Math.abs(item.changePercent) >= 5
+  );
+  return (
+    <div className="glass p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-bold text-slate-900">Pricing trend</h2>
+          <p className="text-sm text-slate-500">Saved market medians from recent research runs.</p>
+        </div>
+        {alert && (
+          <Badge tone="amber">
+            Alert: {alert.targetOffer} {alert.changePercent! > 0 ? "+" : ""}
+            {alert.changePercent}%
+          </Badge>
+        )}
+      </div>
+      <div className="mt-4 overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="text-xs uppercase tracking-wide text-slate-400">
+            <tr>
+              <th className="py-2 pr-4">Offer</th>
+              <th className="py-2 pr-4">Median</th>
+              <th className="py-2 pr-4">Change</th>
+              <th className="py-2">Researched</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {history.slice(0, 8).map((item) => (
+              <tr key={item.id}>
+                <td className="py-2.5 pr-4 font-semibold text-slate-800">{item.targetOffer}</td>
+                <td className="py-2.5 pr-4">
+                  {item.priceMedian === null ? "No median" : formatCurrency(item.priceMedian, true)}
+                </td>
+                <td className="py-2.5 pr-4">
+                  {item.changePercent === null
+                    ? "—"
+                    : `${item.changePercent > 0 ? "+" : ""}${item.changePercent}%`}
+                </td>
+                <td className="py-2.5 text-slate-500">
+                  {new Date(item.generatedAt).toLocaleString()}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export function deriveTenantPricingDefaults(input: {
+  businessName: string;
+  vertical: string;
+  favoriteItems: Array<string | null>;
+  locationLabel: string | null;
+}): FormState {
+  const categoryByVertical: Record<string, string> = {
+    cafe: "Coffee Shop",
+    coffee_shop: "Coffee Shop",
+    fitness: "Gym",
+    gym: "Gym",
+    salon: "Hair Salon",
+    med_spa: "Med Spa",
+    boutique: "Boutique",
+  };
+  const counts = new Map<string, number>();
+  for (const item of input.favoriteItems) {
+    if (item?.trim()) counts.set(item.trim(), (counts.get(item.trim()) ?? 0) + 1);
+  }
+  const targetOffer = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+  const locationParts = (input.locationLabel ?? "").split(",").map((part) => part.trim());
+  return {
+    ...DEFAULT_FORM,
+    businessName: input.businessName,
+    businessCategory: categoryByVertical[input.vertical] ?? "Local Business",
+    targetOffer,
+    city: locationParts.length >= 2 ? locationParts[0] : "",
+    state: locationParts.length >= 2 ? locationParts[1] : "",
+    address: locationParts.length < 2 ? input.locationLabel ?? "" : "",
+  };
+}
+
+export function mergeEmptyFormValues(form: FormState, defaults: FormState): FormState {
+  return Object.fromEntries(
+    Object.entries(form).map(([key, value]) => [
+      key,
+      value || defaults[key as keyof FormState],
+    ])
+  ) as FormState;
+}
+
+export function buildResearchInput(
+  form: FormState,
+  tenantBusinessName: string
+): CompetitorPriceResearchInput {
+  return {
+    businessName: form.businessName || tenantBusinessName,
+    businessCategory: form.businessCategory,
+    targetOffer: form.targetOffer,
+    location: {
+      address: form.address || undefined,
+      city: form.city || undefined,
+      state: form.state || undefined,
+      zip: form.zip || undefined,
+      country: "US",
+    },
+    radiusMiles: Number(form.radiusMiles || 5),
+    maxCompetitors: 3,
+    maxSourcesPerCompetitor: 3,
+    currentPrice: form.currentPrice ? Number(form.currentPrice) : null,
+  };
+}
+
+export function formFromResearchInput(input: CompetitorPriceResearchInput): FormState {
+  return {
+    businessName: input.businessName ?? "",
+    businessCategory: input.businessCategory,
+    targetOffer: input.targetOffer,
+    address: input.location.address ?? "",
+    city: input.location.city ?? "",
+    state: input.location.state ?? "",
+    zip: input.location.zip ?? "",
+    radiusMiles: String(input.radiusMiles ?? 5),
+    currentPrice: input.currentPrice === null || input.currentPrice === undefined
+      ? ""
+      : String(input.currentPrice),
+  };
+}
+
+function exportPricingCsv(result: CompetitorPriceResearchResponse) {
+  const csv = buildPricingCsv(result);
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  link.download = `pulse-pricing-${result.query.targetOffer.toLowerCase().replaceAll(" ", "-")}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
+}
+
+export function buildPricingCsv(result: CompetitorPriceResearchResponse): string {
+  const rows = [
+    ["competitor", "offer", "price_min", "price_max", "channel", "confidence", "source"],
+    ...result.competitors.flatMap((competitor) =>
+      competitor.prices.map((price) => [
+        competitor.name,
+        price.offerName,
+        price.priceMin,
+        price.priceMax,
+        price.priceChannel,
+        price.confidence,
+        price.sourceUrl,
+      ])
+    ),
+  ];
+  return rows
+    .map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","))
+    .join("\n");
 }
 
 function TimerBadge({ durationMs, label }: { durationMs: number; label: string }) {

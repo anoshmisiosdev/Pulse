@@ -4,7 +4,10 @@ import type { CompetitorPriceResearchResponse } from "../lib/api";
 import {
   Badge,
   DeliveryPrices,
+  PricingHistory,
   ResearchStats,
+  buildPricingCsv,
+  deriveTenantPricingDefaults,
   formatPrice,
   mergeTenantBusinessName,
   type FormState,
@@ -132,5 +135,103 @@ describe("pricing research audit UI", () => {
     expect(
       mergeTenantBusinessName({ ...form, businessName: "Custom Cafe" }, "Tenant").businessName
     ).toBe("Custom Cafe");
+  });
+
+  it("derives tenant defaults and renders a material price alert", () => {
+    const defaults = deriveTenantPricingDefaults({
+      businessName: "Northstar Gym",
+      vertical: "fitness",
+      favoriteItems: ["Monthly membership", "Day pass", "Monthly membership"],
+      locationLabel: "Oakland, CA",
+    });
+    expect(defaults.businessCategory).toBe("Gym");
+    expect(defaults.targetOffer).toBe("Monthly membership");
+    expect(defaults.city).toBe("Oakland");
+    expect(defaults.state).toBe("CA");
+
+    const html = renderToStaticMarkup(
+      <PricingHistory
+        history={[
+          {
+            id: "run-1",
+            targetOffer: "Monthly membership",
+            businessCategory: "Gym",
+            generatedAt: "2026-07-12T12:00:00Z",
+            priceMedian: 59,
+            sampleSize: 3,
+            confidence: 0.7,
+            changePercent: 7.3,
+          },
+        ]}
+      />
+    );
+    expect(html).toContain("Pricing trend");
+    expect(html).toContain("Alert:");
+    expect(html).toContain("+7.3%");
+  });
+
+  it("exports source-backed observations as CSV", () => {
+    const csv = buildPricingCsv({
+      query: {
+        businessCategory: "Coffee Shop",
+        targetOffer: "Cappuccino",
+        locationLabel: "Fremont, CA",
+        radiusMiles: 5,
+      },
+      competitors: [
+        {
+          name: "Hops & Beans",
+          address: "Fremont, CA",
+          website: null,
+          distanceMiles: 1,
+          rating: null,
+          reviewCount: null,
+          confidence: 0.8,
+          radiusVerified: true,
+          exclusionReasons: [],
+          prices: [
+            {
+              offerName: "Cappuccino",
+              normalizedOfferName: "cappuccino",
+              priceMin: 4.75,
+              priceMax: 4.75,
+              currency: "USD",
+              priceType: "fixed",
+              sourceUrl: "https://example.com/menu",
+              sourceTitle: "Menu",
+              evidenceText: "Cappuccino $4.75",
+              observedAt: "2026-07-12",
+              confidence: 0.8,
+              confidenceReasons: [],
+              matchQuality: "exact",
+              priceChannel: "in_store",
+              corroborated: true,
+              includedInMarketSummary: true,
+            },
+          ],
+        },
+      ],
+      marketSummary: summary,
+      channelSummaries: null,
+      warnings: [],
+      metadata: {
+        modelsUsed: [],
+        groundingUsed: { googleSearch: false, googleMaps: false, urlContext: false },
+        generatedAt: "2026-07-12T12:00:00Z",
+        cached: false,
+        durationMs: 100,
+        researchStats: {
+          competitorsDiscovered: 1,
+          competitorsIncluded: 1,
+          sourcesDiscovered: 1,
+          sourcesChecked: 1,
+          sourcesAccepted: 1,
+          corroboratedCompetitors: 1,
+        },
+      },
+    });
+    expect(csv).toContain('"Hops & Beans"');
+    expect(csv).toContain('"4.75"');
+    expect(csv).toContain('"https://example.com/menu"');
   });
 });

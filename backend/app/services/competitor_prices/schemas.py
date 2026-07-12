@@ -246,6 +246,28 @@ class CompetitorPriceResearchResponse(CamelModel):
     metadata: MetadataOut
 
 
+class PriceHistoryItemOut(CamelModel):
+    id: str
+    target_offer: str = Field(alias="targetOffer")
+    business_category: str = Field(alias="businessCategory")
+    generated_at: datetime = Field(alias="generatedAt")
+    price_median: float | None = Field(alias="priceMedian")
+    sample_size: int = Field(alias="sampleSize")
+    confidence: float
+    change_percent: float | None = Field(default=None, alias="changePercent")
+
+
+class PriceWatchIn(CamelModel):
+    enabled: bool = True
+    interval_hours: int = Field(default=24, alias="intervalHours", ge=2, le=168)
+    request: CompetitorPriceResearchRequest
+
+
+class PriceWatchOut(PriceWatchIn):
+    last_run_at: datetime | None = Field(default=None, alias="lastRunAt")
+    next_run_at: datetime = Field(alias="nextRunAt")
+
+
 class DiscoveredCompetitor(CamelModel):
     name: str
     address: str | None = None

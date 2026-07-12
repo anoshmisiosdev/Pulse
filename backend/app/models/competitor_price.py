@@ -48,6 +48,22 @@ class CompetitorPriceResearchRun(UUIDMixin, Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class CompetitorPriceWatch(UUIDMixin, Base):
+    __tablename__ = "competitor_price_watches"
+    __table_args__ = (
+        Index("ix_comp_price_watches_business", "business_id", unique=True),
+        Index("ix_comp_price_watches_due", "enabled", "next_run_at"),
+    )
+
+    business_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    user_id: Mapped[str] = mapped_column(String(255))
+    request_json: Mapped[str] = mapped_column(Text)
+    interval_hours: Mapped[int] = mapped_column(Integer, default=24)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class CompetitorPriceCompetitor(UUIDMixin, Base):
     __tablename__ = "competitor_price_competitors"
 

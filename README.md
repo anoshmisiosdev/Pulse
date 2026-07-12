@@ -16,7 +16,7 @@ campaigns — before the owner notices a problem.
 | Database | PostgreSQL 16 (Supabase), Supabase Auth |
 | Frontend | React 18 + Vite + TypeScript, Tailwind, shadcn/ui, Recharts |
 | AI | Anthropic `claude-sonnet-4-6` |
-| Price research | Perplexity Search, DeepSeek V4 Flash, Google geocoding |
+| Price research | Google Places, Perplexity Search, direct evidence fetch, DeepSeek V4 Flash |
 | Email / SMS | Resend / Twilio |
 | Billing | Stripe Checkout + Customer Portal |
 
@@ -82,12 +82,18 @@ TOKENMART_MODEL=deepseek-v4-flash
 ENABLE_DEEPSEEK_EXTRACTION=true
 ```
 
-When `STRICT_FREE_TIER=true`, fresh research runs are capped and cached for 24
-hours. Strict free-tier mode also limits fresh runs to 3 competitors and 3 source
+Identical research requests are cached for two hours. When `STRICT_FREE_TIER=true`,
+fresh research runs are capped. Strict free-tier mode also limits fresh runs to
+3 competitors and 3 source
 attempts per competitor, stopping early after two independent sources corroborate
 a price. Perplexity is required for grounded competitor discovery. If source-page
 discovery fails, only already-known first-party URLs are used; the application
 does not generate ungrounded competitors or prices.
+
+The Pricing tab restores the latest report and recent median history, supports
+CSV export, and can save a two-hour monitor. The Celery worker checks for due
+pricing monitors every ten minutes and persists fresh research for trend and
+material-change alerts.
 
 ## Repo layout
 

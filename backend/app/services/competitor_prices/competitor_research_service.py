@@ -79,7 +79,7 @@ from app.services.competitor_prices.schemas import (
 )
 
 FRESH_RUNS_PER_DAY = 5
-CACHE_TTL = timedelta(hours=24)
+CACHE_TTL = timedelta(hours=2)
 STRICT_FREE_TIER_MAX_COMPETITORS = 3
 STRICT_FREE_TIER_MAX_SOURCES_PER_COMPETITOR = 3
 
@@ -154,11 +154,11 @@ class CompetitorResearchService:
         payload = await self._resolve_origin(payload, warnings, metadata)
         cache_key = build_cache_key(payload)
 
+        cached = await self._cached_response(business_id, cache_key)
+        if cached:
+            cached.warnings = _merge_warnings(warnings, cached.warnings)
+            return cached
         if settings.strict_free_tier:
-            cached = await self._cached_response(business_id, cache_key)
-            if cached:
-                cached.warnings = _merge_warnings(warnings, cached.warnings)
-                return cached
             await self._enforce_rate_limit(business_id)
 
         pipeline_started = time.perf_counter()
@@ -746,7 +746,7 @@ Evidence JSON:
             models_used_json=json.dumps(response.metadata.models_used),
             warnings_json=json.dumps(response.warnings),
             response_json=response.model_dump_json(by_alias=True),
-            expires_at=datetime.now(UTC) + CACHE_TTL if settings.strict_free_tier else None,
+            expires_at=datetime.now(UTC) + CACHE_TTL,
         )
         self.db.add(run)
         await self.db.flush()

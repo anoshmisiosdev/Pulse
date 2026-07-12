@@ -61,6 +61,7 @@ export interface Portfolio {
   /** "empty" = no data source connected yet; "ready" = tenant data loaded. */
   status?: "empty" | "ready";
   connections?: Connection[];
+  location_label?: string | null;
 }
 
 export interface GeneratedCopy {
@@ -211,6 +212,25 @@ export interface CompetitorPriceResearchResponse {
   };
 }
 
+export interface CompetitorPriceHistoryItem {
+  id: string;
+  targetOffer: string;
+  businessCategory: string;
+  generatedAt: string;
+  priceMedian: number | null;
+  sampleSize: number;
+  confidence: number;
+  changePercent: number | null;
+}
+
+export interface CompetitorPriceWatch {
+  enabled: boolean;
+  intervalHours: number;
+  request: CompetitorPriceResearchInput;
+  lastRunAt: string | null;
+  nextRunAt: string;
+}
+
 // The current Supabase access token, kept in sync by AuthContext.
 let accessToken: string | null = null;
 export function setAccessToken(t: string | null): void {
@@ -355,6 +375,40 @@ export const api = {
       body: JSON.stringify(input),
     });
     return asJson<CompetitorPriceResearchResponse>(res);
+  },
+
+  async latestCompetitorPrices(): Promise<CompetitorPriceResearchResponse | null> {
+    const res = await fetch(`${BASE}/api/competitor-prices/latest`, {
+      headers: authHeaders(),
+    });
+    return asJson<CompetitorPriceResearchResponse | null>(res);
+  },
+
+  async competitorPriceHistory(limit = 12): Promise<CompetitorPriceHistoryItem[]> {
+    const res = await fetch(`${BASE}/api/competitor-prices/history?limit=${limit}`, {
+      headers: authHeaders(),
+    });
+    return asJson<CompetitorPriceHistoryItem[]>(res);
+  },
+
+  async competitorPriceWatch(): Promise<CompetitorPriceWatch | null> {
+    const res = await fetch(`${BASE}/api/competitor-prices/watch`, {
+      headers: authHeaders(),
+    });
+    return asJson<CompetitorPriceWatch | null>(res);
+  },
+
+  async saveCompetitorPriceWatch(input: {
+    enabled: boolean;
+    intervalHours: number;
+    request: CompetitorPriceResearchInput;
+  }): Promise<CompetitorPriceWatch> {
+    const res = await fetch(`${BASE}/api/competitor-prices/watch`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(input),
+    });
+    return asJson<CompetitorPriceWatch>(res);
   },
 
   templateUrl(): string {

@@ -99,3 +99,4 @@ class PortfolioOut(CSVPreviewOut):
     # "empty" -> no data yet: frontend routes the owner to /setup.
     status: str = "ready"
     connections: list[ConnectionOut] = []
+    location_label: str | None = None

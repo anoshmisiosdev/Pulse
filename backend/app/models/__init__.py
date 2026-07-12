@@ -13,6 +13,7 @@ from app.models.competitor_price import (
     CompetitorPriceObservation,
     CompetitorPriceResearchRun,
     CompetitorPriceSource,
+    CompetitorPriceWatch,
 )
 from app.models.customer import (
     Customer,
@@ -42,4 +43,5 @@ __all__ = [
     "CompetitorPriceCompetitor",
     "CompetitorPriceSource",
     "CompetitorPriceObservation",
+    "CompetitorPriceWatch",
 ]
