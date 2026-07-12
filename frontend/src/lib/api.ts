@@ -117,6 +117,13 @@ export interface CompetitorPrice {
   priceChannel: "in_store" | "delivery" | "unknown";
   corroborated: boolean;
   includedInMarketSummary: boolean;
+  sourcePublishedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  verifiedAt?: string | null;
+  retrievalMethod?: "direct_fetch" | "perplexity_content" | "search_snippet" | "none";
+  extractionMethod?: "json_ld" | "visible_text" | "search_snippet" | "tokenmart" | "method_consensus";
+  freshnessStatus?: "current" | "stale" | "unknown" | "expired";
+  needsReview?: boolean;
 }
 
 export interface CompetitorPriceCompetitor {
@@ -130,6 +137,8 @@ export interface CompetitorPriceCompetitor {
   confidence: number;
   radiusVerified: boolean;
   exclusionReasons: string[];
+  placeId?: string | null;
+  discoveryProvider?: "google_places" | "perplexity";
 }
 
 export interface CompetitorPriceMarketSummary {
@@ -168,6 +177,7 @@ export interface CompetitorPriceResearchResponse {
       deepseekExtraction?: boolean;
       deepseekResearch?: boolean;
       googleGeocoding?: boolean;
+      googlePlaces?: boolean;
     };
     generatedAt: string;
     cached: boolean;
@@ -179,6 +189,24 @@ export interface CompetitorPriceResearchResponse {
       sourcesChecked: number;
       sourcesAccepted: number;
       corroboratedCompetitors: number;
+      pagesFetched?: number;
+      pagesParsed?: number;
+      deterministicExtractions?: number;
+      aiExtractions?: number;
+      staleExclusions?: number;
+      conflictingExclusions?: number;
+    };
+    providerStats?: {
+      googlePlacesRequests: number;
+      googleGeocodingRequests: number;
+      perplexityRequests: number;
+      pageFetchRequests: number;
+      tokenmartRequests: number;
+      durationMsByProvider: Record<string, number>;
+      tokenmartGateway?: string | null;
+      tokenmartRequestedModel?: string | null;
+      tokenmartReturnedModels?: string[];
+      tokenmartUsage?: Record<string, number>;
     };
   };
 }

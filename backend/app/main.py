@@ -10,24 +10,24 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth, campaigns, competitor_prices, health, integrations, portfolio
 from app.core.config import settings
+from app.core.logging import configure_logging
 
-logging.basicConfig(level=settings.log_level)
+configure_logging()
 logger = logging.getLogger("pulse")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure tables exist (idempotent). Runs in production too — the deploy story is
-    # a single container against Supabase, so create_all doubles as the migration
-    # path until Alembic is wired into CI.
+    # Alembic runs before the API process in deployed environments. Keep
+    # create_all as a compatibility path for the application's older tables,
+    # which predate the current Alembic migration chain.
     try:
         from sqlalchemy import text
 
         from app import models  # noqa: F401 — register tables on metadata
         from app.core.database import Base, engine
 
-        # Idempotent column patches for tables that predate a model change —
-        # create_all never ALTERs. Stands in for Alembic until it's wired into CI.
+        # Compatibility patch for a table that predates the migration chain.
         column_patches = [
             "ALTER TABLE customers ADD COLUMN IF NOT EXISTS favorite_item VARCHAR(255)",
         ]

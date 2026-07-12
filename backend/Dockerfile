@@ -18,5 +18,7 @@ RUN uv sync --no-install-project --all-extras --dev || uv sync --no-install-proj
 COPY . .
 
 EXPOSE 8000
-# Shell form so $PORT (set by Render/Railway/Fly) is honored; falls back to 8000.
-CMD uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Apply committed schema changes before serving traffic. Alembic uses
+# DATABASE_MIGRATION_URL when supplied, otherwise DATABASE_URL.
+# Shell form also lets Render/Railway/Fly provide $PORT.
+CMD uv run alembic upgrade head && exec uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

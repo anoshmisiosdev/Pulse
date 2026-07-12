@@ -31,7 +31,7 @@ services:
     build:
       context: ./backend
     # `uv run` activates the image's venv; a bare `uvicorn` isn't on PATH.
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -c "uv run alembic upgrade head && exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     env_file: .env
     environment:
       # Self-contained local stack: the compose Postgres has no SSL/pooler, so

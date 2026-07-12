@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import httpx
@@ -70,11 +71,25 @@ class PerplexitySearchResult:
 
 
 class PerplexitySearchClient:
-    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        http_client: httpx.AsyncClient | None = None,
+    ):
         self.api_key = api_key if api_key is not None else settings.perplexity_api_key
         self.base_url = (base_url or settings.perplexity_search_base_url).rstrip("/")
+        self.http_client = http_client
+        self.requests_made = 0
 
-    async def search(self, query: str, *, max_results: int) -> list[PerplexitySearchResult]:
+    async def search(
+        self,
+        query: str | list[str],
+        *,
+        max_results: int,
+        search_domain_filter: list[str] | None = None,
+        search_after_date_filter: str | None = None,
+    ) -> list[PerplexitySearchResult]:
         if not self.api_key:
             raise PerplexityConfigurationError(
                 "Set PERPLEXITY_API_KEY to use Perplexity Search source discovery."
@@ -86,20 +101,35 @@ class PerplexitySearchClient:
         }
         if settings.perplexity_search_country:
             payload["country"] = settings.perplexity_search_country
-        if settings.perplexity_search_context_size:
+        if settings.perplexity_max_tokens_per_page:
+            payload["max_tokens_per_page"] = settings.perplexity_max_tokens_per_page
+        elif settings.perplexity_search_context_size:
             payload["search_context_size"] = settings.perplexity_search_context_size
+        if search_domain_filter:
+            payload["search_domain_filter"] = search_domain_filter[:20]
+        if search_after_date_filter:
+            payload["search_after_date_filter"] = search_after_date_filter
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                response = await client.post(
+            if self.http_client is not None:
+                self.requests_made += 1
+                response = await self.http_client.post(
                     f"{self.base_url}/search",
                     headers=headers,
                     json=payload,
                 )
+            else:
+                async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                    self.requests_made += 1
+                    response = await client.post(
+                        f"{self.base_url}/search",
+                        headers=headers,
+                        json=payload,
+                    )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:
@@ -118,7 +148,10 @@ class PerplexitySearchClient:
             raise PerplexityError(f"Unexpected Perplexity Search response: {data}")
 
         parsed: list[PerplexitySearchResult] = []
-        for item in results:
+        flattened = [nested for item in results for nested in item] if results and all(
+            isinstance(item, list) for item in results
+        ) else results
+        for item in flattened:
             if not isinstance(item, dict):
                 continue
             title = str(item.get("title") or "").strip()
@@ -145,20 +178,48 @@ async def discover_sources_with_perplexity(
     payload: CompetitorPriceResearchRequest,
 ) -> list[DiscoveredSource]:
     sources: list[DiscoveredSource] = []
-    for query_index, query in enumerate(_pricing_queries(competitor, payload)):
-        try:
-            results = await client.search(query, max_results=settings.perplexity_max_results)
-        except PerplexityError:
-            raise
-        for result in results:
-            source = _source_from_result(
-                result=result,
-                competitor=competitor,
-                target_offer=payload.target_offer,
-                query_index=query_index,
+    queries = _pricing_queries(competitor, payload)
+    domain = _domain(competitor.website or "")
+    if domain:
+        official_results = await client.search(
+            f'site:{domain} "{canonicalize_offer_label(payload.target_offer)}" price menu',
+            max_results=settings.perplexity_max_results,
+            search_domain_filter=[domain],
+        )
+        sources.extend(
+            source
+            for result in official_results
+            if (
+                source := _source_from_result(
+                    result=result,
+                    competitor=competitor,
+                    target_offer=payload.target_offer,
+                    query_index=0,
+                )
             )
-            if source:
-                sources.append(source)
+        )
+    general_queries = [query for query in queries if not query.startswith("site:")]
+    if general_queries:
+        cutoff = datetime.now(UTC) - timedelta(
+            days=max(1, settings.third_party_freshness_months) * 30
+        )
+        results = await client.search(
+            general_queries[:5],
+            max_results=settings.perplexity_max_results,
+            search_after_date_filter=cutoff.strftime("%m/%d/%Y"),
+        )
+        sources.extend(
+            source
+            for result in results
+            if (
+                source := _source_from_result(
+                    result=result,
+                    competitor=competitor,
+                    target_offer=payload.target_offer,
+                    query_index=1,
+                )
+            )
+        )
     return sources
 
 
@@ -204,6 +265,9 @@ def _source_from_result(
             snippet=snippet,
             sourceType=source_type,
             relevance=relevance,
+            publishedAt=result.date,
+            updatedAt=result.last_updated,
+            retrievalMethod="perplexity_content",
         )
     except ValueError:
         logger.debug("Ignoring invalid Perplexity URL: %s", result.url)

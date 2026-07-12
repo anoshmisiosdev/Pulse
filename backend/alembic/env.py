@@ -23,7 +23,8 @@ from app.core.config import settings
 from app.core.database import Base, engine_connect_args
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
+migration_url = settings.effective_database_migration_url
+config.set_main_option("sqlalchemy.url", migration_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -33,7 +34,7 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.database_url,
+        url=migration_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -50,7 +51,7 @@ def _do_run_migrations(connection) -> None:
 
 async def run_migrations_online() -> None:
     connectable = create_async_engine(
-        settings.database_url,
+        migration_url,
         poolclass=pool.NullPool,
         connect_args=engine_connect_args(),
     )

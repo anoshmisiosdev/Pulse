@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
@@ -41,6 +42,7 @@ class DeepSeekJSONResult[T: BaseModel]:
     warnings: list[str] = field(default_factory=list)
     tools_used: set[str] = field(default_factory=lambda: {"deepseek_extraction"})
     model: str = ""
+    usage: dict[str, int] = field(default_factory=dict)
 
 
 class DeepSeekClient:
@@ -54,6 +56,10 @@ class DeepSeekClient:
         self.api_key = api_key if api_key is not None else _effective_api_key()
         self.base_url = (base_url or _effective_base_url()).rstrip("/")
         self.model = model or _effective_model()
+        self.requests_made = 0
+        self.duration_ms_total = 0
+        self.returned_models: set[str] = set()
+        self.usage_totals: dict[str, int] = {}
 
     async def generate_json(
         self,
@@ -82,7 +88,13 @@ class DeepSeekClient:
             repaired = await self._repair_json(text, response_model=response_model)
             parsed = parse_json_text(repaired, response_model)
 
-        return DeepSeekJSONResult(data=parsed, model=self.model)
+        returned_model = str(data.get("model") or self.model)
+        usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        self.returned_models.add(returned_model)
+        for key, value in usage.items():
+            if isinstance(value, int):
+                self.usage_totals[key] = self.usage_totals.get(key, 0) + value
+        return DeepSeekJSONResult(data=parsed, model=returned_model, usage=usage)
 
     async def _repair_json(self, raw: str, *, response_model: type[T]) -> str:
         schema = json.dumps(response_model.model_json_schema(by_alias=True))
@@ -152,11 +164,16 @@ class DeepSeekClient:
             "Content-Type": "application/json",
         }
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(
-                self._chat_url(),
-                headers=headers,
-                json=payload,
-            )
+            started = time.perf_counter()
+            self.requests_made += 1
+            try:
+                response = await client.post(
+                    self._chat_url(),
+                    headers=headers,
+                    json=payload,
+                )
+            finally:
+                self.duration_ms_total += round((time.perf_counter() - started) * 1000)
         response.raise_for_status()
         data = response.json()
         if not isinstance(data, dict):

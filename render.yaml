@@ -8,12 +8,15 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     dockerCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    preDeployCommand: uv run alembic upgrade head
     healthCheckPath: /api/health
     plan: starter
     envVars:
       - key: ENVIRONMENT
         value: production
       - key: DATABASE_URL # Supabase pooler URL (port 6543)
+        sync: false
+      - key: DATABASE_MIGRATION_URL # Supabase direct URL (port 5432)
         sync: false
       - key: DB_USE_PGBOUNCER
         value: "true"

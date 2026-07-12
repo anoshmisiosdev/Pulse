@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import statistics
+import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass
@@ -46,6 +47,11 @@ from app.services.competitor_prices.geocoding import (
     GoogleGeocodingClient,
     distance_miles,
 )
+from app.services.competitor_prices.google_places import (
+    GooglePlacesClient,
+    GooglePlacesError,
+)
+from app.services.competitor_prices.page_fetcher import SafePageFetcher
 from app.services.competitor_prices.perplexity_client import (
     PerplexityConfigurationError,
     PerplexityError,
@@ -66,6 +72,7 @@ from app.services.competitor_prices.schemas import (
     GroundingUsedOut,
     MetadataOut,
     PriceObservationOut,
+    ProviderStatsOut,
     QueryOut,
     ResearchCallMetadata,
     ResearchStatsOut,
@@ -121,11 +128,15 @@ class CompetitorResearchService:
         deepseek_client: DeepSeekClient | None = None,
         perplexity_client: PerplexitySearchClient | None = None,
         geocoding_client: GoogleGeocodingClient | None = None,
+        places_client: GooglePlacesClient | None = None,
+        page_fetcher: SafePageFetcher | None = None,
     ):
         self.db = db
         self.deepseek = deepseek_client or DeepSeekClient()
         self.perplexity = perplexity_client or PerplexitySearchClient()
         self.geocoder = geocoding_client or GoogleGeocodingClient()
+        self.places = places_client or GooglePlacesClient()
+        self.page_fetcher = page_fetcher or SafePageFetcher()
         self.extractor = PricingExtractionService(self.deepseek)
 
     async def research(
@@ -150,7 +161,15 @@ class CompetitorResearchService:
                 return cached
             await self._enforce_rate_limit(business_id)
 
-        discovered = await self.discover_competitors(payload, warnings, metadata)
+        pipeline_started = time.perf_counter()
+        try:
+            discovered = await asyncio.wait_for(
+                self.discover_competitors(payload, warnings, metadata),
+                timeout=_remaining_deadline(pipeline_started),
+            )
+        except TimeoutError:
+            warnings.append("Competitor discovery reached the research deadline.")
+            discovered = CompetitorDiscoveryResult(competitors=[])
 
         without_self = [
             competitor
@@ -168,7 +187,23 @@ class CompetitorResearchService:
             async with semaphore:
                 return await self._research_competitor(competitor, payload, warnings, metadata)
 
-        work = await asyncio.gather(*(run_competitor(c) for c in eligible))
+        tasks = [asyncio.create_task(run_competitor(competitor)) for competitor in eligible]
+        work: list[_CompetitorWork] = []
+        if tasks:
+            done, pending = await asyncio.wait(
+                tasks,
+                timeout=_remaining_deadline(pipeline_started),
+            )
+            work = [
+                task.result()
+                for task in tasks
+                if task in done and not task.cancelled() and not task.exception()
+            ]
+            if pending:
+                warnings.append("Source validation reached the 60-second research deadline.")
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
         work = [
             item
             for item in work
@@ -213,6 +248,16 @@ class CompetitorResearchService:
                     if candidate.corroborated
                 }
             ),
+            pagesFetched=metadata.pages_fetched,
+            pagesParsed=metadata.pages_parsed,
+            deterministicExtractions=metadata.deterministic_extractions,
+            aiExtractions=metadata.ai_extractions,
+            staleExclusions=sum(
+                1 for candidate in all_candidates if candidate.price.freshness_status == "stale"
+            ),
+            conflictingExclusions=sum(
+                1 for candidate in all_candidates if candidate.price.needs_review
+            ),
         )
         response = CompetitorPriceResearchResponse(
             query=QueryOut(
@@ -238,10 +283,34 @@ class CompetitorResearchService:
                     deepseekExtraction=metadata.deepseek_extraction_used,
                     deepseekResearch=metadata.deepseek_research_used,
                     googleGeocoding=metadata.google_geocoding_used,
+                    googlePlaces=metadata.google_places_used,
                 ),
                 generatedAt=datetime.now(UTC),
                 cached=False,
                 researchStats=stats,
+                providerStats=ProviderStatsOut(
+                    googlePlacesRequests=getattr(self.places, "requests_made", 0),
+                    googleGeocodingRequests=metadata.google_geocoding_requests,
+                    perplexityRequests=getattr(self.perplexity, "requests_made", 0),
+                    pageFetchRequests=getattr(self.page_fetcher, "requests_made", 0),
+                    tokenmartRequests=getattr(self.deepseek, "requests_made", 0),
+                    durationMsByProvider={
+                        **metadata.duration_ms_by_provider,
+                        "tokenmart": getattr(self.deepseek, "duration_ms_total", 0),
+                    },
+                    tokenmartGateway=(
+                        settings.tokenmart_base_url if settings.tokenmart_api_key else None
+                    ),
+                    tokenmartRequestedModel=(
+                        getattr(self.deepseek, "model", None)
+                        if settings.tokenmart_api_key
+                        else None
+                    ),
+                    tokenmartReturnedModels=sorted(
+                        getattr(self.deepseek, "returned_models", set())
+                    ),
+                    tokenmartUsage=getattr(self.deepseek, "usage_totals", {}),
+                ),
             ),
         )
 
@@ -266,6 +335,7 @@ class CompetitorResearchService:
     ) -> CompetitorPriceResearchRequest:
         if payload.location.has_geo:
             return payload
+        metadata.google_geocoding_requests += 1
         try:
             coordinates = await self.geocoder.geocode(payload.location.search_label)
         except GeocodingConfigurationError as exc:
@@ -301,13 +371,50 @@ class CompetitorResearchService:
         selected = _select_source_attempts(sources, payload.max_sources_per_competitor)
         attempts = [_SourceAttempt(source=source) for source in selected]
         candidates: list[_CandidatePrice] = []
+        ai_fallback_used = False
         for attempt in attempts:
             attempt.checked = True
+            page = None
+            if settings.enable_direct_source_fetch:
+                fetch_started = time.perf_counter()
+                page = await self.page_fetcher.fetch(attempt.source.url)
+                metadata.duration_ms_by_provider["page_fetch"] = (
+                    metadata.duration_ms_by_provider.get("page_fetch", 0)
+                    + round((time.perf_counter() - fetch_started) * 1000)
+                )
+                if page.succeeded:
+                    metadata.pages_fetched += 1
+                    metadata.pages_parsed += 1
+                elif page.error:
+                    attempt.failure_reason = page.error
+            source_content = (
+                page.content
+                if page and page.succeeded and page.content
+                else " ".join(
+                    part
+                    for part in [
+                        attempt.source.title,
+                        attempt.source.snippet,
+                        attempt.source.url,
+                    ]
+                    if part
+                )
+            )
+            if not _source_matches_competitor(
+                competitor=competitor,
+                source=attempt.source,
+                content=source_content,
+            ):
+                attempt.status = "checked_wrong_business"
+                attempt.failure_reason = "Source content does not identify this competitor."
+                continue
             try:
                 extraction = await self.extractor.extract_prices(
                     competitor=competitor,
                     source=attempt.source,
                     target_offer=payload.target_offer,
+                    page=page,
+                    allow_ai=not ai_fallback_used,
                 )
             except DeepSeekError as exc:
                 attempt.status = "failed"
@@ -318,7 +425,14 @@ class CompetitorResearchService:
                 continue
 
             self._record_call(extraction, metadata, warnings)
-            snippet_only = True
+            if "deepseek_extraction" in extraction.tools_used:
+                ai_fallback_used = True
+            snippet_only = not bool(page and page.succeeded)
+            if extraction.data.prices:
+                if "deepseek_extraction" in extraction.tools_used:
+                    metadata.ai_extractions += len(extraction.data.prices)
+                else:
+                    metadata.deterministic_extractions += len(extraction.data.prices)
             accepted = 0
             for price in extraction.data.prices:
                 if price.match_quality == "weak" or likely_wrong_location(
@@ -364,6 +478,21 @@ class CompetitorResearchService:
                 "is unverified."
             )
             return
+        if competitor.latitude is not None and competitor.longitude is not None:
+            origin = Coordinates(
+                latitude=payload.location.latitude,
+                longitude=payload.location.longitude,
+            )
+            destination = Coordinates(
+                latitude=competitor.latitude,
+                longitude=competitor.longitude,
+            )
+            competitor.distance_miles = distance_miles(origin, destination)
+            competitor.radius_verified = True
+            if competitor.distance_miles > payload.radius_miles:
+                competitor.exclusion_reasons.append("Outside requested radius")
+            return
+        metadata.google_geocoding_requests += 1
         try:
             lookup_address = competitor.address or (
                 f"{competitor.name}, {payload.location.search_label}"
@@ -396,16 +525,41 @@ class CompetitorResearchService:
         warnings: list[str],
         metadata: ResearchCallMetadata,
     ) -> CompetitorDiscoveryResult:
+        if settings.enable_google_places_discovery and payload.location.has_geo:
+            started = time.perf_counter()
+            try:
+                competitors = await self.places.discover(
+                    latitude=payload.location.latitude,
+                    longitude=payload.location.longitude,
+                    radius_miles=payload.radius_miles,
+                    business_category=payload.business_category,
+                    max_results=payload.max_competitors,
+                )
+                metadata.google_places_used = True
+                metadata.duration_ms_by_provider["google_places"] = round(
+                    (time.perf_counter() - started) * 1000
+                )
+                if competitors:
+                    return CompetitorDiscoveryResult(competitors=competitors)
+                warnings.append(
+                    "Google Places found no matching nearby businesses; "
+                    "used grounded web discovery."
+                )
+            except GooglePlacesError as exc:
+                warnings.append(f"{exc} Used grounded web discovery instead.")
         if not settings.enable_perplexity_search:
             raise ResearchConfigurationError(
                 "Perplexity Search must be enabled for grounded competitor discovery."
             )
         evidence: list[PerplexitySearchResult] = []
+        perplexity_started = time.perf_counter()
         try:
-            for query in _competitor_search_queries(payload):
-                evidence.extend(
-                    await self.perplexity.search(query, max_results=settings.perplexity_max_results)
+            evidence.extend(
+                await self.perplexity.search(
+                    _competitor_search_queries(payload),
+                    max_results=settings.perplexity_max_results,
                 )
+            )
         except PerplexityConfigurationError as exc:
             raise ResearchConfigurationError(
                 "Set PERPLEXITY_API_KEY for grounded competitor discovery."
@@ -417,6 +571,10 @@ class CompetitorResearchService:
 
         metadata.perplexity_search_used = True
         metadata.models_used.add("perplexity-search")
+        metadata.duration_ms_by_provider["perplexity"] = (
+            metadata.duration_ms_by_provider.get("perplexity", 0)
+            + round((time.perf_counter() - perplexity_started) * 1000)
+        )
         if not evidence:
             warnings.append("Perplexity Search found no source-backed local competitors.")
             return CompetitorDiscoveryResult(competitors=[])
@@ -471,6 +629,7 @@ Evidence JSON:
     ) -> list[DiscoveredSource]:
         known_sources = _known_competitor_sources(competitor)
         if settings.enable_perplexity_search:
+            started = time.perf_counter()
             try:
                 sources = await discover_sources_with_perplexity(
                     client=self.perplexity,
@@ -480,6 +639,10 @@ Evidence JSON:
                 if sources:
                     metadata.perplexity_search_used = True
                     metadata.models_used.add("perplexity-search")
+                    metadata.duration_ms_by_provider["perplexity"] = (
+                        metadata.duration_ms_by_provider.get("perplexity", 0)
+                        + round((time.perf_counter() - started) * 1000)
+                    )
                     return _dedupe_and_rank_sources(
                         [*sources, *known_sources],
                         payload.target_offer,
@@ -607,6 +770,8 @@ Evidence JSON:
                 confidence=output.confidence if output else 0.0,
                 relevance_reason=competitor.relevance_reason,
                 source_urls_json=json.dumps(competitor.source_urls),
+                place_id=competitor.place_id,
+                discovery_provider=competitor.discovery_provider,
             )
             self.db.add(comp_row)
             await self.db.flush()
@@ -629,6 +794,13 @@ Evidence JSON:
                     attempted_at=datetime.now(UTC) if attempt and attempt.checked else None,
                     attempt_status=attempt.status if attempt else "discovered",
                     failure_reason=attempt.failure_reason if attempt else None,
+                    published_at=source.published_at,
+                    source_updated_at=source.updated_at,
+                    retrieved_at=source.retrieved_at,
+                    retrieval_method=source.retrieval_method,
+                    http_status=source.http_status,
+                    content_type=source.content_type,
+                    content_hash=source.content_hash,
                 )
                 self.db.add(source_row)
                 await self.db.flush()
@@ -657,13 +829,22 @@ Evidence JSON:
                             match_quality=candidate.price.match_quality,
                             corroborated=candidate.corroborated,
                             included_in_summary=candidate.included_in_summary,
+                            source_published_at=candidate.price.source_published_at,
+                            source_updated_at=candidate.price.source_updated_at,
+                            verified_at=candidate.price.verified_at,
+                            retrieval_method=candidate.price.retrieval_method,
+                            extraction_method=candidate.price.extraction_method,
+                            freshness_status=candidate.price.freshness_status,
+                            needs_review=candidate.price.needs_review,
                         )
                     )
 
 
 def build_cache_key(payload: CompetitorPriceResearchRequest) -> str:
     parts = [
-        "v4",
+        "v5",
+        "places" if settings.enable_google_places_discovery else "web",
+        f"fresh-{settings.third_party_freshness_months}",
         normalize_offer(payload.business_name or ""),
         _source_domain(payload.business_website or ""),
         "".join(character for character in (payload.business_phone or "") if character.isdigit()),
@@ -853,6 +1034,36 @@ def _source_rank(source: DiscoveredSource, target_offer: str) -> float:
     )
 
 
+def _source_matches_competitor(
+    *, competitor: DiscoveredCompetitor, source: DiscoveredSource, content: str
+) -> bool:
+    competitor_domain = _source_domain(competitor.website or "")
+    source_domain = _source_domain(source.url)
+    if competitor_domain and (
+        source_domain == competitor_domain or source_domain.endswith(f".{competitor_domain}")
+    ):
+        return True
+    common = {
+        "cafe",
+        "coffee",
+        "company",
+        "shop",
+        "restaurant",
+        "gallery",
+        "room",
+        "fremont",
+    }
+    tokens = [
+        token
+        for token in normalize_offer(competitor.name).split()
+        if len(token) >= 3 and token not in common
+    ]
+    haystack = normalize_offer(
+        " ".join(part for part in [source.title, source.snippet, source.url, content] if part)
+    )
+    return bool(tokens and any(token in haystack.split() for token in tokens))
+
+
 def _price_snippet_bonus(source: DiscoveredSource, target_offer: str) -> float:
     snippet = source.snippet or ""
     title = source.title or ""
@@ -969,7 +1180,12 @@ def _finalize_candidates(
 ) -> list[_CandidatePrice]:
     groups: dict[tuple[str, str, str], list[_CandidatePrice]] = {}
     for candidate in candidates:
-        if candidate.price.match_quality != "exact" or candidate.channel == "unknown":
+        if (
+            candidate.price.match_quality != "exact"
+            or candidate.channel == "unknown"
+            or candidate.price.freshness_status != "current"
+            or candidate.price.needs_review
+        ):
             continue
         key = (
             candidate.competitor.name,
@@ -1028,8 +1244,14 @@ def _finalize_candidates(
             continue
 
         if len(rows) == 1:
-            rows[0].included_in_summary = True
-            representatives.append(rows[0])
+            if rows[0].source.source_type in {"official_site", "booking_page"}:
+                rows[0].included_in_summary = True
+                representatives.append(rows[0])
+            else:
+                warnings.append(
+                    f"Excluded the uncorroborated third-party {channel.replace('_', '-')} "
+                    f"price for {competitor_name}."
+                )
             continue
 
         first_party = [
@@ -1143,6 +1365,13 @@ def _build_competitor_outputs(
                 priceChannel=c.channel,
                 corroborated=c.corroborated,
                 includedInMarketSummary=c.included_in_summary,
+                sourcePublishedAt=c.price.source_published_at,
+                sourceUpdatedAt=c.price.source_updated_at,
+                verifiedAt=c.price.verified_at,
+                retrievalMethod=c.price.retrieval_method,
+                extractionMethod=c.price.extraction_method,
+                freshnessStatus=c.price.freshness_status,
+                needsReview=c.price.needs_review,
             )
             for c in rows
         ]
@@ -1159,6 +1388,13 @@ def _build_competitor_outputs(
                 confidence=confidence,
                 radiusVerified=competitor.radius_verified,
                 exclusionReasons=competitor.exclusion_reasons,
+                placeId=competitor.place_id,
+                discoveryProvider=competitor.discovery_provider,
             )
         )
     return outputs
+
+
+def _remaining_deadline(started: float) -> float:
+    elapsed = time.perf_counter() - started
+    return max(0.1, settings.competitor_research_deadline_seconds - elapsed)

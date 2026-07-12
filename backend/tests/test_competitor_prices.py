@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from ipaddress import ip_address
 
 import httpx
 import pytest
@@ -11,6 +12,7 @@ from starlette.testclient import TestClient
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.core.logging import redact_secrets
 from app.main import app
 from app.services.competitor_prices.competitor_research_service import (
     CompetitorResearchService,
@@ -22,6 +24,7 @@ from app.services.competitor_prices.competitor_research_service import (
     _has_corroborating_pair,
     _is_self_competitor,
     _representatives_for_channel,
+    _source_matches_competitor,
     build_cache_key,
 )
 from app.services.competitor_prices.confidence_scoring import (
@@ -44,7 +47,17 @@ from app.services.competitor_prices.geocoding import (
     GoogleGeocodingClient,
     distance_miles,
 )
-from app.services.competitor_prices.perplexity_client import PerplexitySearchResult
+from app.services.competitor_prices.google_places import GooglePlacesClient
+from app.services.competitor_prices.page_fetcher import (
+    PageFetchResult,
+    SafePageFetcher,
+    _public_ip_and_port,
+    _validate_public_url,
+)
+from app.services.competitor_prices.perplexity_client import (
+    PerplexitySearchClient,
+    PerplexitySearchResult,
+)
 from app.services.competitor_prices.pricing_extraction_service import PricingExtractionService
 from app.services.competitor_prices.schemas import (
     CompetitorDiscoveryResult,
@@ -148,7 +161,7 @@ def test_cache_key_normalizes_request():
         }
     )
     cache_key = build_cache_key(payload)
-    assert cache_key.startswith("v4|")
+    assert cache_key.startswith("v5|places|fresh-18|")
     assert "|hair salon|women's haircut|" in cache_key
 
 
@@ -230,6 +243,25 @@ def test_source_ranking_prefers_first_party_source():
     assert ranked[0].url == "https://example.com/"
 
 
+def test_source_identity_gate_rejects_a_different_merchant():
+    competitor = DiscoveredCompetitor(name="Eon Coffee")
+    source = DiscoveredSource(
+        url="https://withbites.com/merchants/chaiwala",
+        title="Chaiwala menu",
+        snippet="Cappuccino $5.00",
+    )
+    assert not _source_matches_competitor(
+        competitor=competitor,
+        source=source,
+        content="Chaiwala Indian tea and coffee menu",
+    )
+    assert _source_matches_competitor(
+        competitor=DiscoveredCompetitor(name="Qamaria Yemeni Coffee Co."),
+        source=DiscoveredSource(url="https://withbites.com/merchants/qamariafremont"),
+        content="Qamaria Yemeni Coffee menu",
+    )
+
+
 async def test_competitor_discovery_uses_perplexity_evidence_and_deepseek(monkeypatch):
     monkeypatch.setattr(settings, "enable_perplexity_search", True)
 
@@ -303,8 +335,9 @@ async def test_perplexity_source_discovery_returns_grounded_sources(monkeypatch)
     monkeypatch.setattr(settings, "perplexity_max_results", 3)
 
     class FakePerplexity:
-        async def search(self, query, *, max_results):
-            assert "Cappuccino" in query
+        async def search(self, query, *, max_results, **_kwargs):
+            query_text = " ".join(query) if isinstance(query, list) else query
+            assert "Cappuccino" in query_text
             assert max_results == 3
             return [
                 PerplexitySearchResult(
@@ -434,7 +467,7 @@ async def test_extraction_uses_deepseek(monkeypatch):
         source=DiscoveredSource(
             url="https://example.com/menu",
             title="Menu",
-            snippet="View our menu.",
+            snippet="Cappuccino USD 6.00",
             sourceType="official_site",
         ),
         target_offer="Cappuccino",
@@ -556,7 +589,7 @@ def test_v4_cache_key_separates_all_research_inputs():
         "currentPrice": 4,
     }
     original = CompetitorPriceResearchRequest.model_validate(base)
-    assert build_cache_key(original).startswith("v4|")
+    assert build_cache_key(original).startswith("v5|places|fresh-18|")
     variants = [
         {**base, "businessName": "Another Coffee"},
         {**base, "businessWebsite": "https://another.example"},
@@ -596,6 +629,8 @@ def _candidate(
         currency=currency,
         sourceUrl=source_url,
         evidenceText=f"Cappuccino ${amount:.2f}",
+        freshnessStatus="current",
+        verifiedAt=date.today().isoformat(),
     )
     return _CandidatePrice(
         competitor=competitor,
@@ -684,8 +719,9 @@ def test_mixed_currency_and_delivery_are_not_blended():
     in_store = _representatives_for_channel(representatives, "in_store", candidates, warnings)
     delivery = _representatives_for_channel(representatives, "delivery", candidates, warnings)
     assert [candidate.price.currency for candidate in in_store] == ["USD"]
-    assert len(delivery) == 1
+    assert delivery == []
     assert any("not in USD" in warning for warning in warnings)
+    assert any("uncorroborated third-party" in warning.lower() for warning in warnings)
 
 
 def test_self_competitor_matching_uses_name_and_address():
@@ -746,9 +782,15 @@ async def test_source_fallback_checks_three_unique_domains_and_stops_on_corrobor
     )
     service.extractor = FakeExtractor()  # type: ignore[assignment]
     sources = [
-        DiscoveredSource(url="https://first.example/menu", sourceType="official_site"),
-        DiscoveredSource(url="https://second.example/menu", sourceType="google_maps"),
-        DiscoveredSource(url="https://third.example/menu", sourceType="directory"),
+        DiscoveredSource(
+            url="https://first.example/menu", title="Hops menu", sourceType="official_site"
+        ),
+        DiscoveredSource(
+            url="https://second.example/menu", title="Hops menu", sourceType="google_maps"
+        ),
+        DiscoveredSource(
+            url="https://third.example/menu", title="Hops menu", sourceType="directory"
+        ),
     ]
 
     async def fake_discover_sources(*_args, **_kwargs):
@@ -795,7 +837,7 @@ async def test_deepseek_failure_does_not_report_success(monkeypatch):
             competitor=DiscoveredCompetitor(name="Test", address="Fremont, CA"),
             source=DiscoveredSource(
                 url="https://example.com/menu",
-                snippet="View menu",
+                snippet="Cappuccino USD 6.00",
                 sourceType="official_site",
             ),
             target_offer="Cappuccino",
@@ -818,10 +860,303 @@ async def test_google_geocoder_success_zero_results_and_missing_key():
 
     with pytest.raises(GeocodingConfigurationError):
         await GoogleGeocodingClient(api_key="").geocode("Fremont")
+
+
+async def test_google_places_discovers_and_enriches_canonical_competitor():
+    async def handler(request: httpx.Request):
+        assert request.headers["x-goog-api-key"] == "test-key"
+        assert "key=" not in str(request.url)
+        if request.url.path.endswith("places:searchNearby"):
+            return httpx.Response(
+                200,
+                json={
+                    "places": [
+                        {
+                            "id": "place-1",
+                            "displayName": {"text": "Canonical Cafe"},
+                            "formattedAddress": "1 Main St, Fremont, CA",
+                            "location": {"latitude": 37.56, "longitude": -122.01},
+                            "businessStatus": "OPERATIONAL",
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "place-1",
+                "displayName": {"text": "Canonical Cafe"},
+                "formattedAddress": "1 Main St, Fremont, CA",
+                "location": {"latitude": 37.56, "longitude": -122.01},
+                "websiteUri": "https://canonical.example/menu",
+                "nationalPhoneNumber": "(510) 555-0100",
+                "rating": 4.7,
+                "userRatingCount": 120,
+                "businessStatus": "OPERATIONAL",
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        places = GooglePlacesClient(api_key="test-key", http_client=client)
+        competitors = await places.discover(
+            latitude=37.56,
+            longitude=-122.01,
+            radius_miles=10,
+            business_category="Coffee Shop",
+            max_results=3,
+        )
+    assert len(competitors) == 1
+    assert competitors[0].place_id == "place-1"
+    assert competitors[0].discovery_provider == "google_places"
+    assert competitors[0].website == "https://canonical.example/menu"
+    assert places.requests_made == 2
+
+
+async def test_perplexity_multi_query_preserves_dates_and_content_budget(monkeypatch):
+    monkeypatch.setattr(settings, "perplexity_max_tokens_per_page", 2048)
+
+    async def handler(request: httpx.Request):
+        payload = __import__("json").loads(request.content)
+        assert payload["query"] == ["one", "two"]
+        assert payload["max_tokens_per_page"] == 2048
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    [
+                        {
+                            "title": "Current menu",
+                            "url": "https://one.example/menu",
+                            "snippet": "Cappuccino $4.50",
+                            "date": "2026-01-01",
+                            "last_updated": "2026-06-01",
+                        }
+                    ],
+                    [
+                        {
+                            "title": "Second menu",
+                            "url": "https://two.example/menu",
+                            "snippet": "Cappuccino $4.75",
+                            "date": "2026-02-01",
+                        }
+                    ],
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        search = PerplexitySearchClient(api_key="test", http_client=client)
+        results = await search.search(["one", "two"], max_results=5)
+    assert [result.date for result in results] == ["2026-01-01", "2026-02-01"]
+    assert results[0].last_updated == "2026-06-01"
+
+
+async def test_safe_page_fetcher_blocks_private_urls_and_honors_robots():
+    assert _validate_public_url("http://127.0.0.1/menu")
+    assert _validate_public_url("http://169.254.169.254/latest/meta-data")
+    assert _validate_public_url("http://[::1]/menu")
+    assert _validate_public_url("https://example.com:8443/menu")
+
+    async def handler(request: httpx.Request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/plain"},
+                text="User-agent: *\nDisallow: /menu",
+            )
+        raise AssertionError("Disallowed page must not be fetched")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await SafePageFetcher(http_client=client).fetch("https://example.com/menu")
+    assert not result.succeeded
+    assert not result.robots_allowed
+
+
+async def test_safe_page_fetcher_revalidates_redirects_and_caps_content(monkeypatch):
+    monkeypatch.setattr(settings, "source_fetch_max_bytes", 32)
+
+    async def redirect_handler(request: httpx.Request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(302, headers={"location": "http://127.0.0.1/private"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(redirect_handler)) as client:
+        redirected = await SafePageFetcher(http_client=client).fetch(
+            "https://example.com/menu"
+        )
+    assert "non-public" in (redirected.error or "")
+
+    async def oversized_handler(request: httpx.Request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html", "content-length": "64"},
+            content=b"x" * 64,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(oversized_handler)) as client:
+        oversized = await SafePageFetcher(http_client=client).fetch(
+            "https://example.com/menu"
+        )
+    assert "size limit" in (oversized.error or "")
+    assert not _public_ip_and_port("localhost", ip_address("127.0.0.1"), 80)
+    assert not _public_ip_and_port("metadata", ip_address("169.254.169.254"), 80)
+    assert _public_ip_and_port("example", ip_address("93.184.216.34"), 443)
+
+
+async def test_json_ld_precedes_ai_and_conflicts_require_review():
+    class NoAI:
+        async def generate_json(self, **_kwargs):
+            raise AssertionError("Structured or visible evidence should avoid TokenMart")
+
+    structured = """
+    <html><head><script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"MenuItem","name":"Cappuccino",
+     "offers":{"@type":"Offer","price":"4.50","priceCurrency":"USD"}}
+    </script></head><body><p>Cappuccino $4.50</p></body></html>
+    """
+    page = PageFetchResult(
+        url="https://cafe.example/menu",
+        content=structured,
+        status_code=200,
+        content_type="text/html",
+        retrieved_at=datetime.now(UTC),
+        content_hash="abc",
+    )
+    service = PricingExtractionService(NoAI())  # type: ignore[arg-type]
+    source = DiscoveredSource(
+        url=page.url,
+        title="Official menu",
+        sourceType="official_site",
+    )
+    result = await service.extract_prices(
+        competitor=DiscoveredCompetitor(name="Cafe"),
+        source=source,
+        target_offer="Cappuccino",
+        page=page,
+    )
+    assert len(result.data.prices) == 1
+    assert result.data.prices[0].price_min == 4.5
+    assert result.data.prices[0].extraction_method == "method_consensus"
+    assert result.data.prices[0].freshness_status == "current"
+
+    conflict_page = PageFetchResult(
+        **{**page.__dict__, "content": structured.replace("$4.50", "$5.00")}
+    )
+    conflicted = await service.extract_prices(
+        competitor=DiscoveredCompetitor(name="Cafe"),
+        source=DiscoveredSource(url=page.url, sourceType="official_site"),
+        target_offer="Cappuccino",
+        page=conflict_page,
+    )
+    assert len(conflicted.data.prices) == 2
+    assert all(price.needs_review for price in conflicted.data.prices)
+
+    expired = structured.replace(
+        '"priceCurrency":"USD"',
+        '"priceCurrency":"USD","priceValidUntil":"2020-01-01"',
+    ).replace("<p>Cappuccino $4.50</p>", "")
+    expired_result = await service.extract_prices(
+        competitor=DiscoveredCompetitor(name="Cafe"),
+        source=DiscoveredSource(url=page.url, sourceType="official_site"),
+        target_offer="Cappuccino",
+        page=PageFetchResult(**{**page.__dict__, "content": expired}),
+    )
+    assert expired_result.data.prices == []
+
+
+async def test_old_third_party_evidence_keeps_real_date_and_is_stale():
+    service = PricingExtractionService(object())  # type: ignore[arg-type]
+    result = await service.extract_prices(
+        competitor=DiscoveredCompetitor(name="Devout Coffee"),
+        source=DiscoveredSource(
+            url="https://blog.example/2015/menu",
+            snippet="Cappuccino $3.50",
+            sourceType="unknown",
+            publishedAt="2015-01-19",
+            retrievalMethod="perplexity_content",
+        ),
+        target_offer="Cappuccino",
+    )
+    price = result.data.prices[0]
+    assert price.observed_at.isoformat() == "2015-01-19"
+    assert price.freshness_status == "stale"
+
+
+def test_log_redaction_removes_query_and_bearer_secrets():
+    message = (
+        "GET https://maps.example/geocode?address=x&key=secret-value "
+        "Authorization: Bearer token-value"
+    )
+    redacted = redact_secrets(message)
+    assert "secret-value" not in redacted
+    assert "token-value" not in redacted
+    assert redacted.count("<redacted>") == 2
+
+
+async def test_places_is_primary_and_empty_discovery_is_safe(monkeypatch):
+    class FakePlaces:
+        requests_made = 1
+
+        async def discover(self, **_kwargs):
+            return [
+                DiscoveredCompetitor(
+                    name="Places Cafe",
+                    address="1 Main St, Fremont, CA",
+                    latitude=37.56,
+                    longitude=-122.01,
+                    placeId="place-1",
+                    discoveryProvider="google_places",
+                )
+            ]
+
+    class NoPerplexity:
+        async def search(self, *_args, **_kwargs):
+            raise AssertionError("Places success must avoid Perplexity competitor discovery")
+
+    service = CompetitorResearchService(
+        db=None,
+        deepseek_client=object(),  # type: ignore[arg-type]
+        places_client=FakePlaces(),  # type: ignore[arg-type]
+        perplexity_client=NoPerplexity(),  # type: ignore[arg-type]
+    )
+    payload = CompetitorPriceResearchRequest.model_validate(
+        {
+            "businessCategory": "Coffee Shop",
+            "targetOffer": "Cappuccino",
+            "location": {
+                "city": "Fremont",
+                "state": "CA",
+                "latitude": 37.56,
+                "longitude": -122.01,
+            },
+        }
+    )
+    metadata = ResearchCallMetadata()
+    result = await service.discover_competitors(payload, [], metadata)
+    assert result.competitors[0].place_id == "place-1"
+    assert metadata.google_places_used
+
+    async def empty_discovery(*_args, **_kwargs):
+        return CompetitorDiscoveryResult(competitors=[])
+
+    monkeypatch.setattr(service, "discover_competitors", empty_discovery)
+    response = await service.research(
+        payload,
+        CurrentUser(
+            user_id="test-user",
+            email="test@example.com",
+            business_id="00000000-0000-0000-0000-000000000001",
+        ),
+    )
+    assert response.competitors == []
+    assert response.market_summary.sample_size == 0
     assert 6 < distance_miles(Coordinates(37.5, -122.0), Coordinates(37.6, -122.0)) < 8
 
 
 async def test_prefilled_fremont_fixture_separates_channels_and_excludes_self(monkeypatch):
+    monkeypatch.setattr(settings, "enable_direct_source_fetch", False)
     class FakeGeocoder:
         async def geocode(self, address):
             if "3602 Thornton" in address:
@@ -852,6 +1187,8 @@ async def test_prefilled_fremont_fixture_separates_channels_and_excludes_self(mo
                             priceMax=amount,
                             sourceUrl=source.url,
                             evidenceText=f"Cappuccino ${amount:.2f}",
+                            freshnessStatus="current",
+                            verifiedAt=date.today().isoformat(),
                         )
                     ]
                 )
@@ -927,6 +1264,11 @@ async def test_prefilled_fremont_fixture_separates_channels_and_excludes_self(mo
     assert response.market_summary.sample_size == 1
     assert response.market_summary.price_median == 4.78
     assert response.channel_summaries is not None
-    assert response.channel_summaries.delivery.price_median == 6.05
+    assert response.channel_summaries.delivery.price_median is None
+    assert any(
+        price.price_channel == "delivery"
+        for competitor in response.competitors
+        for price in competitor.prices
+    )
     assert response.metadata.research_stats.sources_checked == 6
     assert response.metadata.research_stats.corroborated_competitors == 1

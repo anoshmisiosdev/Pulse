@@ -5,6 +5,7 @@ import {
   Badge,
   DeliveryPrices,
   ResearchStats,
+  formatPrice,
   mergeTenantBusinessName,
   type FormState,
 } from "./Pricing";
@@ -78,6 +79,10 @@ describe("pricing research audit UI", () => {
               priceChannel: "delivery",
               corroborated: false,
               includedInMarketSummary: true,
+              freshnessStatus: "current",
+              retrievalMethod: "direct_fetch",
+              extractionMethod: "json_ld",
+              sourceUpdatedAt: "2026-06-01",
             },
           },
         ]}
@@ -85,7 +90,28 @@ describe("pricing research audit UI", () => {
     );
     expect(html).toContain("Delivery marketplace prices");
     expect(html).toContain("channel-specific markups");
-    expect(html).toContain("$6");
+    expect(html).toContain("$6.05");
+    expect(html).toContain("Directly retrieved");
+    expect(html).toContain("Structured data");
+    expect(html).toContain("2026-06-01");
+    expect(formatPrice({
+      offerName: "Cappuccino",
+      normalizedOfferName: "cappuccino",
+      priceMin: 3.5,
+      priceMax: 3.5,
+      currency: "USD",
+      priceType: "fixed",
+      sourceUrl: "https://example.com/menu",
+      sourceTitle: "Menu",
+      evidenceText: "Cappuccino $3.50",
+      observedAt: "2026-07-10",
+      confidence: 0.8,
+      confidenceReasons: [],
+      matchQuality: "exact",
+      priceChannel: "in_store",
+      corroborated: false,
+      includedInMarketSummary: true,
+    })).toBe("$3.50");
   });
 
   it("uses the tenant name only when the form has not been customized", () => {

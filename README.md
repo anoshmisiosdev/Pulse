@@ -39,6 +39,10 @@ uv run uvicorn app.main:app --reload
 uv run pytest                 # scoring engine + adapter tests
 ```
 
+Deployments run `uv run alembic upgrade head` before the API starts. When the
+runtime `DATABASE_URL` uses Supabase's transaction pooler, set
+`DATABASE_MIGRATION_URL` to the direct port-5432 connection string.
+
 ## Demo offline
 
 ```bash
@@ -58,7 +62,10 @@ menu/order evidence, DeepSeek structures competitors and extracts strict JSON
 prices, and Google Maps geocoding verifies the requested radius.
 
 ```bash
-GOOGLE_MAPS_API_KEY=...
+GOOGLE_MAPS_SERVER_API_KEY=...
+ENABLE_GOOGLE_PLACES_DISCOVERY=true
+ENABLE_DIRECT_SOURCE_FETCH=true
+THIRD_PARTY_FRESHNESS_MONTHS=18
 STRICT_FREE_TIER=true
 
 PERPLEXITY_API_KEY=...
@@ -66,6 +73,7 @@ ENABLE_PERPLEXITY_SEARCH=true
 PERPLEXITY_SEARCH_CONTEXT_SIZE=high
 PERPLEXITY_MAX_RESULTS=5
 PERPLEXITY_MAX_QUERIES_PER_COMPETITOR=3
+PERPLEXITY_MAX_TOKENS_PER_PAGE=2048
 
 # TokenMart's OpenAI-compatible DeepSeek gateway.
 TOKENMART_API_KEY=...

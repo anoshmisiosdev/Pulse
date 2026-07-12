@@ -32,7 +32,9 @@ class GoogleGeocodingClient:
         api_key: str | None = None,
         http_client: httpx.AsyncClient | None = None,
     ):
-        self.api_key = api_key if api_key is not None else settings.google_maps_api_key
+        self.api_key = (
+            api_key if api_key is not None else settings.effective_google_maps_api_key
+        )
         self.http_client = http_client
 
     async def geocode(self, address: str) -> Coordinates | None:
@@ -53,8 +55,12 @@ class GoogleGeocodingClient:
                         params={"address": address, "key": self.api_key},
                     )
             response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise GeocodingError(
+                f"Google geocoding request failed with HTTP {exc.response.status_code}."
+            ) from exc
         except httpx.HTTPError as exc:
-            raise GeocodingError(f"Google geocoding request failed: {exc}") from exc
+            raise GeocodingError("Google geocoding request failed.") from exc
 
         payload = response.json()
         status = payload.get("status")

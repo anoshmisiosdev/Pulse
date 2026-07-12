@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   formatCurrency,
@@ -41,9 +41,10 @@ export default function Pricing() {
   const [researchStartedAt, setResearchStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
+  const businessNameEdited = useRef(false);
 
   useEffect(() => {
-    if (!businessName) return;
+    if (!businessName || businessNameEdited.current) return;
     setForm((current) => mergeTenantBusinessName(current, businessName));
   }, [businessName]);
 
@@ -98,6 +99,10 @@ export default function Pricing() {
   }
 
   const competitorRows = useMemo(() => buildCompetitorRows(result), [result]);
+  const observationCount = useMemo(
+    () => result?.competitors.reduce((count, item) => count + item.prices.length, 0) ?? 0,
+    [result]
+  );
   const deliveryRows = useMemo(
     () =>
       result?.competitors.flatMap((competitor) =>
@@ -159,7 +164,10 @@ export default function Pricing() {
             label="Business name"
             value={form.businessName}
             placeholder="Suju's Coffee"
-            onChange={(v) => setForm({ ...form, businessName: v })}
+            onChange={(v) => {
+              businessNameEdited.current = true;
+              setForm({ ...form, businessName: v });
+            }}
           />
           <Field
             label="Street address"
@@ -236,7 +244,8 @@ export default function Pricing() {
               </h2>
               <p className="text-sm text-slate-500">
                 {result.competitors.length} found near {result.query.locationLabel};{" "}
-                {result.marketSummary.sampleSize} with source-backed prices.
+                {observationCount} observations found; {result.marketSummary.sampleSize}{" "}
+                benchmark-eligible businesses.
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -269,6 +278,9 @@ export default function Pricing() {
                           {row.competitor.address || "Address unavailable"}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-1">
+                          {row.competitor.discoveryProvider === "google_places" && (
+                            <Badge tone="cyan">Google Places</Badge>
+                          )}
                           {row.competitor.radiusVerified && row.competitor.distanceMiles !== null ? (
                             <Badge tone="green">
                               {row.competitor.distanceMiles.toFixed(1)} mi verified
@@ -298,6 +310,14 @@ export default function Pricing() {
                               {row.price.matchQuality}
                             </Badge>
                             {row.price.corroborated && <Badge tone="cyan">Corroborated</Badge>}
+                            <Badge
+                              tone={
+                                row.price.freshnessStatus === "current" ? "green" : "amber"
+                              }
+                            >
+                              {row.price.freshnessStatus ?? "unknown freshness"}
+                            </Badge>
+                            {row.price.needsReview && <Badge tone="amber">Needs review</Badge>}
                             {row.price.includedInMarketSummary ? (
                               <Badge tone="green">In benchmark</Badge>
                             ) : (
@@ -321,14 +341,25 @@ export default function Pricing() {
                       </td>
                       <td className="px-5 py-4">
                         {row.price ? (
-                          <a
-                            href={row.price.sourceUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="font-semibold text-cyan-700 hover:underline"
-                          >
-                            {row.price.sourceTitle || "Open source"}
-                          </a>
+                          <div>
+                            <a
+                              href={row.price.sourceUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-semibold text-cyan-700 hover:underline"
+                            >
+                              {row.price.sourceTitle || "Open source"}
+                            </a>
+                            <p className="mt-1 text-xs text-slate-400">
+                              {retrievalLabel(row.price.retrievalMethod)} ·{" "}
+                              {extractionLabel(row.price.extractionMethod)}
+                            </p>
+                            {(row.price.sourceUpdatedAt || row.price.sourcePublishedAt) && (
+                              <p className="mt-1 text-xs text-slate-400">
+                                Source date: {row.price.sourceUpdatedAt || row.price.sourcePublishedAt}
+                              </p>
+                            )}
+                          </div>
                         ) : row.competitor.website ? (
                           <a
                             href={row.competitor.website}
@@ -416,14 +447,14 @@ function MarketSummary({ result }: { result: CompetitorPriceResearchResponse }) 
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Market summary</p>
         <p className="mt-2 font-display text-3xl font-bold text-slate-900">
-          {s.priceMedian === null ? "No median" : formatCurrency(s.priceMedian)}
+          {s.priceMedian === null ? "No median" : formatCurrency(s.priceMedian, true)}
         </p>
         <p className="mt-1 text-sm text-slate-500">Median in-store price</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-4">
         <MiniStat label="Businesses" value={String(s.sampleSize)} />
-        <MiniStat label="Low" value={s.priceLow === null ? "—" : formatCurrency(s.priceLow)} />
-        <MiniStat label="High" value={s.priceHigh === null ? "—" : formatCurrency(s.priceHigh)} />
+        <MiniStat label="Low" value={s.priceLow === null ? "—" : formatCurrency(s.priceLow, true)} />
+        <MiniStat label="High" value={s.priceHigh === null ? "—" : formatCurrency(s.priceHigh, true)} />
         <MiniStat label="Confidence" value={`${Math.round(s.confidence * 100)}%`} />
         <p className="sm:col-span-4 text-sm text-slate-600">{s.recommendedPositioning}</p>
         <p className="sm:col-span-4 text-xs text-slate-400">
@@ -438,11 +469,13 @@ function MarketSummary({ result }: { result: CompetitorPriceResearchResponse }) 
 export function ResearchStats({ result }: { result: CompetitorPriceResearchResponse }) {
   const stats = result.metadata.researchStats;
   return (
-    <div className="glass grid gap-3 p-4 sm:grid-cols-4">
+    <div className="glass grid gap-3 p-4 sm:grid-cols-3 lg:grid-cols-6">
       <MiniStat label="Sources discovered" value={String(stats.sourcesDiscovered)} />
       <MiniStat label="Sources checked" value={String(stats.sourcesChecked)} />
       <MiniStat label="Sources accepted" value={String(stats.sourcesAccepted)} />
       <MiniStat label="Corroborated businesses" value={String(stats.corroboratedCompetitors)} />
+      <MiniStat label="Pages fetched" value={String(stats.pagesFetched ?? 0)} />
+      <MiniStat label="AI fallbacks" value={String(stats.aiExtractions ?? 0)} />
     </div>
   );
 }
@@ -466,7 +499,7 @@ export function DeliveryPrices({
           </p>
         </div>
         {summary?.priceMedian !== null && summary?.priceMedian !== undefined && (
-          <Badge tone="amber">Median {formatCurrency(summary.priceMedian)}</Badge>
+          <Badge tone="amber">Median {formatCurrency(summary.priceMedian, true)}</Badge>
         )}
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -479,7 +512,19 @@ export function DeliveryPrices({
               <p className="font-semibold text-slate-800">{competitor.name}</p>
               <p className="font-display text-lg font-bold text-slate-900">{formatPrice(price)}</p>
             </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              <Badge tone={price.freshnessStatus === "current" ? "green" : "amber"}>
+                {price.freshnessStatus ?? "unknown freshness"}
+              </Badge>
+              <Badge tone="cyan">{retrievalLabel(price.retrievalMethod)}</Badge>
+              {price.needsReview && <Badge tone="amber">Needs review</Badge>}
+            </div>
             <p className="mt-2 text-sm text-slate-600">“{price.evidenceText}”</p>
+            <p className="mt-1 text-xs text-slate-400">
+              {extractionLabel(price.extractionMethod)}
+              {(price.sourceUpdatedAt || price.sourcePublishedAt) &&
+                ` · Source date: ${price.sourceUpdatedAt || price.sourcePublishedAt}`}
+            </p>
             <a
               href={price.sourceUrl}
               target="_blank"
@@ -565,13 +610,28 @@ export function mergeTenantBusinessName(form: FormState, businessName: string): 
   return form.businessName ? form : { ...form, businessName };
 }
 
-function formatPrice(price: CompetitorPrice): string {
+export function formatPrice(price: CompetitorPrice): string {
   if (price.priceType === "quote_based") return "Quote";
   if (price.priceMin !== null && price.priceMax !== null && price.priceMin !== price.priceMax) {
-    return `${formatCurrency(price.priceMin)}-${formatCurrency(price.priceMax)}`;
+    return `${formatCurrency(price.priceMin, true)}-${formatCurrency(price.priceMax, true)}`;
   }
   const value = price.priceMin ?? price.priceMax;
-  return value === null ? "Unknown" : formatCurrency(value);
+  return value === null ? "Unknown" : formatCurrency(value, true);
+}
+
+function retrievalLabel(method: CompetitorPrice["retrievalMethod"]): string {
+  return method === "direct_fetch" ? "Directly retrieved" : "Search-provided content";
+}
+
+function extractionLabel(method: CompetitorPrice["extractionMethod"]): string {
+  const labels: Record<string, string> = {
+    json_ld: "Structured data",
+    visible_text: "Visible text",
+    search_snippet: "Search evidence",
+    tokenmart: "AI fallback",
+    method_consensus: "Method consensus",
+  };
+  return labels[method ?? ""] ?? "Extraction method unknown";
 }
 
 function SearchIcon() {

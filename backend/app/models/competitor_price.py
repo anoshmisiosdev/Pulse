@@ -64,6 +64,8 @@ class CompetitorPriceCompetitor(UUIDMixin, Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     relevance_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_urls_json: Mapped[str] = mapped_column(Text, default="[]")
+    place_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    discovery_provider: Mapped[str] = mapped_column(String(32), default="perplexity")
 
 
 class CompetitorPriceSource(UUIDMixin, Base):
@@ -81,6 +83,13 @@ class CompetitorPriceSource(UUIDMixin, Base):
     attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     attempt_status: Mapped[str] = mapped_column(String(32), default="discovered")
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_updated_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    retrieved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retrieval_method: Mapped[str] = mapped_column(String(32), default="search_snippet")
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class CompetitorPriceObservation(UUIDMixin, Base):
@@ -103,3 +112,10 @@ class CompetitorPriceObservation(UUIDMixin, Base):
     match_quality: Mapped[str] = mapped_column(String(16), default="weak")
     corroborated: Mapped[bool] = mapped_column(default=False)
     included_in_summary: Mapped[bool] = mapped_column(default=False)
+    source_published_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_updated_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    verified_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    retrieval_method: Mapped[str] = mapped_column(String(32), default="search_snippet")
+    extraction_method: Mapped[str] = mapped_column(String(32), default="search_snippet")
+    freshness_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    needs_review: Mapped[bool] = mapped_column(default=False)
