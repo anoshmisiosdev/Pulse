@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <!-- Churnary mark — Coffeehouse Editorial palette
+       espresso #3B2A20 · cream #F4ECE0 · terracotta #C76B3A
+       Concept: a C-shaped orbit with the customer (dot) re-entering through the gap. -->
+  <defs>
+    <radialGradient id="warm" cx="30%" cy="25%" r="90%">
+      <stop offset="0%" stop-color="#4A3527"/>
+      <stop offset="100%" stop-color="#33241B"/>
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="120" height="120" rx="27" fill="url(#warm)"/>
+  <g transform="rotate(40 60 60)">
+    <circle cx="60" cy="60" r="32" fill="none" stroke="#F4ECE0" stroke-width="13"
+      stroke-linecap="round" stroke-dasharray="156.3 44.7"/>
+  </g>
+  <circle cx="92" cy="60" r="8.5" fill="#C76B3A"/>
+</svg>
