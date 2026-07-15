@@ -32,17 +32,9 @@ services:
         sync: false
       - key: PERPLEXITY_API_KEY
         sync: false
-      - key: TOKENMART_API_KEY
-        sync: false
       - key: TOKEN_ROUTER_API_KEY
         sync: false
       - key: TOKEN_ROUTER_BASE_URL
-        sync: false
-      - key: GOOGLE_MAPS_SERVER_API_KEY
-        sync: false
-      - key: PERPLEXITY_API_KEY
-        sync: false
-      - key: TOKENMART_API_KEY
         sync: false
       - key: TOKEN_ROUTER_MODEL
         value: claude-opus-4-8
@@ -70,6 +62,10 @@ services:
       - key: TOKEN_ROUTER_API_KEY
         sync: false
       - key: TOKEN_ROUTER_BASE_URL
+        sync: false
+      - key: GOOGLE_MAPS_SERVER_API_KEY
+        sync: false
+      - key: PERPLEXITY_API_KEY
         sync: false
       - key: REDIS_URL
         fromService: { type: keyvalue, name: pulse-redis, property: connectionString }

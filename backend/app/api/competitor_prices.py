@@ -25,6 +25,11 @@ from app.services.competitor_prices.deepseek_client import (
     DeepSeekError,
     DeepSeekQuotaError,
 )
+from app.services.competitor_prices.perplexity_client import (
+    PerplexityConfigurationError,
+    PerplexityError,
+    PerplexityQuotaError,
+)
 from app.services.competitor_prices.schemas import (
     CompetitorPriceResearchRequest,
     CompetitorPriceResearchResponse,
@@ -48,9 +53,7 @@ async def latest_competitor_prices(
     )
     if target_offer:
         stmt = stmt.where(CompetitorPriceResearchRun.target_offer.ilike(target_offer.strip()))
-    result = await db.execute(
-        stmt.order_by(CompetitorPriceResearchRun.created_at.desc()).limit(1)
-    )
+    result = await db.execute(stmt.order_by(CompetitorPriceResearchRun.created_at.desc()).limit(1))
     run = result.scalars().first()
     return CompetitorPriceResearchResponse.model_validate_json(run.response_json) if run else None
 
@@ -62,16 +65,20 @@ async def competitor_price_history(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[PriceHistoryItemOut]:
     rows = (
-        await db.execute(
-            select(CompetitorPriceResearchRun)
-            .where(
-                CompetitorPriceResearchRun.business_id
-                == _stable_business_uuid(current_user.business_id)
+        (
+            await db.execute(
+                select(CompetitorPriceResearchRun)
+                .where(
+                    CompetitorPriceResearchRun.business_id
+                    == _stable_business_uuid(current_user.business_id)
+                )
+                .order_by(CompetitorPriceResearchRun.created_at.desc())
+                .limit(limit)
             )
-            .order_by(CompetitorPriceResearchRun.created_at.desc())
-            .limit(limit)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     history: list[PriceHistoryItemOut] = []
     previous_by_offer: dict[str, float | None] = {}
     for run in reversed(rows):
@@ -105,13 +112,17 @@ async def get_price_watch(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> PriceWatchOut | None:
     watch = (
-        await db.execute(
-            select(CompetitorPriceWatch).where(
-                CompetitorPriceWatch.business_id
-                == _stable_business_uuid(current_user.business_id)
+        (
+            await db.execute(
+                select(CompetitorPriceWatch).where(
+                    CompetitorPriceWatch.business_id
+                    == _stable_business_uuid(current_user.business_id)
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     return _watch_out(watch) if watch else None
 
 
@@ -123,10 +134,14 @@ async def upsert_price_watch(
 ) -> PriceWatchOut:
     business_id = _stable_business_uuid(current_user.business_id)
     watch = (
-        await db.execute(
-            select(CompetitorPriceWatch).where(CompetitorPriceWatch.business_id == business_id)
+        (
+            await db.execute(
+                select(CompetitorPriceWatch).where(CompetitorPriceWatch.business_id == business_id)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     next_run = datetime.now(UTC) + timedelta(hours=payload.interval_hours)
     if watch is None:
         watch = CompetitorPriceWatch(
@@ -185,7 +200,11 @@ async def research_competitor_prices(
     except FreeTierRateLimitError as exc:
         _log_research_failure(started_at, payload, exc)
         raise HTTPException(status_code=429, detail=str(exc)) from exc
-    except (ResearchConfigurationError, DeepSeekConfigurationError) as exc:
+    except (
+        ResearchConfigurationError,
+        DeepSeekConfigurationError,
+        PerplexityConfigurationError,
+    ) as exc:
         _log_research_failure(started_at, payload, exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except DeepSeekQuotaError as exc:
@@ -194,6 +213,15 @@ async def research_competitor_prices(
             status_code=429,
             detail=f"{exc} Try again after the DeepSeek project quota resets.",
         ) from exc
+    except PerplexityQuotaError as exc:
+        _log_research_failure(started_at, payload, exc)
+        raise HTTPException(
+            status_code=429,
+            detail=f"{exc} Try again after the Perplexity project quota resets.",
+        ) from exc
+    except PerplexityError as exc:
+        _log_research_failure(started_at, payload, exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except DeepSeekError as exc:
         _log_research_failure(started_at, payload, exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc

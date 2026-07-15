@@ -25,7 +25,12 @@ MatchQuality = Literal["exact", "close", "weak"]
 PriceChannel = Literal["in_store", "delivery", "unknown"]
 RetrievalMethod = Literal["direct_fetch", "perplexity_content", "search_snippet", "none"]
 ExtractionMethod = Literal[
-    "json_ld", "visible_text", "search_snippet", "tokenmart", "method_consensus"
+    "json_ld",
+    "visible_text",
+    "search_snippet",
+    "sonar",
+    "tokenmart",
+    "method_consensus",
 ]
 FreshnessStatus = Literal["current", "stale", "unknown", "expired"]
 DiscoveryProvider = Literal["google_places", "perplexity"]
@@ -156,9 +161,7 @@ class CompetitorOut(CamelModel):
     radius_verified: bool = Field(default=False, alias="radiusVerified")
     exclusion_reasons: list[str] = Field(default_factory=list, alias="exclusionReasons")
     place_id: str | None = Field(default=None, alias="placeId")
-    discovery_provider: DiscoveryProvider = Field(
-        default="perplexity", alias="discoveryProvider"
-    )
+    discovery_provider: DiscoveryProvider = Field(default="perplexity", alias="discoveryProvider")
 
 
 class MarketSummaryOut(CamelModel):
@@ -197,15 +200,15 @@ class ProviderStatsOut(CamelModel):
     google_places_requests: int = Field(default=0, alias="googlePlacesRequests")
     google_geocoding_requests: int = Field(default=0, alias="googleGeocodingRequests")
     perplexity_requests: int = Field(default=0, alias="perplexityRequests")
+    perplexity_model: str | None = Field(default=None, alias="perplexityModel")
+    perplexity_usage: dict[str, int] = Field(default_factory=dict, alias="perplexityUsage")
     page_fetch_requests: int = Field(default=0, alias="pageFetchRequests")
     tokenmart_requests: int = Field(default=0, alias="tokenmartRequests")
     duration_ms_by_provider: dict[str, int] = Field(
         default_factory=dict, alias="durationMsByProvider"
     )
     tokenmart_gateway: str | None = Field(default=None, alias="tokenmartGateway")
-    tokenmart_requested_model: str | None = Field(
-        default=None, alias="tokenmartRequestedModel"
-    )
+    tokenmart_requested_model: str | None = Field(default=None, alias="tokenmartRequestedModel")
     tokenmart_returned_models: list[str] = Field(
         default_factory=list, alias="tokenmartReturnedModels"
     )
@@ -217,6 +220,9 @@ class GroundingUsedOut(CamelModel):
     google_maps: bool = Field(default=False, alias="googleMaps")
     url_context: bool = Field(default=False, alias="urlContext")
     perplexity_search: bool = Field(default=False, alias="perplexitySearch")
+    perplexity_sonar: bool = Field(default=False, alias="perplexitySonar")
+    sonar_extraction: bool = Field(default=False, alias="sonarExtraction")
+    sonar_research: bool = Field(default=False, alias="sonarResearch")
     deepseek_extraction: bool = Field(default=False, alias="deepseekExtraction")
     deepseek_research: bool = Field(default=False, alias="deepseekResearch")
     google_geocoding: bool = Field(default=False, alias="googleGeocoding")
@@ -283,9 +289,7 @@ class DiscoveredCompetitor(CamelModel):
     radius_verified: bool = Field(default=False, alias="radiusVerified")
     exclusion_reasons: list[str] = Field(default_factory=list, alias="exclusionReasons")
     place_id: str | None = Field(default=None, alias="placeId")
-    discovery_provider: DiscoveryProvider = Field(
-        default="perplexity", alias="discoveryProvider"
-    )
+    discovery_provider: DiscoveryProvider = Field(default="perplexity", alias="discoveryProvider")
 
 
 class CompetitorDiscoveryResult(CamelModel):
@@ -345,6 +349,9 @@ class ResearchCallMetadata(CamelModel):
     google_maps_used: bool = Field(default=False, alias="googleMapsUsed")
     url_context_used: bool = Field(default=False, alias="urlContextUsed")
     perplexity_search_used: bool = Field(default=False, alias="perplexitySearchUsed")
+    perplexity_sonar_used: bool = Field(default=False, alias="perplexitySonarUsed")
+    sonar_extraction_used: bool = Field(default=False, alias="sonarExtractionUsed")
+    sonar_research_used: bool = Field(default=False, alias="sonarResearchUsed")
     deepseek_extraction_used: bool = Field(default=False, alias="deepseekExtractionUsed")
     deepseek_research_used: bool = Field(default=False, alias="deepseekResearchUsed")
     google_geocoding_used: bool = Field(default=False, alias="googleGeocodingUsed")

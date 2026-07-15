@@ -1,19 +1,27 @@
-"""Perplexity Search API client for pricing-source discovery."""
+"""Perplexity Search and Sonar clients for grounded pricing research."""
 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import httpx
+from pydantic import BaseModel, ValidationError
 
 from app.core.config import settings
 from app.services.competitor_prices.confidence_scoring import (
     canonicalize_offer_label,
     evidence_contains_price,
     normalize_offer,
+)
+from app.services.competitor_prices.deepseek_client import (
+    DeepSeekError,
+    DeepSeekJSONResult,
+    extract_chat_content,
+    parse_json_text,
 )
 from app.services.competitor_prices.schemas import (
     CompetitorPriceResearchRequest,
@@ -81,6 +89,70 @@ class PerplexitySearchClient:
         self.base_url = (base_url or settings.perplexity_search_base_url).rstrip("/")
         self.http_client = http_client
         self.requests_made = 0
+        self.duration_ms_total = 0
+        self.model = settings.perplexity_sonar_model
+        self.returned_models: set[str] = set()
+        self.usage_totals: dict[str, int] = {}
+
+    async def generate_json[T: BaseModel](
+        self,
+        *,
+        system: str,
+        prompt: str,
+        response_model: type[T],
+        max_tokens: int | None = None,
+    ) -> DeepSeekJSONResult[T]:
+        """Generate grounded structured output with Sonar's JSON Schema mode."""
+        if not self.api_key:
+            raise PerplexityConfigurationError("Set PERPLEXITY_API_KEY to use Perplexity Sonar.")
+        if not settings.enable_perplexity_sonar:
+            raise PerplexityConfigurationError(
+                "Perplexity Sonar is disabled. Set ENABLE_PERPLEXITY_SONAR=true."
+            )
+
+        payload: dict[str, object] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            "max_tokens": max_tokens or settings.perplexity_sonar_max_tokens,
+            "temperature": 0,
+            "stream": False,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "schema": response_model.model_json_schema(by_alias=True),
+                },
+            },
+            "web_search_options": {
+                "search_context_size": settings.perplexity_search_context_size,
+            },
+        }
+        data = await self._post("/v1/sonar", payload, operation="Sonar")
+        try:
+            parsed = parse_json_text(extract_chat_content(data), response_model)
+        except (DeepSeekError, ValidationError) as exc:
+            raise PerplexityError(
+                "Perplexity Sonar returned structured output that did not match the schema."
+            ) from exc
+
+        returned_model = str(data.get("model") or self.model)
+        usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        integer_usage = {key: value for key, value in usage.items() if isinstance(value, int)}
+        self.returned_models.add(returned_model)
+        for key, value in integer_usage.items():
+            self.usage_totals[key] = self.usage_totals.get(key, 0) + value
+        return DeepSeekJSONResult(
+            data=parsed,
+            tools_used={"sonar_extraction"},
+            model=returned_model,
+            usage=integer_usage,
+            citations=[str(url) for url in (data.get("citations") or []) if isinstance(url, str)],
+            search_results=[
+                item for item in (data.get("search_results") or []) if isinstance(item, dict)
+            ],
+        )
 
     async def search(
         self,
@@ -110,47 +182,17 @@ class PerplexitySearchClient:
         if search_after_date_filter:
             payload["search_after_date_filter"] = search_after_date_filter
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        try:
-            if self.http_client is not None:
-                self.requests_made += 1
-                response = await self.http_client.post(
-                    f"{self.base_url}/search",
-                    headers=headers,
-                    json=payload,
-                )
-            else:
-                async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                    self.requests_made += 1
-                    response = await client.post(
-                        f"{self.base_url}/search",
-                        headers=headers,
-                        json=payload,
-                    )
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 429:
-                raise PerplexityQuotaError(
-                    "Perplexity Search quota exhausted or rate limited."
-                ) from exc
-            raise PerplexityError(
-                f"Perplexity Search request failed with HTTP {exc.response.status_code}."
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise PerplexityError(f"Perplexity Search request failed: {exc}") from exc
-
-        data = response.json()
+        data = await self._post("/search", payload, operation="Search")
         results = data.get("results", [])
         if not isinstance(results, list):
             raise PerplexityError(f"Unexpected Perplexity Search response: {data}")
 
         parsed: list[PerplexitySearchResult] = []
-        flattened = [nested for item in results for nested in item] if results and all(
-            isinstance(item, list) for item in results
-        ) else results
+        flattened = (
+            [nested for item in results for nested in item]
+            if results and all(isinstance(item, list) for item in results)
+            else results
+        )
         for item in flattened:
             if not isinstance(item, dict):
                 continue
@@ -169,6 +211,47 @@ class PerplexitySearchClient:
                 )
             )
         return parsed
+
+    async def _post(
+        self,
+        path: str,
+        payload: dict[str, object],
+        *,
+        operation: str,
+    ) -> dict:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        started = time.perf_counter()
+        self.requests_made += 1
+        try:
+            if self.http_client is not None:
+                response = await self.http_client.post(
+                    f"{self.base_url}{path}", headers=headers, json=payload
+                )
+            else:
+                async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                    response = await client.post(
+                        f"{self.base_url}{path}", headers=headers, json=payload
+                    )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                raise PerplexityQuotaError(
+                    f"Perplexity {operation} quota exhausted or rate limited."
+                ) from exc
+            raise PerplexityError(
+                f"Perplexity {operation} request failed with HTTP {exc.response.status_code}."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise PerplexityError(f"Perplexity {operation} request failed: {exc}") from exc
+        finally:
+            self.duration_ms_total += round((time.perf_counter() - started) * 1000)
+        data = response.json()
+        if not isinstance(data, dict):
+            raise PerplexityError(f"Unexpected Perplexity {operation} response: {data}")
+        return data
 
 
 async def discover_sources_with_perplexity(

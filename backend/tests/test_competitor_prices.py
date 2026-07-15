@@ -951,6 +951,127 @@ async def test_perplexity_multi_query_preserves_dates_and_content_budget(monkeyp
     assert results[0].last_updated == "2026-06-01"
 
 
+async def test_perplexity_sonar_returns_schema_validated_grounded_json(monkeypatch):
+    monkeypatch.setattr(settings, "enable_perplexity_sonar", True)
+    monkeypatch.setattr(settings, "perplexity_sonar_model", "sonar")
+
+    async def handler(request: httpx.Request):
+        payload = __import__("json").loads(request.content)
+        assert request.url.path == "/v1/sonar"
+        assert payload["model"] == "sonar"
+        assert payload["response_format"]["type"] == "json_schema"
+        assert "schema" in payload["response_format"]["json_schema"]
+        return httpx.Response(
+            200,
+            json={
+                "model": "sonar",
+                "choices": [{"message": {"content": '{"competitors": []}'}}],
+                "usage": {
+                    "prompt_tokens": 25,
+                    "completion_tokens": 8,
+                    "total_tokens": 33,
+                },
+                "citations": ["https://example.com/menu"],
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        perplexity = PerplexitySearchClient(api_key="test", http_client=client)
+        result = await perplexity.generate_json(
+            system="Use grounded web evidence.",
+            prompt="Find nearby coffee shops.",
+            response_model=CompetitorDiscoveryResult,
+        )
+
+    assert result.data.competitors == []
+    assert result.model == "sonar"
+    assert result.tools_used == {"sonar_extraction"}
+    assert perplexity.requests_made == 1
+    assert perplexity.usage_totals["total_tokens"] == 33
+
+
+def test_competitor_research_defaults_structured_ai_to_sonar():
+    perplexity = PerplexitySearchClient(api_key="test")
+    service = CompetitorResearchService(db=None, perplexity_client=perplexity)
+
+    assert service.structured_ai is perplexity
+    assert service.extractor.uses_sonar
+
+
+async def test_sonar_price_research_accepts_only_cited_source_urls():
+    cited_url = "https://example.com/menu"
+
+    class FakeSonar:
+        async def generate_json(self, **_kwargs):
+            return DeepSeekJSONResult(
+                data=PriceExtractionResult(
+                    prices=[
+                        _price(
+                            offerName="Cappuccino",
+                            normalizedOfferName="cappuccino",
+                            priceMin=5.5,
+                            priceMax=5.5,
+                            sourceUrl=cited_url,
+                            evidenceText="Cappuccino $5.50",
+                        ),
+                        _price(
+                            offerName="Cappuccino",
+                            normalizedOfferName="cappuccino",
+                            priceMin=4.0,
+                            priceMax=4.0,
+                            sourceUrl="https://invented.example/menu",
+                            evidenceText="Cappuccino $4.00",
+                        ),
+                    ]
+                ),
+                tools_used={"sonar_extraction"},
+                model="sonar",
+                citations=[cited_url],
+                search_results=[
+                    {
+                        "title": "Published menu",
+                        "url": cited_url,
+                        "snippet": "Cappuccino $5.50",
+                    }
+                ],
+            )
+
+    sonar = FakeSonar()
+    service = CompetitorResearchService(
+        db=None,
+        perplexity_client=sonar,  # type: ignore[arg-type]
+    )
+    payload = CompetitorPriceResearchRequest.model_validate(
+        {
+            "businessCategory": "Coffee Shop",
+            "targetOffer": "Cappuccino",
+            "location": {
+                "city": "Fremont",
+                "state": "CA",
+                "latitude": 37.55,
+                "longitude": -121.99,
+            },
+        }
+    )
+    metadata = ResearchCallMetadata()
+
+    work = await service._research_competitor_with_sonar(
+        DiscoveredCompetitor(
+            name="Example Coffee",
+            address="1 Main St, Fremont, CA",
+            relevanceReason="Nearby coffee shop",
+        ),
+        payload,
+        [],
+        metadata,
+    )
+
+    assert [candidate.price.price_min for candidate in work.candidates] == [5.5]
+    assert work.candidates[0].price.extraction_method == "sonar"
+    assert work.sources[0].url.rstrip("/") == cited_url
+    assert metadata.sonar_extraction_used
+
+
 async def test_safe_page_fetcher_blocks_private_urls_and_honors_robots():
     assert _validate_public_url("http://127.0.0.1/menu")
     assert _validate_public_url("http://169.254.169.254/latest/meta-data")
@@ -981,9 +1102,7 @@ async def test_safe_page_fetcher_revalidates_redirects_and_caps_content(monkeypa
         return httpx.Response(302, headers={"location": "http://127.0.0.1/private"})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(redirect_handler)) as client:
-        redirected = await SafePageFetcher(http_client=client).fetch(
-            "https://example.com/menu"
-        )
+        redirected = await SafePageFetcher(http_client=client).fetch("https://example.com/menu")
     assert "non-public" in (redirected.error or "")
 
     async def oversized_handler(request: httpx.Request):
@@ -996,9 +1115,7 @@ async def test_safe_page_fetcher_revalidates_redirects_and_caps_content(monkeypa
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(oversized_handler)) as client:
-        oversized = await SafePageFetcher(http_client=client).fetch(
-            "https://example.com/menu"
-        )
+        oversized = await SafePageFetcher(http_client=client).fetch("https://example.com/menu")
     assert "size limit" in (oversized.error or "")
     assert not _public_ip_and_port("localhost", ip_address("127.0.0.1"), 80)
     assert not _public_ip_and_port("metadata", ip_address("169.254.169.254"), 80)
@@ -1157,6 +1274,7 @@ async def test_places_is_primary_and_empty_discovery_is_safe(monkeypatch):
 
 async def test_prefilled_fremont_fixture_separates_channels_and_excludes_self(monkeypatch):
     monkeypatch.setattr(settings, "enable_direct_source_fetch", False)
+
     class FakeGeocoder:
         async def geocode(self, address):
             if "3602 Thornton" in address:

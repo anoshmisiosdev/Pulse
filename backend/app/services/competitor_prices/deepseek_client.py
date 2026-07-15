@@ -43,6 +43,8 @@ class DeepSeekJSONResult[T: BaseModel]:
     tools_used: set[str] = field(default_factory=lambda: {"deepseek_extraction"})
     model: str = ""
     usage: dict[str, int] = field(default_factory=dict)
+    citations: list[str] = field(default_factory=list)
+    search_results: list[dict[str, Any]] = field(default_factory=list)
 
 
 class DeepSeekClient:

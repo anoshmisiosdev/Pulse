@@ -1,4 +1,4 @@
-"""Strict price extraction from Perplexity snippets with DeepSeek."""
+"""Strict price extraction from grounded pages and Perplexity Sonar."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from app.services.competitor_prices.deepseek_client import (
     DeepSeekJSONResult,
 )
 from app.services.competitor_prices.page_fetcher import PageFetchResult
+from app.services.competitor_prices.perplexity_client import PerplexitySearchClient
 from app.services.competitor_prices.schemas import (
     DiscoveredCompetitor,
     DiscoveredSource,
@@ -47,8 +48,16 @@ Do not treat Google/Yelp "$$" price tiers as exact prices.
 
 
 class PricingExtractionService:
-    def __init__(self, deepseek: DeepSeekClient | None = None):
-        self.deepseek = deepseek or DeepSeekClient()
+    def __init__(
+        self,
+        structured_client: DeepSeekClient | PerplexitySearchClient | None = None,
+    ):
+        # Explicit DeepSeek injection remains supported for legacy unit tests.
+        # Production defaults to the same Perplexity client used by research.
+        self.structured_client = structured_client or PerplexitySearchClient()
+        self.uses_sonar = structured_client is None or isinstance(
+            self.structured_client, PerplexitySearchClient
+        )
 
     async def extract_prices(
         self,
@@ -117,7 +126,15 @@ Return JSON with prices only for the target offer or a close equivalent.
 Use observedAt="{today}" unless the source explicitly shows a different observed date.
 sourceUrl must be the source URL above.
 """
-        if not settings.enable_deepseek_extraction:
+        if self.uses_sonar and not settings.enable_perplexity_sonar:
+            return DeepSeekJSONResult(
+                data=PriceExtractionResult(prices=[]),
+                warnings=[
+                    "Perplexity Sonar extraction is disabled; only deterministic sources were used."
+                ],
+                tools_used=set(),
+            )
+        if not self.uses_sonar and not settings.enable_deepseek_extraction:
             return DeepSeekJSONResult(
                 data=PriceExtractionResult(prices=[]),
                 warnings=[
@@ -126,15 +143,15 @@ sourceUrl must be the source URL above.
                 tools_used=set(),
             )
 
-        result = await self.deepseek.generate_json(
+        result = await self.structured_client.generate_json(
             system=STRICT_PRICE_SYSTEM,
             prompt=prompt,
             response_model=PriceExtractionResult,
         )
         result.data.prices = _valid_source_prices(result.data.prices, source)
+        method = "sonar" if self.uses_sonar else "tokenmart"
         result.data.prices = [
-            _with_provenance(price, source, today, "tokenmart")
-            for price in result.data.prices
+            _with_provenance(price, source, today, method) for price in result.data.prices
         ]
         return result
 
@@ -310,10 +327,7 @@ def _extract_visible_text_prices(
         return []
     transient = source.model_copy(update={"snippet": candidate})
     result = _extract_price_from_snippet(source=transient, target_offer=target_offer, today=today)
-    return [
-        _with_provenance(price, source, today, "visible_text")
-        for price in result.data.prices
-    ]
+    return [_with_provenance(price, source, today, "visible_text") for price in result.data.prices]
 
 
 def _resolve_method_votes(

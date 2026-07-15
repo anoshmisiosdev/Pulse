@@ -56,10 +56,10 @@ or hit `POST /api/integrations/csv/preview`.
 
 Pulse includes an MVP local price research workflow at
 `POST /api/competitor-prices/research` and the frontend `/pricing` page. Set
-`GOOGLE_MAPS_API_KEY`, `PERPLEXITY_API_KEY`, and a DeepSeek-compatible key
-server-side to enable the full flow. Perplexity supplies grounded competitor and
-menu/order evidence, DeepSeek structures competitors and extracts strict JSON
-prices, and Google Maps geocoding verifies the requested radius.
+`GOOGLE_MAPS_SERVER_API_KEY` and `PERPLEXITY_API_KEY` server-side to enable the
+full flow. Perplexity Search supplies grounded menu/order evidence, Sonar
+structures competitors and handles strict JSON extraction, and Google Maps
+geocoding verifies the requested radius.
 
 ```bash
 GOOGLE_MAPS_SERVER_API_KEY=...
@@ -70,16 +70,13 @@ STRICT_FREE_TIER=true
 
 PERPLEXITY_API_KEY=...
 ENABLE_PERPLEXITY_SEARCH=true
+ENABLE_PERPLEXITY_SONAR=true
+PERPLEXITY_SONAR_MODEL=sonar
+PERPLEXITY_SONAR_MAX_TOKENS=1600
 PERPLEXITY_SEARCH_CONTEXT_SIZE=high
 PERPLEXITY_MAX_RESULTS=5
 PERPLEXITY_MAX_QUERIES_PER_COMPETITOR=3
 PERPLEXITY_MAX_TOKENS_PER_PAGE=2048
-
-# TokenMart's OpenAI-compatible DeepSeek gateway.
-TOKENMART_API_KEY=...
-TOKENMART_BASE_URL=https://model.service-inference.ai/v1
-TOKENMART_MODEL=deepseek-v4-flash
-ENABLE_DEEPSEEK_EXTRACTION=true
 ```
 
 Identical research requests are cached for two hours. When `STRICT_FREE_TIER=true`,

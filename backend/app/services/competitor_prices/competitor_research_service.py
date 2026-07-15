@@ -30,6 +30,7 @@ from app.services.competitor_prices.confidence_scoring import (
     build_market_summary,
     canonicalize_offer_label,
     evidence_contains_price,
+    evidence_supports_price,
     likely_wrong_location,
     location_matches,
     normalize_offer,
@@ -58,6 +59,7 @@ from app.services.competitor_prices.perplexity_client import (
     PerplexitySearchClient,
     PerplexitySearchResult,
     discover_sources_with_perplexity,
+    infer_source_type,
 )
 from app.services.competitor_prices.pricing_extraction_service import PricingExtractionService
 from app.services.competitor_prices.schemas import (
@@ -71,6 +73,7 @@ from app.services.competitor_prices.schemas import (
     ExtractedPrice,
     GroundingUsedOut,
     MetadataOut,
+    PriceExtractionResult,
     PriceObservationOut,
     ProviderStatsOut,
     QueryOut,
@@ -132,12 +135,15 @@ class CompetitorResearchService:
         page_fetcher: SafePageFetcher | None = None,
     ):
         self.db = db
-        self.deepseek = deepseek_client or DeepSeekClient()
         self.perplexity = perplexity_client or PerplexitySearchClient()
+        # Production uses Sonar for every structured AI step. The optional
+        # DeepSeek client is retained only as a legacy test/migration seam.
+        self.deepseek = deepseek_client
+        self.structured_ai = deepseek_client or self.perplexity
         self.geocoder = geocoding_client or GoogleGeocodingClient()
         self.places = places_client or GooglePlacesClient()
         self.page_fetcher = page_fetcher or SafePageFetcher()
-        self.extractor = PricingExtractionService(self.deepseek)
+        self.extractor = PricingExtractionService(self.structured_ai)
 
     async def research(
         self,
@@ -280,6 +286,9 @@ class CompetitorResearchService:
                     googleMaps=metadata.google_maps_used,
                     urlContext=metadata.url_context_used,
                     perplexitySearch=metadata.perplexity_search_used,
+                    perplexitySonar=metadata.perplexity_sonar_used,
+                    sonarExtraction=metadata.sonar_extraction_used,
+                    sonarResearch=metadata.sonar_research_used,
                     deepseekExtraction=metadata.deepseek_extraction_used,
                     deepseekResearch=metadata.deepseek_research_used,
                     googleGeocoding=metadata.google_geocoding_used,
@@ -292,10 +301,13 @@ class CompetitorResearchService:
                     googlePlacesRequests=getattr(self.places, "requests_made", 0),
                     googleGeocodingRequests=metadata.google_geocoding_requests,
                     perplexityRequests=getattr(self.perplexity, "requests_made", 0),
+                    perplexityModel=getattr(self.perplexity, "model", None),
+                    perplexityUsage=getattr(self.perplexity, "usage_totals", {}),
                     pageFetchRequests=getattr(self.page_fetcher, "requests_made", 0),
                     tokenmartRequests=getattr(self.deepseek, "requests_made", 0),
                     durationMsByProvider={
                         **metadata.duration_ms_by_provider,
+                        "perplexity": getattr(self.perplexity, "duration_ms_total", 0),
                         "tokenmart": getattr(self.deepseek, "duration_ms_total", 0),
                     },
                     tokenmartGateway=(
@@ -367,6 +379,13 @@ class CompetitorResearchService:
         if "Outside requested radius" in competitor.exclusion_reasons:
             return _CompetitorWork(competitor, [], [], [])
 
+        if self.structured_ai is self.perplexity and settings.enable_perplexity_sonar:
+            sonar_work = await self._research_competitor_with_sonar(
+                competitor, payload, warnings, metadata
+            )
+            if sonar_work.candidates:
+                return sonar_work
+
         sources = await self.discover_sources(competitor, payload, warnings, metadata)
         selected = _select_source_attempts(sources, payload.max_sources_per_competitor)
         attempts = [_SourceAttempt(source=source) for source in selected]
@@ -416,7 +435,7 @@ class CompetitorResearchService:
                     page=page,
                     allow_ai=not ai_fallback_used,
                 )
-            except DeepSeekError as exc:
+            except (DeepSeekError, PerplexityError) as exc:
                 attempt.status = "failed"
                 attempt.failure_reason = str(exc)
                 warnings.append(
@@ -462,6 +481,118 @@ class CompetitorResearchService:
             attempt.status = "accepted" if accepted else "checked_no_price"
             if _has_corroborating_pair(candidates):
                 break
+        return _CompetitorWork(competitor, sources, attempts, candidates)
+
+    async def _research_competitor_with_sonar(
+        self,
+        competitor: DiscoveredCompetitor,
+        payload: CompetitorPriceResearchRequest,
+        warnings: list[str],
+        metadata: ResearchCallMetadata,
+    ) -> _CompetitorWork:
+        """Use one grounded Sonar call instead of a search/fetch/extract chain."""
+        today = datetime.now(UTC).date().isoformat()
+        prompt = f"""Research the currently published price of this exact offer.
+
+Competitor: {competitor.name}
+Address: {competitor.address or "unknown"}
+Website: {competitor.website or "unknown"}
+Target offer: {payload.target_offer}
+Requested market: {payload.location.search_label}
+
+Search current official menus, ordering pages, and reputable menu listings. Return a price
+only when the numeric amount and target offer are explicitly supported by a web source.
+sourceUrl must be copied exactly from a source used by your web search. Do not estimate,
+average, or substitute a general price tier. Use observedAt={today} unless the source gives
+a specific date. Keep evidenceText under 12 words and include the item and numeric price.
+Return an empty prices array when no source explicitly publishes the target price.
+"""
+        started = time.perf_counter()
+        try:
+            result = await self.perplexity.generate_json(
+                system=(
+                    "You are a grounded local price researcher. Return only source-backed "
+                    "structured data and never invent prices or URLs."
+                ),
+                prompt=prompt,
+                response_model=PriceExtractionResult,
+            )
+        except PerplexityError as exc:
+            warnings.append(
+                f"Sonar price research failed for {competitor.name}; tried published pages "
+                f"instead ({exc})."
+            )
+            return _CompetitorWork(competitor, [], [], [])
+
+        result.tools_used = {"sonar_extraction"}
+        self._record_call(result, metadata, warnings)
+        metadata.duration_ms_by_provider["perplexity"] = metadata.duration_ms_by_provider.get(
+            "perplexity", 0
+        ) + round((time.perf_counter() - started) * 1000)
+
+        search_by_url = {
+            str(item.get("url") or "").rstrip("/"): item
+            for item in result.search_results
+            if item.get("url")
+        }
+        grounded_urls = {
+            *{url.rstrip("/") for url in result.citations},
+            *search_by_url.keys(),
+        }
+        sources: list[DiscoveredSource] = []
+        attempts: list[_SourceAttempt] = []
+        candidates: list[_CandidatePrice] = []
+        for price in result.data.prices:
+            source_url = price.source_url.rstrip("/")
+            if (
+                source_url not in grounded_urls
+                or price.match_quality == "weak"
+                or not evidence_supports_price(price)
+            ):
+                continue
+            source_data = search_by_url.get(source_url, {})
+            source = DiscoveredSource(
+                url=price.source_url,
+                title=str(source_data.get("title") or price.source_title or "") or None,
+                snippet=(str(source_data.get("snippet") or price.evidence_text or "") or None),
+                sourceType=infer_source_type(price.source_url, competitor=competitor),
+                relevance=1.0,
+                publishedAt=str(source_data.get("date") or "") or None,
+                updatedAt=str(source_data.get("last_updated") or "") or None,
+                retrievalMethod="perplexity_content",
+            )
+            grounded_price = price.model_copy(
+                update={
+                    "source_title": source.title,
+                    "source_published_at": source.published_at,
+                    "source_updated_at": source.updated_at,
+                    "verified_at": today,
+                    "retrieval_method": "perplexity_content",
+                    "extraction_method": "sonar",
+                }
+            )
+            confidence = _score_candidate(
+                competitor=competitor,
+                source=source,
+                price=grounded_price,
+                payload=payload,
+                snippet_only=True,
+                multiple_sources_support=False,
+            )
+            sources.append(source)
+            attempts.append(_SourceAttempt(source=source, checked=True, status="accepted"))
+            candidates.append(
+                _CandidatePrice(
+                    competitor=competitor,
+                    source=source,
+                    price=grounded_price,
+                    confidence=confidence.score,
+                    reasons=confidence.reasons,
+                    channel=_price_channel(source),
+                    snippet_only=True,
+                )
+            )
+        metadata.ai_extractions += len(candidates)
         return _CompetitorWork(competitor, sources, attempts, candidates)
 
     async def _verify_radius(
@@ -571,10 +702,9 @@ class CompetitorResearchService:
 
         metadata.perplexity_search_used = True
         metadata.models_used.add("perplexity-search")
-        metadata.duration_ms_by_provider["perplexity"] = (
-            metadata.duration_ms_by_provider.get("perplexity", 0)
-            + round((time.perf_counter() - perplexity_started) * 1000)
-        )
+        metadata.duration_ms_by_provider["perplexity"] = metadata.duration_ms_by_provider.get(
+            "perplexity", 0
+        ) + round((time.perf_counter() - perplexity_started) * 1000)
         if not evidence:
             warnings.append("Perplexity Search found no source-backed local competitors.")
             return CompetitorDiscoveryResult(competitors=[])
@@ -600,7 +730,7 @@ Do not include the business being researched: {payload.business_name or "unknown
 Evidence JSON:
 {json.dumps(evidence_payload)}
 """
-        result = await self.deepseek.generate_json(
+        result = await self.structured_ai.generate_json(
             system=(
                 "You structure grounded competitor-search evidence. Return only valid JSON and "
                 "never add facts that are absent from the supplied evidence."
@@ -608,7 +738,9 @@ Evidence JSON:
             prompt=prompt,
             response_model=CompetitorDiscoveryResult,
         )
-        result.tools_used = {"deepseek_research"}
+        result.tools_used = (
+            {"sonar_research"} if self.structured_ai is self.perplexity else {"deepseek_research"}
+        )
         self._record_call(result, metadata, warnings)
         allowed_urls = {item.url.rstrip("/") for item in evidence}
         result.data.competitors = [
@@ -617,7 +749,7 @@ Evidence JSON:
             if any(url.rstrip("/") in allowed_urls for url in competitor.source_urls)
         ]
         if not result.data.competitors:
-            warnings.append("DeepSeek found no competitors fully supported by search evidence.")
+            warnings.append("Sonar found no competitors fully supported by search evidence.")
         return result.data
 
     async def discover_sources(
@@ -669,6 +801,15 @@ Evidence JSON:
     ) -> None:
         if result.model:
             metadata.models_used.add(result.model)
+        metadata.perplexity_sonar_used = metadata.perplexity_sonar_used or bool(
+            {"sonar_extraction", "sonar_research"} & result.tools_used
+        )
+        metadata.sonar_extraction_used = (
+            metadata.sonar_extraction_used or "sonar_extraction" in result.tools_used
+        )
+        metadata.sonar_research_used = (
+            metadata.sonar_research_used or "sonar_research" in result.tools_used
+        )
         metadata.deepseek_extraction_used = (
             metadata.deepseek_extraction_used or "deepseek_extraction" in result.tools_used
         )
@@ -935,6 +1076,12 @@ def _cached_response_missing_configured_provider(
         settings.enable_perplexity_search
         and settings.perplexity_api_key
         and not grounding.perplexity_search
+    ):
+        return True
+    if (
+        settings.enable_perplexity_sonar
+        and settings.perplexity_api_key
+        and not grounding.perplexity_sonar
     ):
         return True
     return False

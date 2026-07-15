@@ -71,8 +71,7 @@ class Settings(BaseSettings):
         return bool(self.token_router_api_key or self.anthropic_api_key)
 
     # Competitor research uses Google Places for authoritative local-business
-    # discovery, Perplexity for grounded source discovery, and TokenMart only
-    # as a bounded structured-extraction fallback.
+    # discovery and Perplexity Sonar for grounded research and structured output.
     strict_free_tier: bool = True
     google_maps_server_api_key: str = ""
     google_maps_api_key: str = ""
@@ -85,17 +84,22 @@ class Settings(BaseSettings):
     third_party_freshness_months: int = 18
     competitor_research_deadline_seconds: float = 60.0
 
-    # Competitor price source discovery and extraction.
-    # Perplexity Search returns structured web results; TokenMart provides the
-    # OpenAI-compatible gateway used to call the DeepSeek model.
+    # Competitor price source discovery and extraction. Raw Search finds
+    # candidate pages; Sonar structures grounded results and handles the
+    # bounded AI extraction fallback.
     perplexity_api_key: str = ""
     perplexity_search_base_url: str = "https://api.perplexity.ai"
     enable_perplexity_search: bool = True
+    enable_perplexity_sonar: bool = True
+    perplexity_sonar_model: str = "sonar"
+    perplexity_sonar_max_tokens: int = 1600
     perplexity_search_country: str = "US"
     perplexity_search_context_size: str = "high"
     perplexity_max_results: int = 5
     perplexity_max_queries_per_competitor: int = 3
     perplexity_max_tokens_per_page: int = 2048
+    # Legacy settings remain accepted while old deployments roll forward.
+    # The pricing workflow no longer calls these providers.
     tokenmart_api_key: str = ""
     tokenmart_base_url: str = "https://model.service-inference.ai/v1"
     tokenmart_model: str = "deepseek-v4-flash"

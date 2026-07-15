@@ -862,6 +862,7 @@ function extractionLabel(method: CompetitorPrice["extractionMethod"]): string {
     json_ld: "Structured data",
     visible_text: "Visible text",
     search_snippet: "Search evidence",
+    sonar: "Perplexity Sonar",
     tokenmart: "AI fallback",
     method_consensus: "Method consensus",
   };
