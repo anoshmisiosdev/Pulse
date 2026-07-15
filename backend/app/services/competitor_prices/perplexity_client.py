@@ -12,6 +12,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from app.core.config import settings
+from app.core.http_retry import retry_transient
 from app.services.competitor_prices.confidence_scoring import (
     canonicalize_offer_label,
     evidence_contains_price,
@@ -225,7 +226,9 @@ class PerplexitySearchClient:
         }
         started = time.perf_counter()
         self.requests_made += 1
-        try:
+
+        @retry_transient
+        async def _request() -> httpx.Response:
             if self.http_client is not None:
                 response = await self.http_client.post(
                     f"{self.base_url}{path}", headers=headers, json=payload
@@ -236,6 +239,10 @@ class PerplexitySearchClient:
                         f"{self.base_url}{path}", headers=headers, json=payload
                     )
             response.raise_for_status()
+            return response
+
+        try:
+            response = await _request()
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:
                 raise PerplexityQuotaError(

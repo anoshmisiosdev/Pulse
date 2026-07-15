@@ -1,0 +1,42 @@
+name: Deploy backend to AWS
+
+# Builds the backend image and pushes it to ECR. App Runner has
+# auto-deployments enabled, so a new :latest image rolls out on its own.
+# Auth is OIDC (role pulse-github-deploy) — no AWS keys stored in GitHub.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/aws-deploy.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: 761018860175.dkr.ecr.us-east-1.amazonaws.com/pulse-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::761018860175:role/pulse-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        run: |
+          docker build --platform linux/amd64 \
+            -t "$ECR_REPO:latest" -t "$ECR_REPO:${GITHUB_SHA::7}" backend
+          docker push "$ECR_REPO:latest"
+          docker push "$ECR_REPO:${GITHUB_SHA::7}"

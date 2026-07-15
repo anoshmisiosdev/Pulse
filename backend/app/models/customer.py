@@ -7,6 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -17,10 +18,14 @@ from sqlalchemy import (
     Text,
     Uuid,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.models.mixins import UUIDMixin
+
+# JSONB on Postgres (indexable, queryable); plain JSON elsewhere (SQLite tests).
+JsonCol = JSON().with_variant(JSONB(), "postgresql")
 
 
 class Customer(UUIDMixin, Base):
@@ -89,9 +94,17 @@ class EngagementEvent(UUIDMixin, Base):
     customer_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("customers.id", ondelete="CASCADE"), index=True
     )
-    # "email_sent" | "email_open" | "email_click" | "sms_sent" | "reply" | "stop"
+    # "email_sent" | "email_open" | "email_click" | "email_bounced" | "email_complained"
+    # | "sms_sent" | "reply" | "stop"
     kind: Mapped[str] = mapped_column(String(32))
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # The send this event is about, when known (opens/clicks/replies all trace
+    # back to one). Null for events with no obvious originating send.
+    campaign_send_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("campaign_sends.id", ondelete="SET NULL"), nullable=True
+    )
+    # Free text: the clicked URL, the SMS reply body, etc.
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class RiskScore(UUIDMixin, Base):
@@ -105,5 +118,5 @@ class RiskScore(UUIDMixin, Base):
     )
     score: Mapped[int] = mapped_column(Integer)
     band: Mapped[str] = mapped_column(String(8))
-    reasons: Mapped[str] = mapped_column(Text, default="[]")  # JSON-encoded list[str]
-    signals: Mapped[str] = mapped_column(Text, default="{}")  # JSON-encoded dict
+    reasons: Mapped[list] = mapped_column(JsonCol, default=list)  # list[str]
+    signals: Mapped[dict] = mapped_column(JsonCol, default=dict)

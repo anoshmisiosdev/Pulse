@@ -9,6 +9,7 @@ from decimal import Decimal
 from sqlalchemy import (
     DateTime,
     ForeignKey,
+    Integer,
     Numeric,
     String,
     Text,
@@ -50,6 +51,13 @@ class CampaignSend(UUIDMixin, Base):
     # Provenance for the generation that produced this copy.
     generation_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     generated_by: Mapped[str] = mapped_column(String(16), default="claude")  # claude | fallback
+    # The rule that queued this send, if any (manual sends leave this null).
+    automation_rule_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("automation_rules.id", ondelete="SET NULL"), nullable=True
+    )
+    # Twilio MessageSid / Resend email id — lets delivery-status webhooks find this row.
+    provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class AutomationRule(UUIDMixin, Base):
@@ -64,6 +72,12 @@ class AutomationRule(UUIDMixin, Base):
     # suggest | approve | auto
     mode: Mapped[str] = mapped_column(String(16), default="approve")
     enabled: Mapped[bool] = mapped_column(default=True)
+    # Don't re-contact the same customer via this rule more than once per window.
+    cooldown_days: Mapped[int] = mapped_column(Integer, default=14)
+    # Lazily created on first dispatch — the Campaign every send from this rule attaches to.
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("campaigns.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class RecoveryAttribution(UUIDMixin, Base):

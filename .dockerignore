@@ -1,0 +1,50 @@
+# Version control
+.git
+.gitignore
+.github/
+
+# Python — don't ship the host's venv or cache into the image
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Node — same idea for the frontend image
+node_modules/
+dist/
+.vite/
+
+# Env / secrets — never enter the build context
+.env
+.env.*
+*.pem
+fernet.key
+
+# Docker volumes (local dev data)
+.postgres-data/
+.redis-data/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Docs / CI / infra (not needed at runtime)
+CLAUDE.md
+DEPLOYMENT.md
+CODE_REVIEW.md
+infra/
+render.yaml
+docker-compose*.yml
+
+# Frontend artifacts that are regenerated during build
+frontend/node_modules/
+frontend/dist/

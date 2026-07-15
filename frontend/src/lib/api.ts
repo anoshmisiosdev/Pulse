@@ -2,6 +2,10 @@
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
+// localStorage flag: owner chose "skip setup" — lives here (not Setup.tsx) so the
+// route gate can read it without pulling the lazy-loaded Setup page into the main chunk.
+export const SETUP_SKIPPED_KEY = "pulse_setup_skipped";
+
 export type Band = "low" | "med" | "high";
 export type Segment =
   | "needs_attention"
@@ -70,6 +74,66 @@ export interface GeneratedCopy {
   body: string;
   generated_by: "claude" | "fallback";
   model: string | null;
+}
+
+export type TriggerBand = "low" | "med" | "high";
+export type AutomationChannel = "sms" | "email";
+export type AutomationMode = "suggest" | "approve" | "auto";
+
+export interface AutomationRule {
+  id: string;
+  name: string;
+  trigger_band: TriggerBand;
+  channel: AutomationChannel;
+  incentive: string | null;
+  mode: AutomationMode;
+  cooldown_days: number;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface AutomationRuleInput {
+  name: string;
+  trigger_band: TriggerBand;
+  channel: AutomationChannel;
+  incentive?: string | null;
+  mode: AutomationMode;
+  cooldown_days?: number;
+  enabled?: boolean;
+}
+
+export type CampaignSendStatus = "pending" | "approved" | "sent" | "delivered" | "failed" | "skipped";
+
+export interface CampaignSend {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  automation_rule_id: string | null;
+  channel: AutomationChannel;
+  subject: string | null;
+  body: string;
+  status: CampaignSendStatus;
+  sent_at: string | null;
+  failure_reason: string | null;
+  created_at: string;
+  opened: boolean;
+  clicked: boolean;
+  replied: boolean;
+}
+
+export interface DispatchSummary {
+  rules_evaluated: number;
+  sends_created: number;
+  skipped: Record<string, number>;
+}
+
+export type KnowledgeKind = "service" | "brand_voice" | "campaign_example" | "note";
+
+export interface KnowledgeItem {
+  id: string;
+  kind: KnowledgeKind;
+  content: string;
+  created_at: string;
 }
 
 export interface AuthUser {
@@ -261,16 +325,35 @@ async function asJson<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** GET with up to 2 retries on network failure or 5xx. GETs are idempotent, so
+ * retrying is safe; writes (POST/PATCH/DELETE) stay single-shot on purpose. */
+async function getJson<T>(path: string): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * attempt));
+    try {
+      const res = await fetch(`${BASE}${path}`, { headers: authHeaders() });
+      if (res.status >= 500 && attempt < 2) continue;
+      return await asJson<T>(res);
+    } catch (err) {
+      if (err instanceof TypeError) {
+        lastError = err; // network failure — retry
+        continue;
+      }
+      throw err; // HTTP error from asJson — don't retry 4xx
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Request failed");
+}
+
 export const api = {
   async me(): Promise<AuthUser> {
-    const res = await fetch(`${BASE}/api/auth/me`, { headers: authHeaders() });
-    return asJson<AuthUser>(res);
+    return getJson<AuthUser>("/api/auth/me");
   },
 
   /** The tenant's persisted dashboard data. status:"empty" → route to /setup. */
   async portfolio(): Promise<Portfolio> {
-    const res = await fetch(`${BASE}/api/portfolio`, { headers: authHeaders() });
-    return asJson<Portfolio>(res);
+    return getJson<Portfolio>("/api/portfolio");
   },
 
   /** Connect Stripe/Square, pull all customer data, persist it for this tenant. */
@@ -304,8 +387,7 @@ export const api = {
 
   /** Which providers can show a "Connect with …" button. */
   async oauthAvailability(): Promise<{ stripe: boolean; square: boolean }> {
-    const res = await fetch(`${BASE}/api/integrations/oauth/availability`);
-    return asJson(res);
+    return getJson("/api/integrations/oauth/availability");
   },
 
   /** Get the provider authorize URL, then send the browser there. */
@@ -319,10 +401,9 @@ export const api = {
       business_name: businessName,
       return_to: window.location.origin,
     });
-    const res = await fetch(`${BASE}/api/integrations/oauth/${provider}/start?${qs}`, {
-      headers: authHeaders(),
-    });
-    const data = await asJson<{ url: string }>(res);
+    const data = await getJson<{ url: string }>(
+      `/api/integrations/oauth/${provider}/start?${qs}`
+    );
     return data.url;
   },
 
@@ -426,6 +507,88 @@ export const api = {
 
   templateUrl(): string {
     return `${BASE}/api/integrations/csv/template`;
+  },
+
+  /** Everything taught so far — retrieved into campaign generation (RAG). */
+  async listKnowledge(): Promise<KnowledgeItem[]> {
+    return getJson<KnowledgeItem[]>("/api/knowledge");
+  },
+
+  /** Add a snippet (service, brand voice, past campaign example, or a general
+   * note) that future campaign generations can draw on. */
+  async addKnowledge(kind: KnowledgeKind, content: string): Promise<KnowledgeItem> {
+    const res = await fetch(`${BASE}/api/knowledge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ kind, content }),
+    });
+    return asJson<KnowledgeItem>(res);
+  },
+
+  async deleteKnowledge(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/knowledge/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok && res.status !== 204) {
+      throw new Error(`Request failed (${res.status})`);
+    }
+  },
+
+  // ── Automations (SMS/email rule engine) ──────────────────────────────────
+  async listAutomationRules(): Promise<AutomationRule[]> {
+    return getJson<AutomationRule[]>("/api/automations/rules");
+  },
+
+  async createAutomationRule(input: AutomationRuleInput): Promise<AutomationRule> {
+    const res = await fetch(`${BASE}/api/automations/rules`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(input),
+    });
+    return asJson<AutomationRule>(res);
+  },
+
+  async updateAutomationRule(
+    id: string,
+    patch: Partial<AutomationRuleInput>
+  ): Promise<AutomationRule> {
+    const res = await fetch(`${BASE}/api/automations/rules/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(patch),
+    });
+    return asJson<AutomationRule>(res);
+  },
+
+  async deleteAutomationRule(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/automations/rules/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok && res.status !== 204) {
+      throw new Error(`Request failed (${res.status})`);
+    }
+  },
+
+  async listSends(limit = 50): Promise<CampaignSend[]> {
+    return getJson<CampaignSend[]>(`/api/automations/sends?limit=${limit}`);
+  },
+
+  async approveSend(id: string): Promise<CampaignSend> {
+    const res = await fetch(`${BASE}/api/automations/sends/${id}/approve`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<CampaignSend>(res);
+  },
+
+  async triggerDispatch(): Promise<DispatchSummary> {
+    const res = await fetch(`${BASE}/api/automations/dispatch`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<DispatchSummary>(res);
   },
 };
 

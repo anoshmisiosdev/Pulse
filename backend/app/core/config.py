@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -111,6 +112,20 @@ class Settings(BaseSettings):
     enable_deepseek_extraction: bool = True
     deepseek_use_token_router: bool = False
 
+    # RAG embeddings — AWS Bedrock (Cohere Embed v4), same account as pulse-db.
+    # Dimensions must match the model's actual output size — the pgvector column
+    # (app/models/knowledge.py) is fixed at create time, so switching models later
+    # requires a migration. The App Runner instance role (pulse-apprunner-instance)
+    # holds bedrock:InvokeModel scoped to this exact model ARN; local dev uses
+    # whatever AWS credentials are in the shell (aws sts get-caller-identity).
+    bedrock_region: str = "us-east-1"
+    bedrock_embedding_model: str = "cohere.embed-v4:0"
+    embedding_dimensions: int = 1536
+
+    @property
+    def rag_configured(self) -> bool:
+        return bool(self.bedrock_embedding_model)
+
     @property
     def effective_google_maps_api_key(self) -> str:
         """Prefer the dedicated server key while preserving legacy deployments."""
@@ -124,9 +139,25 @@ class Settings(BaseSettings):
     # Email / SMS
     resend_api_key: str = ""
     resend_from_email: str = "hello@example.com"
+    # Signs POST /api/automations/resend/webhook (Resend uses Svix — the secret
+    # is the "whsec_..." value shown when you create the webhook endpoint).
+    resend_webhook_secret: str = ""
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_from_number: str = ""
+    # TCPA: no SMS before this local hour or at/after this one (24h, business's own timezone).
+    sms_quiet_hours_start: int = 9
+    sms_quiet_hours_end: int = 20
+    # How often the automation dispatcher re-evaluates rules (Celery beat, seconds).
+    automation_dispatch_interval_seconds: int = 900
+
+    @property
+    def resend_configured(self) -> bool:
+        return bool(self.resend_api_key)
+
+    @property
+    def twilio_configured(self) -> bool:
+        return bool(self.twilio_account_sid and self.twilio_auth_token and self.twilio_from_number)
 
     # Square OAuth app (Developer Dashboard → your app). Enables "Connect with Square".
     square_app_id: str = ""
@@ -147,6 +178,24 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @model_validator(mode="after")
+    def _validate_production_secrets(self) -> Settings:
+        """Fail fast in production if critical secrets are missing or weak."""
+        if not self.is_production:
+            return self
+        missing: list[str] = []
+        if not self.fernet_key:
+            missing.append("FERNET_KEY")
+        if not self.supabase_url:
+            missing.append("SUPABASE_URL")
+        if self.supabase_jwt_secret and len(self.supabase_jwt_secret) < 32:
+            missing.append("SUPABASE_JWT_SECRET (must be >=32 chars or blank for JWKS)")
+        if missing:
+            raise ValueError(
+                f"Production requires these settings: {', '.join(missing)}"
+            )
+        return self
 
     @property
     def cors_origins(self) -> list[str]:

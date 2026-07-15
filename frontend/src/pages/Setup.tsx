@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { usePulse } from "../context/PulseContext";
-import { api } from "../lib/api";
+import { api, SETUP_SKIPPED_KEY } from "../lib/api";
 
-export const SETUP_SKIPPED_KEY = "pulse_setup_skipped";
 
 type Provider = "stripe" | "square" | "csv";
 
@@ -166,7 +165,7 @@ export default function Setup() {
           {hasData ? "Data sources" : "Connect your customer data"}
         </h1>
         <p className="mt-1 italic" style={{ color: "var(--muted)" }}>
-          Pulse watches your payment system and flags customers who are about to
+          Churnary watches your payment system and flags customers who are about to
           slip away. Pick where your customers live.
         </p>
       </div>

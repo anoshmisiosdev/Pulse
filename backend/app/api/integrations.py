@@ -20,18 +20,13 @@ from app.schemas.api import (
     ConnectIn,
     ConnectionOut,
     CSVPreviewOut,
-    CustomerRisk,
     PortfolioOut,
     PortfolioSummaryOut,
 )
 from app.schemas.normalized import SyncResult
 from app.services import ingest, oauth
-from app.services.activity import (
-    ScoredCustomer,
-    build_scored_customers,
-    monthly_revenue_series,
-    summarize,
-)
+from app.services.activity import build_scored_customers, monthly_revenue_series, summarize
+from app.services.portfolio_service import build_portfolio, to_risk
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -49,38 +44,8 @@ async def _run_sync(adapter) -> SyncResult:
 async def _persist_and_respond(
     db: AsyncSession, user: CurrentUser, source: str, sync: SyncResult
 ) -> PortfolioOut:
-    from app.api.portfolio import build_portfolio
-
     await ingest.persist_sync(db, user.business_id, source, sync)
     return await build_portfolio(db, user)
-
-
-def _to_risk(scored: list[ScoredCustomer]) -> list[CustomerRisk]:
-    rows = [
-        CustomerRisk(
-            customer_id=s.result.customer_id,
-            name=s.customer.full_name,
-            email=s.customer.email,
-            phone=s.customer.phone,
-            score=s.result.score,
-            band=s.result.band,
-            reasons=s.result.reasons,
-            estimated_annual_value=s.estimated_annual_value,
-            days_since_last_visit=s.days_since_last_visit,
-            last_visit=s.last_visit,
-            visit_count=s.visit_count,
-            total_spend=s.total_spend,
-            segment=s.segment,
-            pattern=s.pattern,
-            confidence=s.confidence,
-            trend_pct=s.trend_pct,
-            favorite_item=s.customer.favorite_item,
-        )
-        for s in scored
-    ]
-    # Most at-risk first — that's the work queue.
-    rows.sort(key=lambda r: r.score, reverse=True)
-    return rows
 
 
 @router.get("/csv/template", response_class=PlainTextResponse)
@@ -113,7 +78,7 @@ async def csv_preview(
         business_name=business_name,
         vertical=vertical,
         summary=PortfolioSummaryOut(**summary.__dict__),
-        customers=_to_risk(scored),
+        customers=to_risk(scored),
         warnings=sync.warnings,
     )
 
@@ -289,8 +254,6 @@ async def resync(
     if not live:
         raise HTTPException(404, detail="No connected integration to sync")
 
-    from app.api.portfolio import build_portfolio
-
     for conn in live:
         adapter = get_adapter_class(conn.source)()
         try:
@@ -329,6 +292,6 @@ async def demo(count: int = Query(50, ge=1, le=2000)) -> CSVPreviewOut:
         business_name=DEMO_BUSINESS_NAME,
         vertical=DEMO_VERTICAL,
         summary=PortfolioSummaryOut(**summary.__dict__),
-        customers=_to_risk(scored),
+        customers=to_risk(scored),
         warnings=[],
     )

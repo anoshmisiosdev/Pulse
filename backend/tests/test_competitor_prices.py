@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.logging import redact_secrets
-from app.main import app
+from app.main import app, fastapi_app
 from app.services.competitor_prices.competitor_research_service import (
     CompetitorResearchService,
     ResearchConfigurationError,
@@ -525,7 +525,7 @@ def test_api_route_uses_mocked_service(monkeypatch):
     import app.api.competitor_prices as route
 
     monkeypatch.setattr(route, "CompetitorResearchService", FakeService)
-    app.dependency_overrides[get_db] = fake_db
+    fastapi_app.dependency_overrides[get_db] = fake_db
     try:
         client = TestClient(app)
         response = client.post(
@@ -537,7 +537,7 @@ def test_api_route_uses_mocked_service(monkeypatch):
             },
         )
     finally:
-        app.dependency_overrides.clear()
+        fastapi_app.dependency_overrides.clear()
 
     assert response.status_code == 200
     assert response.json()["metadata"]["modelsUsed"] == ["deepseek-v4-flash"]

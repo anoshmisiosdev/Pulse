@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import httpx
 
 from app.core.config import settings
+from app.core.http_retry import retry_transient
 
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
@@ -32,9 +33,7 @@ class GoogleGeocodingClient:
         api_key: str | None = None,
         http_client: httpx.AsyncClient | None = None,
     ):
-        self.api_key = (
-            api_key if api_key is not None else settings.effective_google_maps_api_key
-        )
+        self.api_key = api_key if api_key is not None else settings.google_maps_api_key
         self.http_client = http_client
 
     async def geocode(self, address: str) -> Coordinates | None:
@@ -42,7 +41,8 @@ class GoogleGeocodingClient:
             raise GeocodingConfigurationError(
                 "Set GOOGLE_MAPS_API_KEY to verify competitor research distances."
             )
-        try:
+        @retry_transient
+        async def _request() -> httpx.Response:
             if self.http_client is not None:
                 response = await self.http_client.get(
                     "https://maps.googleapis.com/maps/api/geocode/json",
@@ -55,12 +55,12 @@ class GoogleGeocodingClient:
                         params={"address": address, "key": self.api_key},
                     )
             response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise GeocodingError(
-                f"Google geocoding request failed with HTTP {exc.response.status_code}."
-            ) from exc
+            return response
+
+        try:
+            response = await _request()
         except httpx.HTTPError as exc:
-            raise GeocodingError("Google geocoding request failed.") from exc
+            raise GeocodingError(f"Google geocoding request failed: {exc}") from exc
 
         payload = response.json()
         status = payload.get("status")

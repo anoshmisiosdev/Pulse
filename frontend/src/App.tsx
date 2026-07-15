@@ -1,23 +1,31 @@
-import { lazy, Suspense } from "react";
+import { Suspense, lazy } from "react";
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import EmptyState from "./components/EmptyState";
+import ErrorBoundary from "./components/ErrorBoundary";
+import PageSkeleton from "./components/PageSkeleton";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PulseProvider, usePulse } from "./context/PulseContext";
-import Dashboard from "./pages/Dashboard";
-import Customers from "./pages/Customers";
-import Retention from "./pages/Retention";
-import Automations from "./pages/Automations";
-import Login from "./pages/Login";
-import Setup, { SETUP_SKIPPED_KEY } from "./pages/Setup";
+import { SETUP_SKIPPED_KEY } from "./lib/api";
 
+// Each page is its own chunk — visitors only download the routes they visit.
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Customers = lazy(() => import("./pages/Customers"));
+const Retention = lazy(() => import("./pages/Retention"));
+const Automations = lazy(() => import("./pages/Automations"));
 const Pricing = lazy(() => import("./pages/Pricing"));
+const Landing = lazy(() => import("./pages/Landing"));
+const Login = lazy(() => import("./pages/Login"));
+const Setup = lazy(() => import("./pages/Setup"));
 
 function Spinner({ label }: { label: string }) {
   return (
     <div className="grid min-h-[60vh] place-items-center">
-      <div className="flex items-center gap-3 text-slate-500">
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+      <div className="flex items-center gap-3" style={{ color: "var(--muted)" }}>
+        <span
+          className="h-5 w-5 animate-spin rounded-full border-2"
+          style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }}
+        />
         {label}
       </div>
     </div>
@@ -32,14 +40,14 @@ function DataGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="grid min-h-[60vh] place-items-center text-center">
         <div className="glass p-8">
-          <p className="font-display text-lg font-semibold text-slate-800">Couldn't reach Pulse</p>
-          <p className="mt-1 text-sm text-slate-500">{error}</p>
-          <p className="mt-2 text-xs text-slate-400">Is the API running?</p>
+          <p className="font-display text-lg font-semibold" style={{ color: "var(--ink)" }}>Couldn't reach Churnary</p>
+          <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>{error}</p>
+          <p className="mt-2 text-xs" style={{ color: "var(--muted-2)" }}>Is the API running?</p>
         </div>
       </div>
     );
   }
-  if (status === "loading") return <Spinner label="Loading your customers…" />;
+  if (status === "loading") return <PageSkeleton />;
 
   if (status === "empty") {
     // First visit with no data → take them to setup. If they chose to skip,
@@ -66,24 +74,39 @@ function DataGate({ children }: { children: React.ReactNode }) {
 function AuthedApp() {
   return (
     <PulseProvider>
-      <AppShell>
-        <Routes>
-          <Route path="/setup" element={<Setup />} />
-          <Route path="/" element={<DataGate><Dashboard /></DataGate>} />
-          <Route path="/customers" element={<DataGate><Customers /></DataGate>} />
-          <Route path="/retention" element={<DataGate><Retention /></DataGate>} />
-          <Route path="/automations" element={<DataGate><Automations /></DataGate>} />
-          <Route
-            path="/pricing"
-            element={(
-              <Suspense fallback={<Spinner label="Loading pricing intelligence…" />}>
-                <Pricing />
-              </Suspense>
-            )}
-          />
-        </Routes>
-      </AppShell>
+      <Routes>
+        {/* Marketing page stays reachable in demo mode for local preview */}
+        <Route path="/landing" element={<Landing />} />
+        <Route path="/login" element={<Navigate to="/" replace />} />
+        <Route
+          path="*"
+          element={
+            <AppShell>
+              <Routes>
+                <Route path="/setup" element={<Setup />} />
+                <Route path="/connect" element={<Navigate to="/setup" replace />} />
+                <Route path="/pricing" element={<Pricing />} />
+                <Route path="/" element={<DataGate><Dashboard /></DataGate>} />
+                <Route path="/customers" element={<DataGate><Customers /></DataGate>} />
+                <Route path="/retention" element={<DataGate><Retention /></DataGate>} />
+                <Route path="/automations" element={<DataGate><Automations /></DataGate>} />
+              </Routes>
+            </AppShell>
+          }
+        />
+      </Routes>
     </PulseProvider>
+  );
+}
+
+// Public marketing site for signed-out visitors: landing page → login.
+function PublicSite() {
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
 
@@ -91,15 +114,19 @@ function Gate() {
   const { user, loading, configured } = useAuth();
   if (loading) return <Spinner label="Loading…" />;
   // When Supabase auth isn't configured (local dev), skip the wall and use the
-  // backend's demo tenant. Once configured, login is required.
-  if (configured && !user) return <Login />;
+  // backend's demo tenant. Once configured, the landing page fronts the login.
+  if (configured && !user) return <PublicSite />;
   return <AuthedApp />;
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Gate />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <Suspense fallback={<Spinner label="Loading…" />}>
+          <Gate />
+        </Suspense>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

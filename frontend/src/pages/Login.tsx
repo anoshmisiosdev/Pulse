@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
@@ -47,22 +48,25 @@ export default function Login() {
   return (
     <div className="grid min-h-screen place-items-center px-4">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center justify-center gap-2">
+        <Link to="/" className="mb-6 flex items-center justify-center gap-2">
           <span
             className="font-logo inline-flex h-10 w-10 items-center justify-center rounded-full text-2xl"
             style={{ background: "var(--ink-strong)", color: "var(--cream-text)" }}
           >
-            P
+            C
           </span>
-          <span className="font-display text-2xl font-bold tracking-tight" style={{ color: "var(--ink)" }}>Pulse</span>
-        </div>
+          <span className="font-display text-2xl font-bold tracking-tight" style={{ color: "var(--ink)" }}>Churnary</span>
+        </Link>
+        <p className="mb-4 -mt-3 text-center text-xs">
+          <Link to="/" className="hover:underline" style={{ color: "var(--muted-2)" }}>← Back to home</Link>
+        </p>
 
         <form onSubmit={onSubmit} className="glass-strong space-y-4 p-7">
           <div>
-            <h1 className="font-display text-xl font-bold">
+            <h1 className="font-display text-xl font-bold" style={{ color: "var(--ink)" }}>
               {isSignup ? "Create your account" : "Welcome back"}
             </h1>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
               {isSignup
                 ? "Start tracking who's about to churn."
                 : "Sign in to your retention dashboard."}
@@ -72,18 +76,19 @@ export default function Login() {
           <button
             type="button"
             onClick={onGoogle}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white/80 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-white"
+            className="flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition hover:brightness-95"
+            style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--ink-strong)" }}
           >
             <GoogleGlyph /> Continue with Google
           </button>
 
-          <div className="flex items-center gap-3 text-xs text-slate-400">
-            <div className="h-px flex-1 bg-slate-200" /> or <div className="h-px flex-1 bg-slate-200" />
+          <div className="flex items-center gap-3 text-xs" style={{ color: "var(--muted-2)" }}>
+            <div className="h-px flex-1" style={{ background: "var(--border)" }} /> or <div className="h-px flex-1" style={{ background: "var(--border)" }} />
           </div>
 
           {isSignup && (
             <label className="block">
-              <span className="text-sm font-medium text-slate-700">Business name</span>
+              <span className="text-sm font-medium" style={{ color: "var(--ink-strong)" }}>Business name</span>
               <input
                 required
                 value={businessName}
@@ -95,48 +100,50 @@ export default function Login() {
           )}
 
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Email</span>
+            <span className="text-sm font-medium" style={{ color: "var(--ink-strong)" }}>Email</span>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-[#B4532A] focus:ring-1 focus:ring-[#B4532A]"
+              className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-[#B4532A] focus:ring-1 focus:ring-[#B4532A]"
+              style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--ink)" }}
               placeholder="owner@yourbusiness.com"
               autoComplete="email"
             />
           </label>
 
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Password</span>
+            <span className="text-sm font-medium" style={{ color: "var(--ink-strong)" }}>Password</span>
             <input
               type="password"
               required
               minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white/70 px-3 py-2.5 text-sm outline-none focus:border-[#B4532A] focus:ring-1 focus:ring-[#B4532A]"
+              className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:border-[#B4532A] focus:ring-1 focus:ring-[#B4532A]"
+              style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--ink)" }}
               placeholder="••••••••"
               autoComplete={isSignup ? "new-password" : "current-password"}
             />
           </label>
 
-          {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+          {error && <p className="rounded-lg px-3 py-2 text-sm" style={{ background: "#F7E3DC", color: "#A23B1E" }}>{error}</p>}
           {notice && (
-            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</p>
+            <p className="rounded-lg px-3 py-2 text-sm" style={{ background: "#E6EFDF", color: "#4F7A40" }}>{notice}</p>
           )}
 
           <button
             type="submit"
             disabled={busy}
-            className="w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-            style={{ background: "var(--primary)" }}
+            className="w-full rounded-full px-4 py-2.5 text-sm font-semibold text-white transition hover:brightness-95 disabled:opacity-60"
+            style={{ background: "var(--accent)", boxShadow: "0 6px 16px -6px rgba(180,83,42,.7)" }}
           >
             {busy ? "Please wait…" : isSignup ? "Create account" : "Sign in"}
           </button>
 
-          <p className="text-center text-xs text-slate-500">
-            {isSignup ? "Already have an account?" : "New to Pulse?"}{" "}
+          <p className="text-center text-xs" style={{ color: "var(--muted)" }}>
+            {isSignup ? "Already have an account?" : "New to Churnary?"}{" "}
             <button
               type="button"
               onClick={() => {

@@ -25,6 +25,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.models.customer import JsonCol
 from app.models.mixins import UUIDMixin
 
 
@@ -40,11 +41,11 @@ class CompetitorPriceResearchRun(UUIDMixin, Base):
     cache_key: Mapped[str] = mapped_column(String(512), index=True)
     business_category: Mapped[str] = mapped_column(String(255))
     target_offer: Mapped[str] = mapped_column(String(255))
-    location_json: Mapped[str] = mapped_column(Text, default="{}")
+    location_json: Mapped[dict] = mapped_column(JsonCol, default=dict)
     radius_miles: Mapped[float] = mapped_column(Float, default=5.0)
-    models_used_json: Mapped[str] = mapped_column(Text, default="[]")
-    warnings_json: Mapped[str] = mapped_column(Text, default="[]")
-    response_json: Mapped[str] = mapped_column(Text, default="{}")
+    models_used_json: Mapped[list] = mapped_column(JsonCol, default=list)
+    warnings_json: Mapped[list] = mapped_column(JsonCol, default=list)
+    response_json: Mapped[dict] = mapped_column(JsonCol, default=dict)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -79,7 +80,7 @@ class CompetitorPriceCompetitor(UUIDMixin, Base):
     review_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     relevance_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_urls_json: Mapped[str] = mapped_column(Text, default="[]")
+    source_urls_json: Mapped[list] = mapped_column(JsonCol, default=list)
     place_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     discovery_provider: Mapped[str] = mapped_column(String(32), default="perplexity")
 
@@ -123,7 +124,7 @@ class CompetitorPriceObservation(UUIDMixin, Base):
     evidence_text: Mapped[str] = mapped_column(Text)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
-    confidence_reasons_json: Mapped[str] = mapped_column(Text, default="[]")
+    confidence_reasons_json: Mapped[list] = mapped_column(JsonCol, default=list)
     price_channel: Mapped[str] = mapped_column(String(32), default="unknown")
     match_quality: Mapped[str] = mapped_column(String(16), default="weak")
     corroborated: Mapped[bool] = mapped_column(default=False)

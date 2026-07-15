@@ -16,7 +16,13 @@ When scope is unclear, cut toward that sentence.
 
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2.0 async, Alembic, Pydantic v2
 - **Workers:** Celery + Redis
-- **DB:** PostgreSQL 16 (Supabase) + Supabase Auth
+- **DB:** PostgreSQL 16 on AWS RDS (`pulse-db`, private VPC) + Supabase Auth.
+  Schema is created by `create_all` in `app/main.py` on startup (idempotent);
+  Alembic covers anything added since `20260709_0001`. See `infra/aws/README.md`.
+- **RAG:** per-business knowledge (services, brand voice, past campaign examples)
+  retrieved into campaign generation. Embeddings via AWS Bedrock (`cohere.embed-v4:0`),
+  stored in `pulse-db` via `pgvector` (`app/models/knowledge.py`,
+  `app/services/rag/`). Chat/copy generation is unchanged (TokenMart).
 - **Frontend:** React 18 + Vite + TypeScript, Tailwind, shadcn/ui, Recharts
 - **AI:** Anthropic `claude-sonnet-4-6`
 - **Email/SMS/Billing:** Resend / Twilio / Stripe

@@ -18,7 +18,7 @@ export default function EmptyState() {
           No customer data yet
         </h2>
         <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--muted)" }}>
-          Pulse can't spot at-risk customers until it can see them. Connect your
+          Churnary can't spot at-risk customers until it can see them. Connect your
           Square or Stripe account — or import a CSV — and we'll score everyone in
           under two minutes.
         </p>
