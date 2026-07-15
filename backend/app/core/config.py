@@ -153,7 +153,7 @@ class Settings(BaseSettings):
         return self.environment == "production"
 
     @model_validator(mode="after")
-    def _validate_production_secrets(self) -> "Settings":
+    def _validate_production_secrets(self) -> Settings:
         """Fail fast in production if critical secrets are missing or weak."""
         if not self.is_production:
             return self

@@ -10,14 +10,13 @@ from datetime import datetime
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.core.database import Base
 from app.models import AutomationRule, CampaignSend, Customer
 from app.scripts.demo_data import generate_sync
 from app.services import automations, ingest
 
-NOW = datetime(2026, 6, 26)
+# Anchored to the real clock: dispatch/scoring compare against datetime.now().
+NOW = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 BUSINESS_ID = str(uuid.uuid4())
 
 
@@ -31,18 +30,6 @@ def _no_rag(monkeypatch):
         return []
 
     monkeypatch.setattr(automations, "search_knowledge", _empty)
-
-
-@pytest.fixture
-async def db():
-    engine = create_async_engine("sqlite+aiosqlite://")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
-    async with SessionLocal() as session:
-        yield session
-        await session.rollback()
-    await engine.dispose()
 
 
 async def _seed(db) -> None:
