@@ -1,8 +1,12 @@
-# Pulse
+# Churnary
 
-AI-powered customer retention for small local businesses. Pulse predicts which
-customers are about to churn and automatically drafts AI-written win-back
+AI-powered customer retention for small local businesses. Churnary predicts
+which customers are about to churn and automatically drafts AI-written win-back
 campaigns — before the owner notices a problem.
+
+> **Naming:** the product brand is **Churnary**; **Pulse** is the internal
+> codebase name (repo, Python package, service ids, env prefixes). User-facing
+> copy says Churnary; code keeps Pulse.
 
 > **The product in one screen:** _"We found 14 customers at high risk, worth an
 > estimated $2,100/year."_ Everything optimizes for time-to-that-screen.
@@ -50,7 +54,7 @@ or hit `POST /api/integrations/csv/preview`.
 
 ## Competitor price research
 
-Pulse includes an MVP local price research workflow at
+Churnary includes an MVP local price research workflow at
 `POST /api/competitor-prices/research` and the frontend `/pricing` page. Set
 `GOOGLE_MAPS_API_KEY`, `PERPLEXITY_API_KEY`, and a DeepSeek-compatible key
 server-side to enable the full flow. Perplexity supplies grounded competitor and

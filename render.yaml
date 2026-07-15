@@ -30,7 +30,7 @@ services:
       - key: TOKEN_ROUTER_BASE_URL
         sync: false
       - key: TOKEN_ROUTER_MODEL
-        value: claude-opus-4-8
+        value: claude-sonnet-4-6
       - key: REDIS_URL
         fromService: { type: keyvalue, name: pulse-redis, property: connectionString }
       - key: CELERY_BROKER_URL

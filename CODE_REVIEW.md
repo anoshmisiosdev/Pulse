@@ -147,7 +147,21 @@ The backend uses stdlib `logging` with `basicConfig`. No JSON structured logging
 
 ---
 
-## 🟢 Low Priority / Code Quality
+## 🟢 Low Priority — ✅ all resolved 2026-07-14
+
+- **23** — `render.yaml` now pins `TOKEN_ROUTER_MODEL=claude-sonnet-4-6`, matching config defaults.
+- **24** — JWKS client uses `@lru_cache` instead of a mutable module global.
+- **25** — backend Dockerfile is multi-stage: prod-only deps (`uv sync --no-dev`), no build caches; `uv` kept in the runtime image so compose `uv run` overrides still work.
+- **26** — set `TEST_DATABASE_URL` (e.g. a throwaway Postgres) to run the DB tests against the real dialect; defaults to in-memory SQLite. Shared `db` fixture in `conftest.py`.
+- **27** — test `NOW` is anchored to the real clock (midnight); the fixed 2026-06-26 date would have drifted out of scoring windows, since scoring compares against `datetime.now()`. `test_activity.py` keeps its fixed date — it passes `now=` explicitly everywhere.
+- **28** — all design tokens registered in Tailwind's `@theme inline` (`text-ink`, `bg-surface`, …). Existing inline styles read the same CSS vars, so both stay in sync; convert components incrementally rather than one risky sweep.
+- **29** — confidence thresholds are named constants (`CONFIDENCE_HIGH`/`CONFIDENCE_MEDIUM`).
+- **30** — `api.ts` GETs retry twice on network failure or 5xx via a shared `getJson`; writes stay single-shot on purpose (not idempotent).
+- **31** — `PageSkeleton` (dashboard-shaped, `animate-pulse`) replaces the spinner while tenant data loads.
+- **32** — duplicate `Onboarding.tsx` deleted; `/connect` redirects to `/setup`, which has the real OAuth/API-key flow.
+- **33** — naming reconciled and documented: **Churnary** is the product brand (all user-facing copy, FastAPI title), **Pulse** stays the internal codebase name (repo, package, service ids). See README.
+
+<details><summary>Original findings (for reference)</summary>
 
 ### 23. `render.yaml` model mismatch
 `render.yaml` sets `TOKEN_ROUTER_MODEL=claude-opus-4-8` but `.env.example` and `config.py` default to `claude-sonnet-4-6`. Different model between environments.
@@ -181,6 +195,8 @@ Both files implement the same data-source connection flow with nearly identical 
 
 ### 33. Landing page brand name mismatch
 The repo and README call the product "Pulse", but the frontend (AppShell, Landing, Login) consistently renders "Churnary". The `index.html` title is "Churnary — Customer Retention". This should be reconciled.
+
+</details>
 
 ---
 

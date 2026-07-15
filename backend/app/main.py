@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
 # reach FastAPI-only attributes (e.g. `dependency_overrides`) after `app` below
 # is reassigned to the CORS-wrapped ASGI callable.
 fastapi_app = FastAPI(
-    title="Pulse API",
+    title="Churnary API",  # brand name; "Pulse" remains the internal codebase name
     version="0.1.0",
     summary="AI customer retention for small local businesses",
     lifespan=lifespan,

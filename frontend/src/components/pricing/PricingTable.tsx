@@ -205,8 +205,13 @@ export function Badge({
   );
 }
 
+// Confidence badge coloring: green at/above HIGH, amber at/above MEDIUM, red below.
+export const CONFIDENCE_HIGH = 0.75;
+export const CONFIDENCE_MEDIUM = 0.5;
+
 export function Confidence({ value }: { value: number }) {
-  const color = value >= 0.75 ? "#10b981" : value >= 0.5 ? "#f59e0b" : "#ef4444";
+  const color =
+    value >= CONFIDENCE_HIGH ? "#10b981" : value >= CONFIDENCE_MEDIUM ? "#f59e0b" : "#ef4444";
   return (
     <span className="inline-flex items-center gap-2 rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-slate-700">
       <span className="h-2 w-2 rounded-full" style={{ background: color }} />

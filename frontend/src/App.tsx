@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import EmptyState from "./components/EmptyState";
 import ErrorBoundary from "./components/ErrorBoundary";
+import PageSkeleton from "./components/PageSkeleton";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PulseProvider, usePulse } from "./context/PulseContext";
 import { SETUP_SKIPPED_KEY } from "./lib/api";
@@ -13,7 +14,6 @@ const Customers = lazy(() => import("./pages/Customers"));
 const Retention = lazy(() => import("./pages/Retention"));
 const Automations = lazy(() => import("./pages/Automations"));
 const Pricing = lazy(() => import("./pages/Pricing"));
-const Onboarding = lazy(() => import("./pages/Onboarding"));
 const Landing = lazy(() => import("./pages/Landing"));
 const Login = lazy(() => import("./pages/Login"));
 const Setup = lazy(() => import("./pages/Setup"));
@@ -47,7 +47,7 @@ function DataGate({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (status === "loading") return <Spinner label="Loading your customers…" />;
+  if (status === "loading") return <PageSkeleton />;
 
   if (status === "empty") {
     // First visit with no data → take them to setup. If they chose to skip,
@@ -84,7 +84,7 @@ function AuthedApp() {
             <AppShell>
               <Routes>
                 <Route path="/setup" element={<Setup />} />
-                <Route path="/connect" element={<Onboarding />} />
+                <Route path="/connect" element={<Navigate to="/setup" replace />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/" element={<DataGate><Dashboard /></DataGate>} />
                 <Route path="/customers" element={<DataGate><Customers /></DataGate>} />

@@ -31,9 +31,29 @@
   --radius: 18px;
 }
 
+/* Expose the design tokens as Tailwind utilities (text-ink, bg-surface,
+   border-border, …) so components can use classes instead of inline
+   style={{ … }}. Existing inline styles read the same vars, so both stay in
+   sync; convert incrementally. */
 @theme inline {
   --color-primary: var(--primary);
   --color-primary-dark: var(--primary-dark);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-ink: var(--ink);
+  --color-ink-strong: var(--ink-strong);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
+  --color-accent: var(--accent);
+  --color-accent-dark: var(--accent-dark);
+  --color-accent-2: var(--accent-2);
+  --color-brand-amber: var(--amber);
+  --color-sage: var(--sage);
+  --color-sage-text: var(--sage-text);
+  --color-cream-text: var(--cream-text);
   --font-display: var(--font-display);
 }
 
