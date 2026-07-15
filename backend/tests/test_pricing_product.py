@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.competitor_prices import (
     competitor_price_history,
+    competitor_price_portfolio,
     get_price_watch,
     latest_competitor_prices,
     upsert_price_watch,
@@ -121,6 +122,40 @@ async def test_latest_history_and_watch_round_trip(db):
     assert history[0].sample_size == 2
     assert watch.enabled and watch.interval_hours == 2
     assert saved_watch and saved_watch.request.target_offer == "Cappuccino"
+
+
+async def test_portfolio_returns_only_latest_report_per_offer(db):
+    now = datetime.now(UTC)
+    for offer, median, created_at in [
+        ("Cappuccino", 4.75, now - timedelta(minutes=2)),
+        ("Cold Brew", 5.5, now - timedelta(minutes=1)),
+        ("cappuccino", 5.25, now),
+    ]:
+        response = _response(median)
+        response.query.target_offer = offer
+        db.add(
+            CompetitorPriceResearchRun(
+                business_id=BUSINESS_ID,
+                user_id=USER.user_id,
+                cache_key=f"test-{offer}-{median}",
+                business_category="Coffee Shop",
+                target_offer=offer,
+                location_json="{}",
+                radius_miles=5,
+                models_used_json="[]",
+                warnings_json="[]",
+                response_json=response.model_dump_json(by_alias=True),
+                expires_at=now + CACHE_TTL,
+                created_at=created_at,
+                updated_at=created_at,
+            )
+        )
+    await db.flush()
+
+    portfolio = await competitor_price_portfolio(24, db, USER)
+
+    assert [report.query.target_offer for report in portfolio] == ["cappuccino", "Cold Brew"]
+    assert portfolio[0].market_summary.price_median == 5.25
 
 
 def test_pricing_cache_contract_is_two_hours():

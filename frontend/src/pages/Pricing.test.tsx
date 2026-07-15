@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { CompetitorPriceResearchResponse } from "../lib/api";
+import { createSamplePricingPortfolio } from "../lib/pricingSample";
 import {
   Badge,
   DeliveryPrices,
@@ -9,7 +10,9 @@ import {
   buildPricingCsv,
   deriveTenantPricingDefaults,
   formatPrice,
+  getMarketPosition,
   mergeTenantBusinessName,
+  parseMenuItems,
   type FormState,
 } from "./Pricing";
 
@@ -233,5 +236,54 @@ describe("pricing research audit UI", () => {
     expect(csv).toContain('"Hops & Beans"');
     expect(csv).toContain('"4.75"');
     expect(csv).toContain('"https://example.com/menu"');
+  });
+
+  it("turns a pasted menu into deduplicated research items", () => {
+    expect(
+      parseMenuItems(`
+        1. Cappuccino — $4.75
+        Cold brew, 5.25
+        • Blueberry scone
+        cappuccino — $4.95
+      `)
+    ).toEqual([
+      { name: "Cappuccino", price: "4.75" },
+      { name: "Cold brew", price: "5.25" },
+      { name: "Blueberry scone", price: "" },
+    ]);
+  });
+
+  it("classifies each product's price position against its local median", () => {
+    const priced = {
+      query: {
+        businessCategory: "Coffee Shop",
+        targetOffer: "Cappuccino",
+        locationLabel: "Fremont, CA",
+        radiusMiles: 5,
+        currentPrice: 4.5,
+      },
+      marketSummary: { ...summary, priceMedian: 5 },
+    } as CompetitorPriceResearchResponse;
+
+    expect(getMarketPosition(priced)).toMatchObject({ key: "below", label: "10% below" });
+  });
+
+  it("builds a full eight-product sample café with chart-ready market history", () => {
+    const sample = createSamplePricingPortfolio(new Date("2026-07-15T18:00:00Z"));
+
+    expect(sample.results).toHaveLength(8);
+    expect(sample.results.map((item) => item.query.targetOffer)).toEqual([
+      "Espresso",
+      "Cappuccino",
+      "Vanilla Latte",
+      "Cold Brew",
+      "Matcha Latte",
+      "Chai Latte",
+      "Avocado Toast",
+      "Blueberry Muffin",
+    ]);
+    expect(sample.results.every((item) => item.competitors.length === 4)).toBe(true);
+    expect(sample.results.every((item) => item.query.currentPrice !== null)).toBe(true);
+    expect(sample.history).toHaveLength(32);
   });
 });

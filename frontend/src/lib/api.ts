@@ -160,6 +160,7 @@ export interface CompetitorPriceResearchResponse {
     targetOffer: string;
     locationLabel: string;
     radiusMiles: number;
+    currentPrice?: number | null;
   };
   competitors: CompetitorPriceCompetitor[];
   marketSummary: CompetitorPriceMarketSummary;
@@ -387,6 +388,13 @@ export const api = {
       headers: authHeaders(),
     });
     return asJson<CompetitorPriceResearchResponse | null>(res);
+  },
+
+  async competitorPricePortfolio(limit = 24): Promise<CompetitorPriceResearchResponse[]> {
+    const res = await fetch(`${BASE}/api/competitor-prices/portfolio?limit=${limit}`, {
+      headers: authHeaders(),
+    });
+    return asJson<CompetitorPriceResearchResponse[]>(res);
   },
 
   async competitorPriceHistory(limit = 12): Promise<CompetitorPriceHistoryItem[]> {

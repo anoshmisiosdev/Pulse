@@ -271,6 +271,7 @@ class CompetitorResearchService:
                 targetOffer=payload.target_offer,
                 locationLabel=payload.location.label,
                 radiusMiles=payload.radius_miles,
+                currentPrice=payload.current_price,
             ),
             competitors=competitors,
             marketSummary=market_summary,

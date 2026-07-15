@@ -121,6 +121,7 @@ class QueryOut(CamelModel):
     target_offer: str = Field(alias="targetOffer")
     location_label: str = Field(alias="locationLabel")
     radius_miles: float = Field(alias="radiusMiles")
+    current_price: float | None = Field(default=None, alias="currentPrice")
 
 
 class PriceObservationOut(CamelModel):

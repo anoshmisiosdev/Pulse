@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import EmptyState from "./components/EmptyState";
@@ -7,9 +8,10 @@ import Dashboard from "./pages/Dashboard";
 import Customers from "./pages/Customers";
 import Retention from "./pages/Retention";
 import Automations from "./pages/Automations";
-import Pricing from "./pages/Pricing";
 import Login from "./pages/Login";
 import Setup, { SETUP_SKIPPED_KEY } from "./pages/Setup";
+
+const Pricing = lazy(() => import("./pages/Pricing"));
 
 function Spinner({ label }: { label: string }) {
   return (
@@ -71,7 +73,14 @@ function AuthedApp() {
           <Route path="/customers" element={<DataGate><Customers /></DataGate>} />
           <Route path="/retention" element={<DataGate><Retention /></DataGate>} />
           <Route path="/automations" element={<DataGate><Automations /></DataGate>} />
-          <Route path="/pricing" element={<Pricing />} />
+          <Route
+            path="/pricing"
+            element={(
+              <Suspense fallback={<Spinner label="Loading pricing intelligence…" />}>
+                <Pricing />
+              </Suspense>
+            )}
+          />
         </Routes>
       </AppShell>
     </PulseProvider>

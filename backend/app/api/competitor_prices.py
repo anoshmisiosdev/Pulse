@@ -58,6 +58,41 @@ async def latest_competitor_prices(
     return CompetitorPriceResearchResponse.model_validate_json(run.response_json) if run else None
 
 
+@router.get("/portfolio", response_model=list[CompetitorPriceResearchResponse])
+async def competitor_price_portfolio(
+    limit: int = Query(default=24, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> list[CompetitorPriceResearchResponse]:
+    """Return the newest full report for each researched product or service."""
+    rows = (
+        (
+            await db.execute(
+                select(CompetitorPriceResearchRun)
+                .where(
+                    CompetitorPriceResearchRun.business_id
+                    == _stable_business_uuid(current_user.business_id)
+                )
+                .order_by(CompetitorPriceResearchRun.created_at.desc())
+                .limit(200)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    reports: list[CompetitorPriceResearchResponse] = []
+    seen_offers: set[str] = set()
+    for run in rows:
+        offer_key = run.target_offer.strip().casefold()
+        if offer_key in seen_offers:
+            continue
+        reports.append(CompetitorPriceResearchResponse.model_validate_json(run.response_json))
+        seen_offers.add(offer_key)
+        if len(reports) == limit:
+            break
+    return reports
+
+
 @router.get("/history", response_model=list[PriceHistoryItemOut])
 async def competitor_price_history(
     limit: int = Query(default=12, ge=1, le=50),
