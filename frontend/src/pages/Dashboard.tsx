@@ -1,8 +1,8 @@
 import useMountProgress from "../hooks/useMountProgress";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { usePulse } from "../context/PulseContext";
-import { formatCurrency, type CustomerRisk } from "../lib/api";
+import { formatCurrency, relativeDays, type CustomerRisk } from "../lib/api";
 import { PATTERNS, PATTERN_BAR_COLORS, SEGMENTS, SEGMENT_ORDER } from "../lib/segments";
 
 const VISIT_BUCKETS = [
@@ -17,8 +17,33 @@ const VISIT_BUCKETS = [
 export default function Dashboard() {
   const { customers, portfolio, revenueRecovered } = usePulse();
   const s = portfolio?.summary;
-  const top = customers[0];
   const p = useMountProgress();
+  const [queueSort, setQueueSort] = useState<"risk" | "value">("risk");
+  const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.customer_id ?? "");
+
+  const focusQueue = useMemo(() => {
+    const actionable = customers.filter((customer) => customer.band !== "low");
+    const candidates = actionable.length ? actionable : customers;
+
+    return [...candidates]
+        .sort((a, b) =>
+          queueSort === "risk"
+            ? b.score - a.score || b.estimated_annual_value - a.estimated_annual_value
+            : b.estimated_annual_value - a.estimated_annual_value || b.score - a.score
+        )
+        .slice(0, 5);
+  }, [customers, queueSort]);
+  const selectedCustomer =
+    focusQueue.find((customer) => customer.customer_id === selectedCustomerId) ?? focusQueue[0];
+  const decliningCustomers = customers.filter((customer) => customer.trend_pct < -10).length;
+  const latestSync = useMemo(() => {
+    const timestamps = (portfolio?.connections ?? [])
+      .map((connection) => connection.last_synced_at)
+      .filter((value): value is string => Boolean(value))
+      .map((value) => new Date(value).getTime())
+      .filter(Number.isFinite);
+    return timestamps.length ? new Date(Math.max(...timestamps)) : null;
+  }, [portfolio?.connections]);
 
   const segData = useMemo(() => {
     const counts = Object.fromEntries(SEGMENT_ORDER.map((k) => [k, 0])) as Record<string, number>;
@@ -48,31 +73,71 @@ export default function Dashboard() {
       .sort((a, b) => b.value - a.value);
   }, [customers]);
 
-  const needAttention = customers.filter(
-    (c) => c.segment === "needs_attention" || c.segment === "slipping_away"
-  ).length;
-
   return (
-    <div className="space-y-6">
-      <div className="anim-fade-up">
-        <h1 className="text-[38px] font-bold tracking-tight" style={{ color: "var(--ink)" }}>Dashboard</h1>
-        <p className="mt-1 italic" style={{ color: "var(--muted)", fontSize: "15.5px" }}>
-          Here's how your customers are doing today
-        </p>
-      </div>
+    <div className="dashboard-page">
+      <section className="dashboard-overview anim-fade-up">
+        <div>
+          <div className="dashboard-overline">Customer health</div>
+          <h1>Dashboard</h1>
+          <p>A clear view of who needs attention and what to do next.</p>
+        </div>
+        <div className="dashboard-sync" aria-label={latestSync ? `Last synced ${latestSync.toLocaleString()}` : "Data is current"}>
+          <span aria-hidden="true" />
+          <div>
+            <strong>{latestSync ? "Last synced" : "Data current"}</strong>
+            <small>{latestSync ? formatSyncTime(latestSync) : `${customers.length} customers monitored`}</small>
+          </div>
+        </div>
+      </section>
 
-      {top && <HeroAction customer={top} />}
-
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <KpiCard delay={0.1} dot="#A23B1E" label="Revenue at Risk" valueColor="#A23B1E"
-          value={formatCurrency((s?.revenue_at_risk ?? 0) * p)} sub="Could lose this year" />
-        <KpiCard delay={0.16} dot="#D99A4E" label="Need Attention"
-          value={String(Math.round(needAttention * p))} sub="customers may not return" />
-        <KpiCard delay={0.22} dot="#8A7565" label="Avg. Days Away"
-          value={String(Math.round((s?.avg_days_away ?? 0) * p))} sub="since last visit" />
-        <KpiCard delay={0.28} dot="#5C8A4A" label="Retained" valueColor="#5C8A4A"
+      <section className="dashboard-metrics" aria-label="Customer health summary">
+        <MetricCard
+          delay={0.06}
+          tone="critical"
+          label="Revenue at risk"
+          value={formatCurrency((s?.revenue_at_risk ?? 0) * p)}
+          sub={`Across ${s?.high_risk ?? 0} high-risk customers`}
+        />
+        <MetricCard
+          delay={0.1}
+          tone="warning"
+          label="High risk"
+          value={String(Math.round((s?.high_risk ?? 0) * p))}
+          sub={`${decliningCustomers} showing a sharp decline`}
+        />
+        <MetricCard
+          delay={0.14}
+          tone="neutral"
+          label="Average time away"
+          value={`${Math.round((s?.avg_days_away ?? 0) * p)} days`}
+          sub="Across the active watchlist"
+        />
+        <MetricCard
+          delay={0.18}
+          tone="positive"
+          label="Revenue retained"
           value={formatCurrency(revenueRecovered * p)}
-          sub={revenueRecovered > 0 ? "recovered so far" : "start reaching out!"} />
+          sub={revenueRecovered > 0 ? "Recovered through outreach" : "Ready to start recovering"}
+        />
+      </section>
+
+      <section className="dashboard-workspace anim-fade-up" style={{ animationDelay: "0.2s" }}>
+        <FocusQueue
+          customers={focusQueue}
+          selectedCustomerId={selectedCustomer?.customer_id ?? ""}
+          sort={queueSort}
+          onSort={setQueueSort}
+          onSelect={setSelectedCustomerId}
+        />
+        {selectedCustomer && <PriorityPanel customer={selectedCustomer} />}
+      </section>
+
+      <div className="dashboard-section-heading anim-fade-up" style={{ animationDelay: "0.26s" }}>
+        <div>
+          <p className="dashboard-overline">Portfolio signals</p>
+          <h2>Patterns behind the queue</h2>
+        </div>
+        <p>Explore the customer mix, visit gaps, revenue, and churn patterns.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -94,61 +159,133 @@ export default function Dashboard() {
   );
 }
 
-function HeroAction({ customer }: { customer: CustomerRisk }) {
+function FocusQueue({
+  customers,
+  selectedCustomerId,
+  sort,
+  onSort,
+  onSelect,
+}: {
+  customers: CustomerRisk[];
+  selectedCustomerId: string;
+  sort: "risk" | "value";
+  onSort: (sort: "risk" | "value") => void;
+  onSelect: (customerId: string) => void;
+}) {
   return (
-    <Link
-      to="/retention"
-      className="anim-fade-up flex items-center gap-5 rounded-[18px] p-6 transition hover:-translate-y-0.5"
-      style={{
-        animationDelay: "0.05s",
-        background: "linear-gradient(115deg,#3B2A20,#4A3527)",
-        color: "var(--cream-text)",
-        boxShadow: "0 20px 40px -24px rgba(59,42,32,.8)",
-      }}
-    >
-      <div className="relative h-[50px] w-[50px] shrink-0">
-        <span
-          className="absolute inset-0 rounded-full"
-          style={{ background: "var(--accent)", animation: "pulseFade 2.4s ease-out infinite" }}
-        />
-        <span
-          className="absolute inset-0 flex items-center justify-center rounded-full text-xl text-white"
-          style={{ background: "var(--accent)" }}
-        >
-          ☕
-        </span>
+    <div className="focus-queue">
+      <div className="workspace-heading">
+        <div>
+          <p className="dashboard-overline">Priority queue</p>
+          <h2>Customers to focus on</h2>
+          <span>Select a customer to review the recommended action.</span>
+        </div>
+        <div className="queue-sort" aria-label="Sort priority queue">
+          <button
+            className={sort === "risk" ? "is-active" : ""}
+            aria-pressed={sort === "risk"}
+            onClick={() => onSort("risk")}
+          >Risk</button>
+          <button
+            className={sort === "value" ? "is-active" : ""}
+            aria-pressed={sort === "value"}
+            onClick={() => onSort("value")}
+          >Value</button>
+        </div>
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="eyebrow mb-1" style={{ color: "var(--on-espresso-accent)" }}>Your #1 action today</p>
-        <p className="font-display text-[22px] font-semibold">Reach out to {customer.name}</p>
-        <p className="mt-0.5 truncate text-sm" style={{ color: "#CDB9A8" }}>
-          {customer.reasons[0]}
-          {customer.favorite_item && <> · Loves {customer.favorite_item}</>}
-        </p>
+      <div className="queue-list">
+        {customers.map((customer, index) => (
+          <button
+            key={customer.customer_id}
+            className={`queue-row ${selectedCustomerId === customer.customer_id ? "is-active" : ""}`}
+            onClick={() => onSelect(customer.customer_id)}
+            aria-pressed={selectedCustomerId === customer.customer_id}
+          >
+            <span className="queue-rank">{String(index + 1).padStart(2, "0")}</span>
+            <span className="queue-avatar" aria-hidden="true">{initials(customer.name)}</span>
+            <span className="queue-customer">
+              <strong>{customer.name}</strong>
+              <small>{customer.reasons[0] ?? "Customer activity is trending down"}</small>
+            </span>
+            <span className="queue-reading">
+              <strong>{relativeDays(customer.days_since_last_visit)}</strong>
+              <small>last visit</small>
+            </span>
+            <span className="queue-reading queue-value">
+              <strong>{formatCurrency(customer.estimated_annual_value)}</strong>
+              <small>annual value</small>
+            </span>
+            <span className={`risk-chip risk-${customer.band}`}>{customer.score}</span>
+          </button>
+        ))}
       </div>
-      <span
-        className="hidden shrink-0 rounded-full px-5 py-3 text-sm font-bold sm:block"
-        style={{ background: "var(--cream-text)", color: "var(--ink-strong)" }}
-      >
-        Go to Retention →
-      </span>
-    </Link>
+      <Link className="queue-footer" to="/retention">View the full retention queue <span>→</span></Link>
+    </div>
   );
 }
 
-function KpiCard({ dot, label, value, sub, valueColor, delay }: {
-  dot: string; label: string; value: string; sub: string; valueColor?: string; delay: number;
+function PriorityPanel({ customer }: { customer: CustomerRisk }) {
+  const riskDegrees = Math.max(0, Math.min(100, customer.score)) * 3.6;
+  return (
+    <aside className="priority-panel" key={customer.customer_id}>
+      <div className="priority-topline">
+        <span>Recommended next step</span>
+        <span className={`priority-band band-${customer.band}`}>{customer.band} risk</span>
+      </div>
+      <div className="priority-person">
+        <div className="priority-risk" style={{ "--risk-degrees": `${riskDegrees}deg` } as CSSProperties}>
+          <span>{customer.score}</span>
+          <small>risk</small>
+        </div>
+        <div>
+          <p>Reach out to</p>
+          <h2>{customer.name}</h2>
+          <span>{customer.confidence} confidence</span>
+        </div>
+      </div>
+      <div className="priority-reason">
+        <span>Why now</span>
+        <p>{customer.reasons[0] ?? "Recent behavior suggests this customer may not return."}</p>
+      </div>
+      <dl className="priority-facts">
+        <div><dt>Last visit</dt><dd>{relativeDays(customer.days_since_last_visit)}</dd></div>
+        <div><dt>Annual value</dt><dd>{formatCurrency(customer.estimated_annual_value)}</dd></div>
+        <div><dt>Favorite</dt><dd>{customer.favorite_item ?? "Not known"}</dd></div>
+      </dl>
+      <Link className="priority-action" to={`/retention?customer=${encodeURIComponent(customer.customer_id)}`}>
+        Open {customer.name.split(" ")[0]}'s retention plan <span>→</span>
+      </Link>
+    </aside>
+  );
+}
+
+function MetricCard({ label, value, sub, tone, delay }: {
+  label: string;
+  value: string;
+  sub: string;
+  tone: "critical" | "warning" | "neutral" | "positive";
+  delay: number;
 }) {
   return (
-    <div className="glass glass-hover anim-fade-up p-5" style={{ animationDelay: `${delay}s` }}>
-      <div className="mb-3.5 flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full" style={{ background: dot }} />
-        <span className="text-[12.5px] font-semibold" style={{ color: "var(--muted)" }}>{label}</span>
-      </div>
-      <p className="stat-number text-[32px]" style={{ color: valueColor ?? "var(--ink)" }}>{value}</p>
-      <p className="mt-1.5 text-xs" style={{ color: "var(--muted-2)" }}>{sub}</p>
+    <div className={`metric-card metric-${tone} anim-fade-up`} style={{ animationDelay: `${delay}s` }}>
+      <div className="metric-label"><span aria-hidden="true" />{label}</div>
+      <p className="stat-number">{value}</p>
+      <small>{sub}</small>
     </div>
   );
+}
+
+function initials(name: string): string {
+  return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+}
+
+function formatSyncTime(date: Date): string {
+  const minutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60_000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function Panel({ title, subtitle, delay, children }: {
