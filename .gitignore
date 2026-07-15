@@ -18,9 +18,9 @@ dist/
 .next/
 *.local
 
-# Env / secrets
-.env
-.env.local
+# Env / secrets — catch all .env files anywhere in the repo (root and frontend/)
+**/.env
+**/.env.*
 *.pem
 fernet.key
 

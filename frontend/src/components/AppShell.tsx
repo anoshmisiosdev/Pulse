@@ -86,7 +86,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                     <p className="truncate px-2 text-xs" style={{ color: "var(--muted-2)" }}>{user.email}</p>
                   )}
                   <NavLink
-                    to="/connect"
+                    to="/setup"
                     onClick={() => setMenuOpen(false)}
                     className="mt-2 block rounded-xl px-3 py-2 text-sm font-medium transition hover:brightness-95"
                     style={{ background: "var(--surface-2)", color: "var(--ink-strong)" }}

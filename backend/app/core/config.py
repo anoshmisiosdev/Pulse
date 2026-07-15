@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -150,6 +151,24 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @model_validator(mode="after")
+    def _validate_production_secrets(self) -> "Settings":
+        """Fail fast in production if critical secrets are missing or weak."""
+        if not self.is_production:
+            return self
+        missing: list[str] = []
+        if not self.fernet_key:
+            missing.append("FERNET_KEY")
+        if not self.supabase_url:
+            missing.append("SUPABASE_URL")
+        if self.supabase_jwt_secret and len(self.supabase_jwt_secret) < 32:
+            missing.append("SUPABASE_JWT_SECRET (must be >=32 chars or blank for JWKS)")
+        if missing:
+            raise ValueError(
+                f"Production requires these settings: {', '.join(missing)}"
+            )
+        return self
 
     @property
     def cors_origins(self) -> list[str]:

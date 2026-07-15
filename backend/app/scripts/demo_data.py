@@ -1,13 +1,14 @@
 """Deterministic fake coffee shop — "Hayward Coffee Co.", ~50 customers across all
 risk bands. Pure and seeded so it doubles as test fixtures and an offline demo.
-Produces a normalized SyncResult and can flatten to a customer-level CSV."""
+Produces a normalized SyncResult and can flatten to a customer-level CSV.
+"""
 
 from __future__ import annotations
 
 import csv
 import io
 import random
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.schemas.normalized import (
     NormalizedCustomer,
@@ -45,7 +46,7 @@ MENU = [
 
 def generate_sync(n: int = 50, seed: int = 42, now: datetime | None = None) -> SyncResult:
     rng = random.Random(seed)
-    now = now or datetime.utcnow()
+    now = now or datetime.now(UTC)
     result = SyncResult()
 
     # Risk archetypes -> (last-visit gap as multiple of interval, weight).

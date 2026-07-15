@@ -19,6 +19,7 @@ from app.api import (
     portfolio,
 )
 from app.core.config import settings
+from app.core.ratelimit import RateLimitMiddleware
 
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger("pulse")
@@ -82,6 +83,16 @@ fastapi_app.include_router(competitor_prices.router, prefix=API_PREFIX)
 fastapi_app.include_router(knowledge.router, prefix=API_PREFIX)
 fastapi_app.include_router(automations.router, prefix=API_PREFIX)
 
+# Rate limiting: protect auth (brute-force) and competitor research (expensive LLM).
+# Applied to the inner app so CORS-wrapped 429s still get Access-Control-Allow-Origin.
+fastapi_app.add_middleware(
+    RateLimitMiddleware,
+    rules={
+        "/api/auth": (5, 60),               # 5 per 60s — brute-force protection
+        "/api/competitor-prices": (3, 60),  # 3 per 60s — expensive LLM calls
+    },
+)
+
 
 @fastapi_app.get("/")
 async def root() -> dict:
@@ -99,6 +110,6 @@ app = CORSMiddleware(
     fastapi_app,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
