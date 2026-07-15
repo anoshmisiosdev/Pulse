@@ -534,7 +534,7 @@ Evidence JSON:
         run = (await self.db.execute(stmt)).scalars().first()
         if not run:
             return None
-        response = CompetitorPriceResearchResponse.model_validate_json(run.response_json)
+        response = CompetitorPriceResearchResponse.model_validate(run.response_json)
         if _cached_response_missing_configured_provider(response):
             return None
         response.metadata.cached = True
@@ -578,11 +578,11 @@ Evidence JSON:
             cache_key=cache_key,
             business_category=payload.business_category,
             target_offer=payload.target_offer,
-            location_json=json.dumps(payload.location.model_dump(by_alias=True)),
+            location_json=payload.location.model_dump(by_alias=True, mode="json"),
             radius_miles=payload.radius_miles,
-            models_used_json=json.dumps(response.metadata.models_used),
-            warnings_json=json.dumps(response.warnings),
-            response_json=response.model_dump_json(by_alias=True),
+            models_used_json=response.metadata.models_used,
+            warnings_json=response.warnings,
+            response_json=response.model_dump(by_alias=True, mode="json"),
             expires_at=datetime.now(UTC) + CACHE_TTL if settings.strict_free_tier else None,
         )
         self.db.add(run)
@@ -606,7 +606,7 @@ Evidence JSON:
                 review_count=competitor.review_count,
                 confidence=output.confidence if output else 0.0,
                 relevance_reason=competitor.relevance_reason,
-                source_urls_json=json.dumps(competitor.source_urls),
+                source_urls_json=competitor.source_urls,
             )
             self.db.add(comp_row)
             await self.db.flush()
@@ -652,7 +652,7 @@ Evidence JSON:
                                 candidate.price.observed_at, datetime.min.time(), UTC
                             ),
                             confidence=candidate.confidence,
-                            confidence_reasons_json=json.dumps(candidate.reasons),
+                            confidence_reasons_json=candidate.reasons,
                             price_channel=candidate.channel,
                             match_quality=candidate.price.match_quality,
                             corroborated=candidate.corroborated,

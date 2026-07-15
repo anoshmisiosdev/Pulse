@@ -7,6 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -17,10 +18,14 @@ from sqlalchemy import (
     Text,
     Uuid,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.models.mixins import UUIDMixin
+
+# JSONB on Postgres (indexable, queryable); plain JSON elsewhere (SQLite tests).
+JsonCol = JSON().with_variant(JSONB(), "postgresql")
 
 
 class Customer(UUIDMixin, Base):
@@ -113,5 +118,5 @@ class RiskScore(UUIDMixin, Base):
     )
     score: Mapped[int] = mapped_column(Integer)
     band: Mapped[str] = mapped_column(String(8))
-    reasons: Mapped[str] = mapped_column(Text, default="[]")  # JSON-encoded list[str]
-    signals: Mapped[str] = mapped_column(Text, default="{}")  # JSON-encoded dict
+    reasons: Mapped[list] = mapped_column(JsonCol, default=list)  # list[str]
+    signals: Mapped[dict] = mapped_column(JsonCol, default=dict)

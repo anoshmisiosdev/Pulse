@@ -14,7 +14,9 @@ from celery import Celery
 from sqlalchemy import select
 
 from app.core.config import settings
+from app.core.logging_setup import setup_logging
 
+setup_logging()
 logger = logging.getLogger("pulse.workers")
 
 celery = Celery(
@@ -28,6 +30,7 @@ celery.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
+    worker_hijack_root_logger=False,  # keep our JSON/plain formatter
     beat_schedule={
         "nightly-rescore": {
             "task": "app.workers.celery_app.nightly_rescore",

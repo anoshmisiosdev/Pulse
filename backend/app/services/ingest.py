@@ -52,6 +52,11 @@ def _event_external_id(
     return "h-" + hashlib.sha1(raw.encode()).hexdigest()[:24]
 
 
+def _chunks(values: list, size: int = 500):
+    for i in range(0, len(values), size):
+        yield values[i : i + size]
+
+
 async def ensure_business(
     db: AsyncSession, business_id: str, name: str, vertical: str
 ) -> Business:
@@ -78,14 +83,43 @@ async def persist_sync(
     db.add(run)
     await db.flush()
 
-    # ── existing customers: index by identity for dedupe ────────────────────
-    existing = (
-        (await db.execute(select(Customer).where(Customer.business_id == bid)))
-        .scalars()
-        .all()
+    # ── existing customers: look up only identities present in this payload ─
+    # Memory is bounded by the sync batch, not the tenant's full history.
+    # ponytail: batched IN-lookups; switch to INSERT..ON CONFLICT if ingest
+    # ever needs to race with itself across workers.
+    emails = sorted(
+        {c.email for c in sync.customers if c.email}
+        | {t.customer_email for t in sync.transactions if t.customer_email}
+        | {v.customer_email for v in sync.visits if v.customer_email}
     )
+    phones = sorted(
+        {c.phone for c in sync.customers if c.phone}
+        | {t.customer_phone for t in sync.transactions if t.customer_phone}
+        | {v.customer_phone for v in sync.visits if v.customer_phone}
+    )
+    exts = sorted(
+        {c.external_id for c in sync.customers if c.external_id}
+        | {t.customer_external_id for t in sync.transactions if t.customer_external_id}
+        | {v.customer_external_id for v in sync.visits if v.customer_external_id}
+    )
+    existing: dict[uuid.UUID, Customer] = {}
+    filters = (
+        [Customer.email.in_(b) for b in _chunks(emails)]
+        + [Customer.phone.in_(b) for b in _chunks(phones)]
+        + [
+            (Customer.source == source) & Customer.external_id.in_(b)
+            for b in _chunks(exts)
+        ]
+    )
+    for f in filters:
+        rows = (
+            (await db.execute(select(Customer).where(Customer.business_id == bid, f)))
+            .scalars()
+            .all()
+        )
+        existing.update({c.id: c for c in rows})
     by_key: dict[str, Customer] = {}
-    for c in existing:
+    for c in existing.values():
         if c.email:
             by_key[f"email:{c.email}"] = c
         if c.phone:
@@ -147,13 +181,26 @@ async def persist_sync(
         return None
 
     # ── transactions / visits: insert-if-new by external id ─────────────────
-    seen_tx = {
-        x
-        for (x,) in await db.execute(
-            select(Transaction.external_id).where(Transaction.business_id == bid)
+    tx_exts = sorted(
+        {
+            _event_external_id(
+                "tx", t.external_id, t.customer_email, t.customer_phone,
+                t.occurred_at, t.amount,
+            )
+            for t in sync.transactions
+        }
+    )
+    seen_tx: set[str] = set()
+    for batch in _chunks(tx_exts):
+        seen_tx.update(
+            x
+            for (x,) in await db.execute(
+                select(Transaction.external_id).where(
+                    Transaction.business_id == bid,
+                    Transaction.external_id.in_(batch),
+                )
+            )
         )
-        if x
-    }
     n_tx = 0
     for t in sync.transactions:
         ext = _event_external_id(
@@ -178,13 +225,25 @@ async def persist_sync(
         seen_tx.add(ext)
         n_tx += 1
 
-    seen_visits = {
-        x
-        for (x,) in await db.execute(
-            select(Visit.external_id).where(Visit.business_id == bid)
+    visit_exts = sorted(
+        {
+            _event_external_id(
+                "visit", v.external_id, v.customer_email, v.customer_phone, v.occurred_at
+            )
+            for v in sync.visits
+        }
+    )
+    seen_visits: set[str] = set()
+    for batch in _chunks(visit_exts):
+        seen_visits.update(
+            x
+            for (x,) in await db.execute(
+                select(Visit.external_id).where(
+                    Visit.business_id == bid,
+                    Visit.external_id.in_(batch),
+                )
+            )
         )
-        if x
-    }
     n_visits = 0
     for v in sync.visits:
         ext = _event_external_id(
@@ -273,8 +332,6 @@ async def load_sync(db: AsyncSession, business_id: str) -> SyncResult:
 
 async def refresh_scores(db: AsyncSession, business_id: str) -> None:
     """Re-score the tenant and update denormalized fields + append the RiskScore log."""
-    import json
-
     bid = _uuid(business_id)
     biz = await db.get(Business, bid)
     sync = await load_sync(db, business_id)
@@ -303,8 +360,8 @@ async def refresh_scores(db: AsyncSession, business_id: str) -> None:
                     customer_id=row.id,
                     score=s.result.score,
                     band=s.result.band,
-                    reasons=json.dumps(s.result.reasons),
-                    signals=json.dumps(s.result.signals),
+                    reasons=s.result.reasons,
+                    signals=s.result.signals,
                 )
             )
     await db.flush()

@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 import httpx
 
 from app.core.config import settings
+from app.core.http_retry import retry_transient
 from app.integrations.base import IntegrationError
 
 _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
@@ -65,19 +66,27 @@ def authorize_url(provider: str, state: str) -> str:
     raise IntegrationError(f"OAuth not supported for {provider!r}")
 
 
+@retry_transient
+async def _post(url: str, **kwargs) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.post(url, **kwargs)
+    if resp.status_code >= 500:
+        resp.raise_for_status()  # transient — retried by the decorator
+    return resp
+
+
 async def exchange_code(provider: str, code: str) -> dict:
     """Swap an authorization code for tokens. Returns at least {"access_token": ...}."""
     try:
         if provider == "stripe":
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.post(
-                    "https://connect.stripe.com/oauth/token",
-                    data={
-                        "grant_type": "authorization_code",
-                        "code": code,
-                        "client_secret": settings.stripe_secret_key,
-                    },
-                )
+            resp = await _post(
+                "https://connect.stripe.com/oauth/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "client_secret": settings.stripe_secret_key,
+                },
+            )
             data = resp.json()
             if resp.status_code >= 400 or "error" in data:
                 raise IntegrationError(
@@ -93,17 +102,16 @@ async def exchange_code(provider: str, code: str) -> dict:
 
         if provider == "square":
             host = _SQUARE_HOSTS[settings.square_environment]
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.post(
-                    f"{host}/oauth2/token",
-                    json={
-                        "client_id": settings.square_app_id,
-                        "client_secret": settings.square_app_secret,
-                        "grant_type": "authorization_code",
-                        "code": code,
-                        "redirect_uri": redirect_uri("square"),
-                    },
-                )
+            resp = await _post(
+                f"{host}/oauth2/token",
+                json={
+                    "client_id": settings.square_app_id,
+                    "client_secret": settings.square_app_secret,
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": redirect_uri("square"),
+                },
+            )
             data = resp.json()
             if resp.status_code >= 400 or not data.get("access_token"):
                 detail = (data.get("errors") or [{}])[0].get("detail", resp.text[:200])

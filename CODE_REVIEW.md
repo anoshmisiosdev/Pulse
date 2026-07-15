@@ -54,7 +54,25 @@ Prevents `.venv`, `node_modules`, `.env` files, `.git`, Docker volumes, and IDE 
 
 ---
 
-## 🟡 Medium Priority — Documented for follow-up
+## 🟡 Medium Priority — ✅ all resolved 2026-07-14
+
+Items 9–22 were implemented (or found already fixed upstream):
+
+- **9** — `persist_sync` now uses batched `IN (...)` lookups scoped to the incoming payload; memory is bounded by sync-batch size, not tenant history.
+- **10** — `_to_risk`/`build_portfolio` moved to `app/services/portfolio_service.py`; no more cross-router private imports.
+- **11** — hand-written `ALTER TABLE` patches moved to Alembic migration `20260714_0004`; container entrypoint now runs `alembic upgrade head` before uvicorn. `create_all` stays for brand-new DBs per the documented hybrid.
+- **12** — already fixed upstream: `nightly_rescore` calls `refresh_scores` for every business.
+- **13** — global exception handler in `main.py` logs the traceback and returns a consistent `{"error": "internal_error"}` envelope.
+- **14** — JSON-in-Text columns are now `JSONB` on Postgres (plain `JSON` on SQLite tests); migration `20260714_0005` converts existing data; call sites store/read Python objects.
+- **15+16** — `tenacity` now used: `app/core/http_retry.py` retries transient failures (network + 5xx, never 4xx) 3× with exponential backoff across Square/Stripe adapters, OAuth, LLM router, Perplexity, DeepSeek, and geocoding.
+- **17** — `Pricing.tsx` split into `hooks/useCompetitorPricing.ts`, `components/pricing/PricingTable.tsx`, `components/pricing/MarketSummary.tsx`.
+- **18** — `useMountProgress` deduped into `hooks/useMountProgress.ts`.
+- **19** — `components/ErrorBoundary.tsx` wraps the app; render errors degrade to a reload card.
+- **20** — all pages are `React.lazy` route chunks (main bundle 493 kB → 408 kB).
+- **21** — already fixed upstream: the synthetic autopilot feed was replaced by real `api.listSends` data when outreach landed.
+- **22** — JSON structured logging in production (`app/core/logging_setup.py`), plain text in dev; Celery keeps the same formatter.
+
+<details><summary>Original findings (for reference)</summary>
 
 ### 9. `persist_sync` loads entire tenant into memory
 **File:** `backend/app/services/ingest.py`  
@@ -124,6 +142,8 @@ The "autopilot feed" is synthetic — maps at-risk customers to hardcoded `RELAT
 
 ### 22. No structured logging
 The backend uses stdlib `logging` with `basicConfig`. No JSON structured logging for production observability (CloudWatch, Datadog).
+
+</details>
 
 ---
 

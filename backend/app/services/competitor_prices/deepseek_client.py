@@ -16,6 +16,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from app.core.config import settings
+from app.core.http_retry import retry_transient
 
 logger = logging.getLogger("pulse.competitor_prices.deepseek")
 
@@ -146,6 +147,7 @@ class DeepSeekClient:
         except httpx.HTTPError as exc:
             raise DeepSeekError(f"DeepSeek extraction request failed: {exc}") from exc
 
+    @retry_transient
     async def _post_chat_completion(self, payload: dict[str, Any]) -> dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {self.api_key}",

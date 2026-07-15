@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import useMountProgress from "../hooks/useMountProgress";
+import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePulse } from "../context/PulseContext";
 import { formatCurrency, type CustomerRisk } from "../lib/api";
@@ -13,22 +14,6 @@ const VISIT_BUCKETS = [
 ];
 
 /** 0→1 mount progress, easeOutCubic over 1s — drives count-ups. */
-function useMountProgress(duration = 1000): number {
-  const [p, setP] = useState(0);
-  useEffect(() => {
-    let raf = 0;
-    const start = performance.now();
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
-      setP(1 - Math.pow(1 - t, 3));
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [duration]);
-  return p;
-}
-
 export default function Dashboard() {
   const { customers, portfolio, revenueRecovered } = usePulse();
   const s = portfolio?.summary;

@@ -2,6 +2,10 @@
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
+// localStorage flag: owner chose "skip setup" — lives here (not Setup.tsx) so the
+// route gate can read it without pulling the lazy-loaded Setup page into the main chunk.
+export const SETUP_SKIPPED_KEY = "pulse_setup_skipped";
+
 export type Band = "low" | "med" | "high";
 export type Segment =
   | "needs_attention"

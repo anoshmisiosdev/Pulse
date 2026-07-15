@@ -1,17 +1,22 @@
+import { Suspense, lazy } from "react";
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import EmptyState from "./components/EmptyState";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PulseProvider, usePulse } from "./context/PulseContext";
-import Dashboard from "./pages/Dashboard";
-import Customers from "./pages/Customers";
-import Retention from "./pages/Retention";
-import Automations from "./pages/Automations";
-import Pricing from "./pages/Pricing";
-import Onboarding from "./pages/Onboarding";
-import Landing from "./pages/Landing";
-import Login from "./pages/Login";
-import Setup, { SETUP_SKIPPED_KEY } from "./pages/Setup";
+import { SETUP_SKIPPED_KEY } from "./lib/api";
+
+// Each page is its own chunk — visitors only download the routes they visit.
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Customers = lazy(() => import("./pages/Customers"));
+const Retention = lazy(() => import("./pages/Retention"));
+const Automations = lazy(() => import("./pages/Automations"));
+const Pricing = lazy(() => import("./pages/Pricing"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
+const Landing = lazy(() => import("./pages/Landing"));
+const Login = lazy(() => import("./pages/Login"));
+const Setup = lazy(() => import("./pages/Setup"));
 
 function Spinner({ label }: { label: string }) {
   return (
@@ -116,8 +121,12 @@ function Gate() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Gate />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <Suspense fallback={<Spinner label="Loading…" />}>
+          <Gate />
+        </Suspense>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

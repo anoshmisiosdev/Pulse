@@ -19,4 +19,7 @@ COPY . .
 
 EXPOSE 8000
 # Shell form so $PORT (set by Render/Railway/Fly) is honored; falls back to 8000.
-CMD uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Migrations run first; a failure (e.g. no DB in offline dev) doesn't block the
+# API, which still serves the CSV-preview path without a database.
+CMD (uv run alembic upgrade head || echo "alembic skipped — no database?") && \
+    uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

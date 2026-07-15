@@ -1,3 +1,4 @@
+import useMountProgress from "../hooks/useMountProgress";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -7,22 +8,6 @@ import { Link } from "react-router-dom";
    ───────────────────────────────────────────────────────────── */
 
 /** 0→1 mount progress, easeOutCubic — drives hero count-ups. */
-function useMountProgress(duration = 1400): number {
-  const [p, setP] = useState(0);
-  useEffect(() => {
-    let raf = 0;
-    const start = performance.now();
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
-      setP(1 - Math.pow(1 - t, 3));
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [duration]);
-  return p;
-}
-
 /** Adds .lp-visible to .lp-reveal elements as they scroll into view. */
 function useScrollReveal() {
   useEffect(() => {
@@ -44,7 +29,7 @@ function useScrollReveal() {
 
 export default function Landing() {
   useScrollReveal();
-  const p = useMountProgress();
+  const p = useMountProgress(1400);
 
   return (
     <div style={{ background: "var(--bg-page)", overflowX: "hidden" }}>

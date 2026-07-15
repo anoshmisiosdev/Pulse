@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { usePulse } from "../context/PulseContext";
-import { api } from "../lib/api";
+import { api, SETUP_SKIPPED_KEY } from "../lib/api";
 
-export const SETUP_SKIPPED_KEY = "pulse_setup_skipped";
 
 type Provider = "stripe" | "square" | "csv";
 

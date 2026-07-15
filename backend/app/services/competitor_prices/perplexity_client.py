@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.core.config import settings
+from app.core.http_retry import retry_transient
 from app.services.competitor_prices.confidence_scoring import (
     canonicalize_offer_label,
     evidence_contains_price,
@@ -93,7 +94,8 @@ class PerplexitySearchClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        try:
+        @retry_transient
+        async def _request() -> httpx.Response:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 response = await client.post(
                     f"{self.base_url}/search",
@@ -101,6 +103,10 @@ class PerplexitySearchClient:
                     json=payload,
                 )
             response.raise_for_status()
+            return response
+
+        try:
+            response = await _request()
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:
                 raise PerplexityQuotaError(

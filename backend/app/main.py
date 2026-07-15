@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api import (
     auth,
@@ -19,44 +20,24 @@ from app.api import (
     portfolio,
 )
 from app.core.config import settings
+from app.core.logging_setup import setup_logging
 from app.core.ratelimit import RateLimitMiddleware
 
-logging.basicConfig(level=settings.log_level)
+setup_logging()
 logger = logging.getLogger("pulse")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure tables exist (idempotent). Runs in production too — the deploy story is
-    # a single container against Supabase, so create_all doubles as the migration
-    # path until Alembic is wired into CI.
+    # Ensure tables exist (idempotent) for brand-new databases. Schema *changes*
+    # to existing tables live in Alembic (`alembic upgrade head` runs in the
+    # container entrypoint) — create_all never ALTERs.
     try:
-        from sqlalchemy import text
-
         from app import models  # noqa: F401 — register tables on metadata
         from app.core.database import Base, engine
 
-        # Idempotent column patches for tables that predate a model change —
-        # create_all never ALTERs. Stands in for Alembic until it's wired into CI.
-        column_patches = [
-            "ALTER TABLE customers ADD COLUMN IF NOT EXISTS favorite_item VARCHAR(255)",
-            "ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS automation_rule_id UUID",
-            "ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS provider_message_id VARCHAR(255)",
-            "ALTER TABLE campaign_sends ADD COLUMN IF NOT EXISTS failure_reason TEXT",
-            "CREATE INDEX IF NOT EXISTS ix_campaign_sends_provider_message_id "
-            "ON campaign_sends (provider_message_id)",
-            "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS cooldown_days INTEGER "
-            "DEFAULT 14 NOT NULL",
-            "ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS campaign_id UUID",
-            "ALTER TABLE engagement_events ADD COLUMN IF NOT EXISTS campaign_send_id UUID",
-            "ALTER TABLE engagement_events ADD COLUMN IF NOT EXISTS detail TEXT",
-            "CREATE INDEX IF NOT EXISTS ix_engagement_events_campaign_send_id "
-            "ON engagement_events (campaign_send_id)",
-        ]
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            for ddl in column_patches:
-                await conn.execute(text(ddl))
         logger.info("DB schema ensured")
     except Exception as exc:  # offline / no DB — API still serves CSV preview
         logger.warning("Skipping DB init (%s)", exc)
@@ -72,6 +53,16 @@ fastapi_app = FastAPI(
     summary="AI customer retention for small local businesses",
     lifespan=lifespan,
 )
+
+
+@fastapi_app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Log the traceback and return a consistent envelope — never leak internals."""
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_error", "detail": "Something went wrong on our end."},
+    )
 
 API_PREFIX = "/api"
 fastapi_app.include_router(health.router, prefix=API_PREFIX)
