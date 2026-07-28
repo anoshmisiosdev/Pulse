@@ -137,9 +137,6 @@ async def set_public_safe(
         return None
     row.public_safe = public_safe
     await db.flush()
-    # updated_at carries a SQL-side onupdate, so the flush expires it. Refresh
-    # now rather than letting serialization trigger a lazy load from async code.
-    await db.refresh(row)
     return row
 
 

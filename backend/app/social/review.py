@@ -188,7 +188,6 @@ async def record_decision(
         )
     )
     await db.flush()
-    await db.refresh(row)  # updated_at is SQL-side onupdate; see brain.set_public_safe
     return row
 
 
@@ -206,5 +205,4 @@ async def schedule_post(
     else:
         row.scheduled_for = None
     await db.flush()
-    await db.refresh(row)  # updated_at is SQL-side onupdate; see brain.set_public_safe
     return row

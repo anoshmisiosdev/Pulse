@@ -49,7 +49,8 @@ def test_visits_attribute_to_the_right_customer():
 
 
 async def test_generate_campaign_falls_back_without_api_key():
-    # No ANTHROPIC_API_KEY in test env -> deterministic static fallback.
+    # "No model configured" is guaranteed by the autouse no_live_llm fixture in
+    # conftest, not by the developer's .env happening to be empty.
     ctx = CampaignContext(
         business_name="Iron Peak Fitness",
         business_type="gym",

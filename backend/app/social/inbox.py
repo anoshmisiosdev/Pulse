@@ -324,7 +324,6 @@ async def suggest_reply(
         row.status = "drafted"
     row.updated_at = datetime.now(UTC)
     await db.flush()
-    await db.refresh(row)  # updated_at is SQL-side onupdate; see brain.set_public_safe
     return row
 
 
@@ -355,7 +354,6 @@ async def update_comment(
         row.approved_reply = reply or row.suggested_reply
     row.updated_at = datetime.now(UTC)
     await db.flush()
-    await db.refresh(row)  # updated_at is SQL-side onupdate; see brain.set_public_safe
     return row
 
 

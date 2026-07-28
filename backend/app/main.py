@@ -53,11 +53,29 @@ async def lifespan(app: FastAPI):
             "CREATE INDEX IF NOT EXISTS ix_engagement_events_campaign_send_id "
             "ON engagement_events (campaign_send_id)",
         ]
+        # pgvector must exist before create_all, because business_knowledge has a
+        # VECTOR column. Its own transaction: on a database where we lack rights
+        # to CREATE EXTENSION, only that one table should be lost — not the
+        # whole schema.
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        except Exception as exc:
+            logger.warning("Could not ensure the pgvector extension (%s)", exc)
+
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            for ddl in column_patches:
-                await conn.execute(text(ddl))
         logger.info("DB schema ensured")
+
+        # Each patch commits on its own. Batched, one failure rolls back the
+        # rest, and a single unsupported ALTER would quietly leave the schema
+        # half-migrated.
+        for ddl in column_patches:
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text(ddl))
+            except Exception as exc:
+                logger.warning("Column patch skipped (%s): %s", ddl.split(" ADD ")[0], exc)
     except Exception as exc:  # offline / no DB — API still serves CSV preview
         logger.warning("Skipping DB init (%s)", exc)
     yield

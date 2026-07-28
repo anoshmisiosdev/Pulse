@@ -22,7 +22,10 @@ from app.core.config import settings
 
 logger = logging.getLogger("pulse.llm")
 
-_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+# 30s was tight enough that a long-form generation timed out on its first
+# attempt every time, doubling latency and burning a call before the retry
+# succeeded. Callers still degrade to a static template if this is exceeded.
+_TIMEOUT = httpx.Timeout(90.0, connect=10.0)
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
 
 
@@ -127,7 +130,11 @@ async def complete_text(system: str, user: str, max_tokens: int = 700) -> str:
                 return await _call_anthropic_compatible(system, user, max_tokens)
             return await _call_openai_compatible(system, user, max_tokens)
         except httpx.HTTPError as exc:
-            raise LLMError(f"Token Router request failed: {exc}") from exc
+            # Include the exception type: a ReadTimeout stringifies to "", which
+            # makes a timeout indistinguishable from a silent failure in the log.
+            raise LLMError(
+                f"Token Router request failed: {type(exc).__name__}: {exc}"
+            ) from exc
 
     if settings.anthropic_api_key:
         logger.warning("Token Router not configured — falling back to direct Anthropic")

@@ -130,7 +130,6 @@ async def set_status(
     if status != "draft":
         row.last_error = None
     await db.flush()
-    await db.refresh(row)  # updated_at is SQL-side onupdate; see brain.set_public_safe
     return row
 
 

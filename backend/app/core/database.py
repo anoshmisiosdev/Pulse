@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, func
 from sqlalchemy.ext.asyncio import (
@@ -47,16 +47,25 @@ SessionLocal = async_sessionmaker(
 )
 
 
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
 class Base(DeclarativeBase):
     """Declarative base with created/updated timestamps available to all models."""
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # onupdate is a Python callable, not func.now(). A SQL-side onupdate makes
+    # SQLAlchemy expire the attribute after every UPDATE, so the next read of
+    # updated_at — typically serializing the row you just changed — triggers a
+    # lazy load, which raises MissingGreenlet under asyncio. Computing it here
+    # keeps the value on the instance and costs one fewer round trip.
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        onupdate=func.now(),
+        onupdate=_utcnow,
         nullable=False,
     )
 
