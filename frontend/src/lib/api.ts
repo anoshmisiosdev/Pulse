@@ -249,11 +249,14 @@ export function setAccessToken(t: string | null): void {
   accessToken = t;
 }
 
-function authHeaders(): Record<string, string> {
+/** Exported so lib/social.ts can share one auth + error-handling convention. */
+export function authHeaders(): Record<string, string> {
   return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 }
 
-async function asJson<T>(res: Response): Promise<T> {
+export const API_BASE = BASE;
+
+export async function asJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = `Request failed (${res.status})`;
     try {

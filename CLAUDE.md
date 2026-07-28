@@ -53,11 +53,34 @@ strict JSON; parse defensively (strip fences, retry once, fall back to a static
 template). **Never block the send pipeline on the LLM.** Default mode is
 **approve-to-send**. Log every generation (prompt + output + model version).
 
+### Social presence (`social/`) — ported from Splay
+Brand kit, company brain, recurring LinkedIn/X campaigns, a review queue, Buffer
+publishing, and an engagement inbox. See `docs/SPLAY_MERGE.md` for what was
+ported and what was deliberately left out.
+
+Two rules here are load-bearing:
+- **`public_safe` is the content gate.** Company-brain records default to
+  private. Anything building a prompt calls `brain.list_public()`, never
+  `list_all()`. A leak here puts a private note in a public post.
+- **`inbox_rules.py` is pure and must stay that way** — regex classification and
+  string templates, no I/O, no LLM. It's the fallback when Claude is
+  unreachable, so it can't depend on Claude. High-risk comments and spam never
+  reach the model at all.
+
+Publishing is fail-closed and never retried: a retry after a timeout would post
+twice, and there is no un-post.
+
 ### Models (`models/`) — multi-tenant from day one
 `Business`, `User`, `IntegrationConnection`, `Customer` (deduped by email/phone),
 `Transaction`, `Visit`, `EngagementEvent`, `RiskScore` (append-only log),
 `Campaign`, `CampaignSend`, `AutomationRule`, `RecoveryAttribution`, `Subscription`,
-`SyncRun`. Multi-location is a column, never a rewrite.
+`SyncRun`. Social adds `BrandKitVersion` (append-only), `CompanyContextItem`,
+`SocialCampaign`, `SocialPost`, `PostReviewEvent` (append-only), `SocialComment`.
+Multi-location is a column, never a rewrite.
+
+Note `EngagementEvent` (email opens/clicks for a known customer) and
+`SocialComment` (an inbound comment from a stranger) are different things —
+don't conflate them.
 
 ## Conventions & guardrails
 

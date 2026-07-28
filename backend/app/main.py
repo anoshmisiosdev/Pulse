@@ -17,6 +17,7 @@ from app.api import (
     integrations,
     knowledge,
     portfolio,
+    social,
 )
 from app.core.config import settings
 
@@ -81,6 +82,7 @@ fastapi_app.include_router(campaigns.router, prefix=API_PREFIX)
 fastapi_app.include_router(competitor_prices.router, prefix=API_PREFIX)
 fastapi_app.include_router(knowledge.router, prefix=API_PREFIX)
 fastapi_app.include_router(automations.router, prefix=API_PREFIX)
+fastapi_app.include_router(social.router, prefix=API_PREFIX)
 
 
 @fastapi_app.get("/")

@@ -21,6 +21,7 @@ dist/
 # Env / secrets
 .env
 .env.local
+.env*.bak
 *.pem
 fernet.key
 

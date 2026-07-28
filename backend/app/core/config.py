@@ -131,6 +131,53 @@ class Settings(BaseSettings):
     def twilio_configured(self) -> bool:
         return bool(self.twilio_account_sid and self.twilio_auth_token and self.twilio_from_number)
 
+    # ── Social presence (ported from Splay) ─────────────────────────────────
+    # Buffer is the publishing rail for LinkedIn/X. One long-lived bearer token
+    # plus opaque channel ids; there is no OAuth dance. Publishing is refused
+    # outright unless the key and at least one channel id are present.
+    buffer_api_key: str = ""
+    buffer_api_url: str = "https://api.buffer.com"
+    buffer_linkedin_profile_ids: str = ""  # comma-separated
+    buffer_x_profile_ids: str = ""  # comma-separated
+    buffer_profile_ids: str = ""  # fallback when the per-platform list is empty
+    buffer_publish_mode: Literal["now", "queue"] = "now"
+
+    @property
+    def buffer_configured(self) -> bool:
+        return bool(
+            self.buffer_api_key
+            and (
+                self.buffer_linkedin_profile_ids
+                or self.buffer_x_profile_ids
+                or self.buffer_profile_ids
+            )
+        )
+
+    # Seed values for a business's first brand kit, before they save their own.
+    brand_name: str = ""
+    brand_audience: str = ""
+    brand_tone: str = "clear, specific, local"
+
+    # Post imagery. TokenMart's media endpoints sit at the gateway *origin*,
+    # while TOKENMART_BASE_URL above carries the /v1 suffix for chat calls.
+    tokenmart_media_base_url: str = "https://model.service-inference.ai"
+    tokenmart_image_model: str = "dola-seedream-5-0-pro-260628"
+    tokenmart_image_size: str = "1280x720"
+    tokenmart_video_model: str = "dreamina-seedance-2-0-260128"
+    tokenmart_request_timeout_ms: int = 300000
+    tokenmart_max_retries: int = 2
+
+    # Public host for post media. Buffer fetches the image at publish time —
+    # possibly weeks after scheduling — so the URL has to outlive the schedule.
+    # This replaces Splay's Convex blob store.
+    s3_media_bucket: str = ""
+    s3_media_prefix: str = "social/"
+    media_public_base_url: str = ""  # e.g. https://media.churnary.com
+
+    @property
+    def media_host_configured(self) -> bool:
+        return bool(self.s3_media_bucket and self.media_public_base_url)
+
     # Square OAuth app (Developer Dashboard → your app). Enables "Connect with Square".
     square_app_id: str = ""
     square_app_secret: str = ""

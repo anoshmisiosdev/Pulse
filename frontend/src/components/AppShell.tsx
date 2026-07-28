@@ -10,6 +10,9 @@ const NAV = [
   { to: "/customers", label: "Customers" },
   { to: "/retention", label: "Retention" },
   { to: "/automations", label: "Automations" },
+  { to: "/social", label: "Social" },
+  { to: "/inbox", label: "Inbox" },
+  { to: "/brand", label: "Brand" },
   { to: "/pricing", label: "Pricing" },
   { to: "/setup", label: "Data sources" },
 ];

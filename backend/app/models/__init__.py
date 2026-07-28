@@ -23,9 +23,23 @@ from app.models.customer import (
 )
 from app.models.integration import IntegrationConnection, SyncRun
 from app.models.knowledge import BusinessKnowledge
+from app.models.social import (
+    BrandKitVersion,
+    CompanyContextItem,
+    PostReviewEvent,
+    SocialCampaign,
+    SocialComment,
+    SocialPost,
+)
 
 __all__ = [
     "BusinessKnowledge",
+    "BrandKitVersion",
+    "CompanyContextItem",
+    "SocialCampaign",
+    "SocialPost",
+    "PostReviewEvent",
+    "SocialComment",
     "Business",
     "User",
     "IntegrationConnection",

@@ -7,19 +7,16 @@ the I/O and degrades gracefully so a missing key or a flaky model never blocks a
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from dataclasses import dataclass, field
 
 from app.campaigns.templates import fallback_email, fallback_sms
 from app.core.config import settings
-from app.core.llm import active_model, complete_text
+from app.core.llm import active_model, complete_text, extract_json_object
 
 logger = logging.getLogger("pulse.campaigns")
 
 SMS_MAX_CHARS = 320
-_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
 
 
 @dataclass
@@ -52,20 +49,7 @@ class GeneratedCopy:
 def parse_model_json(raw: str, channel: str) -> GeneratedCopy:
     """Parse a model response into copy. Strips markdown fences; raises ValueError
     if the payload is unusable so the caller can retry or fall back."""
-    text = raw.strip()
-    # Strip a leading/trailing code fence if present.
-    if text.startswith("```"):
-        text = _FENCE_RE.sub("", text).strip()
-    # Salvage the outermost JSON object if the model added prose around it.
-    if not text.startswith("{"):
-        start, end = text.find("{"), text.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            raise ValueError("no JSON object found in model output")
-        text = text[start : end + 1]
-
-    data = json.loads(text)  # raises ValueError on malformed JSON
-    if not isinstance(data, dict):
-        raise ValueError("model output was not a JSON object")
+    data = extract_json_object(raw)
 
     body = (data.get("body") or "").strip()
     if not body:

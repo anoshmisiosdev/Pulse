@@ -12,7 +12,9 @@ a static template) instead of crashing.
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 
 import httpx
 
@@ -21,10 +23,34 @@ from app.core.config import settings
 logger = logging.getLogger("pulse.llm")
 
 _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
 
 
 class LLMError(Exception):
     """Raised when no completion could be obtained from the router/provider."""
+
+
+def extract_json_object(raw: str) -> dict:
+    """Pull a JSON object out of a model response.
+
+    Models wrap JSON in markdown fences and pad it with commentary however
+    firmly you ask them not to, so strip the fence and fall back to the
+    outermost ``{...}``. Raises ValueError when there is nothing usable, which
+    is the caller's signal to retry once and then use a static template.
+    """
+    text = raw.strip()
+    if text.startswith("```"):
+        text = _FENCE_RE.sub("", text).strip()
+    if not text.startswith("{"):
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("no JSON object found in model output")
+        text = text[start : end + 1]
+
+    data = json.loads(text)  # raises ValueError on malformed JSON
+    if not isinstance(data, dict):
+        raise ValueError("model output was not a JSON object")
+    return data
 
 
 def _base_url() -> str:

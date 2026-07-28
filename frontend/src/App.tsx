@@ -7,6 +7,9 @@ import Dashboard from "./pages/Dashboard";
 import Customers from "./pages/Customers";
 import Retention from "./pages/Retention";
 import Automations from "./pages/Automations";
+import Social from "./pages/Social";
+import Inbox from "./pages/Inbox";
+import Brand from "./pages/Brand";
 import Pricing from "./pages/Pricing";
 import Onboarding from "./pages/Onboarding";
 import Landing from "./pages/Landing";
@@ -85,6 +88,11 @@ function AuthedApp() {
                 <Route path="/customers" element={<DataGate><Customers /></DataGate>} />
                 <Route path="/retention" element={<DataGate><Retention /></DataGate>} />
                 <Route path="/automations" element={<DataGate><Automations /></DataGate>} />
+                {/* Social pages stand on their own — they don't need customer
+                    data loaded, so they sit outside the DataGate. */}
+                <Route path="/social" element={<Social />} />
+                <Route path="/inbox" element={<Inbox />} />
+                <Route path="/brand" element={<Brand />} />
               </Routes>
             </AppShell>
           }
