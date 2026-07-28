@@ -131,7 +131,7 @@ export default function Social() {
 
   if (loading) {
     return (
-      <div className="grid min-h-[50vh] place-items-center" style={{ color: "var(--muted)" }}>
+      <div className="grid place-items-center py-16" style={{ color: "var(--muted)" }}>
         Loading your campaigns…
       </div>
     );
