@@ -103,10 +103,35 @@ export default function Brand() {
     }
   };
 
-  if (loading || !kit) {
+  if (loading) {
     return (
       <div className="grid place-items-center py-16" style={{ color: "var(--muted)" }}>
         Loading your brand kit…
+      </div>
+    );
+  }
+
+  // A failed load leaves kit null. Say so and offer a retry — folding this into
+  // the loading branch showed a spinner forever and hid the actual error.
+  if (!kit) {
+    return (
+      <div className="glass p-6">
+        <h2 className="font-display text-2xl font-bold" style={{ color: "var(--ink)" }}>
+          Brand &amp; knowledge
+        </h2>
+        <p className="mt-2 text-sm" style={{ color: "var(--accent-dark)" }}>
+          {error ?? "Couldn't load your brand kit."}
+        </p>
+        <button
+          onClick={() => {
+            setLoading(true);
+            load();
+          }}
+          className="mt-4 rounded-full px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-95"
+          style={{ background: "var(--accent)" }}
+        >
+          Try again
+        </button>
       </div>
     );
   }

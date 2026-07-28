@@ -47,6 +47,10 @@ export default function SocialHub() {
     (id: string, behavior: ScrollBehavior = "smooth") => {
       const el = document.getElementById(id);
       if (!el) return;
+      // Light up the target immediately. Waiting for the scroll listener leaves
+      // the wrong pill highlighted whenever the destination can't reach the top
+      // of the viewport, which is normal for the last section.
+      setActive(id);
       const top = el.getBoundingClientRect().top + window.scrollY - offset;
       window.scrollTo({ top: Math.max(top, 0), behavior });
     },
@@ -89,6 +93,13 @@ export default function SocialHub() {
       for (const section of SECTIONS) {
         const el = document.getElementById(section.id);
         if (el && el.getBoundingClientRect().top <= line) current = section.id;
+      }
+      // Once the document bottom is reached the last section is what's on
+      // screen, even if it never rose past the line — a short final section
+      // otherwise leaves the previous pill lit.
+      const doc = document.documentElement;
+      if (window.scrollY + window.innerHeight >= doc.scrollHeight - 2) {
+        current = SECTIONS[SECTIONS.length - 1].id;
       }
       setActive(current);
     };
