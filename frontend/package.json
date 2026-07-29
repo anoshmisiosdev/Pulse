@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "preview:export": "vite build --config vite.preview.config.ts && node scripts/inline-preview.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.0",

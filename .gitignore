@@ -39,3 +39,7 @@ fernet.key
 AGENTS.md
 outputs/
 backend/celerybeat-schedule
+
+# Standalone landing-page export (npm run preview:export) — build output
+frontend/.preview-dist/
+churnary-landing-preview.html
