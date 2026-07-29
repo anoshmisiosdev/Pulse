@@ -1,15 +1,75 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import ChurnaryMark from "../components/ChurnaryMark";
+import WaitlistForm from "../components/WaitlistForm";
 
 /* ─────────────────────────────────────────────────────────────
    Public marketing landing page. Fully self-contained: no data
-   dependencies, CTAs route to /login. Coffeehouse Editorial brand.
+   dependencies beyond the public waitlist POST.
+
+   Layout follows a drafting-sheet system rather than a stack of
+   floating cards: a gutter that grows with the viewport (so wide
+   monitors gain content, not margin), full-bleed hairline rules
+   between sections, and blocks divided by 1px lines instead of
+   gaps. Buttons are crisp, not pills; display type is set at 600
+   with tight tracking. Shadows are reserved for things that
+   genuinely float (the hero preview), never for flat content.
+
+   Motion is hand-rolled rather than pulled from GSAP: the three
+   effects used here (char stagger, scroll-scrubbed word reveal,
+   parallax curtain) are a scroll listener and some transforms,
+   and CLAUDE.md pins the frontend stack. All are gated on
+   prefers-reduced-motion.
    ───────────────────────────────────────────────────────────── */
 
-/** 0→1 mount progress, easeOutCubic — drives hero count-ups. */
-function useMountProgress(duration = 1400): number {
-  const [p, setP] = useState(0);
+/** True when the visitor asked the OS to cut animation. */
+function useReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
   useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const on = () => setReduced(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return reduced;
+}
+
+/**
+ * Subscribe to scroll, coalesced to one callback per frame.
+ *
+ * Every scroll-driven effect on this page shares this so a fast wheel spin
+ * costs one rAF, not one layout pass per listener.
+ */
+function useRafScroll(onScroll: () => void, enabled = true) {
+  useEffect(() => {
+    if (!enabled) return;
+    let raf = 0;
+    const tick = () => {
+      raf = 0;
+      onScroll();
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(tick);
+    };
+    schedule();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      if (raf) cancelAnimationFrame(raf);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled]);
+}
+
+/** 0→1 mount progress, easeOutCubic — drives hero count-ups. */
+function useMountProgress(duration = 1600, enabled = true): number {
+  const [p, setP] = useState(enabled ? 0 : 1);
+  useEffect(() => {
+    if (!enabled) return;
     let raf = 0;
     const start = performance.now();
     const tick = (now: number) => {
@@ -19,112 +79,342 @@ function useMountProgress(duration = 1400): number {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [duration]);
+  }, [duration, enabled]);
   return p;
 }
 
-/** Adds .lp-visible to .lp-reveal elements as they scroll into view. */
-function useScrollReveal() {
+/** Adds .is-in to every [data-reveal] once it enters the viewport. */
+function useRevealOnScroll(reduced: boolean) {
   useEffect(() => {
-    const els = document.querySelectorAll(".lp-reveal");
+    const els = Array.from(document.querySelectorAll("[data-reveal]"));
+    if (reduced) {
+      els.forEach((el) => el.classList.add("is-in"));
+      return;
+    }
     const io = new IntersectionObserver(
       (entries) =>
         entries.forEach((e) => {
           if (e.isIntersecting) {
-            e.target.classList.add("lp-visible");
+            e.target.classList.add("is-in");
             io.unobserve(e.target);
           }
         }),
-      { threshold: 0.15 }
+      { threshold: 0.12, rootMargin: "0px 0px -6% 0px" }
     );
     els.forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, []);
+  }, [reduced]);
 }
 
-export default function Landing() {
-  useScrollReveal();
-  const p = useMountProgress();
+/** Which nav section is currently under the reader. */
+function useActiveSection(ids: string[]): string {
+  const [active, setActive] = useState("");
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (e.isIntersecting) setActive(e.target.id);
+      },
+      // A tall band across the middle of the viewport: whatever crosses it owns
+      // the highlight, which is steadier than "topmost visible".
+      { rootMargin: "-45% 0px -50% 0px" }
+    );
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) io.observe(el);
+    });
+    return () => io.disconnect();
+  }, [ids]);
+  return active;
+}
+
+/* ── text splitting ──────────────────────────────────────────────────────── */
+
+/**
+ * Split into words, marking the ones inside a `*…*` span.
+ *
+ * Splits on the delimiter first and only then on whitespace: checking each word
+ * for a leading and trailing `*` would only ever match single-word spans, and
+ * would render `*recovered regular*` with the asterisks still in it.
+ */
+function tokenize(text: string): { word: string; em: boolean; space: boolean }[] {
+  const out: { word: string; em: boolean; space: boolean }[] = [];
+  // `space` records whether whitespace actually preceded the token in the
+  // source. Rejoining every token with a space instead would push punctuation
+  // that follows a closing delimiter off on its own — "*fighting for*." became
+  // "fighting for ." with a visible gap before the period.
+  let pendingSpace = false;
+  text.split("*").forEach((run, i) => {
+    const em = i % 2 === 1; // odd runs sat between a pair of delimiters
+    for (const part of run.split(/(\s+)/)) {
+      if (!part) continue;
+      if (/^\s/.test(part)) {
+        pendingSpace = true;
+        continue;
+      }
+      out.push({ word: part, em, space: pendingSpace && out.length > 0 });
+      pendingSpace = false;
+    }
+  });
+  return out;
+}
+
+/**
+ * Per-character stagger-in, for the hero headline only.
+ *
+ * The characters are aria-hidden and the real string is on the heading's
+ * aria-label — a screen reader would otherwise read the headline one letter
+ * at a time.
+ */
+function SplitChars({
+  text,
+  className = "",
+  reduced,
+  delay = 0,
+}: {
+  text: string;
+  className?: string;
+  reduced: boolean;
+  delay?: number;
+}) {
+  const plain = text.replace(/\*/g, "");
+  const words = tokenize(text);
+  if (reduced) {
+    return (
+      <h1 className={className}>
+        {words.map((t, i) => (
+          <span key={i}>
+            {t.space ? " " : ""}
+            {t.em ? <em className="lp-em">{t.word}</em> : t.word}
+          </span>
+        ))}
+      </h1>
+    );
+  }
+  let n = 0;
+  return (
+    <h1 className={className} aria-label={plain}>
+      {words.map((t, wi) => (
+        <span className="lp-word" key={wi} aria-hidden>
+          {t.space && <span className="lp-char-space"> </span>}
+          {Array.from(t.word).map((ch, ci) => (
+            <span
+              className={`lp-char${t.em ? " lp-em" : ""}`}
+              key={ci}
+              style={{ animationDelay: `${delay + n++ * 0.02}s` }}
+            >
+              {ch}
+            </span>
+          ))}
+        </span>
+      ))}
+    </h1>
+  );
+}
+
+/**
+ * Headline that lights up word by word as it crosses the viewport — the one
+ * borrowed move that carries most of the page's character.
+ *
+ * Words sit at 16% opacity and are driven to full by scroll position between
+ * 84% and 38% of the viewport height. Opacity is written straight to the spans
+ * rather than kept in state: this runs on every frame of a scroll and a React
+ * re-render per frame would be wasted work.
+ */
+function ScrubWords({
+  text,
+  as: Tag = "h2",
+  className = "",
+  reduced,
+}: {
+  text: string;
+  as?: "h2" | "h3" | "p";
+  className?: string;
+  reduced: boolean;
+}) {
+  const ref = useRef<HTMLElement>(null);
+  const words = useMemo(() => tokenize(text), [text]);
+
+  useRafScroll(() => {
+    const el = ref.current;
+    if (!el) return;
+    const spans = el.querySelectorAll<HTMLElement>(".lp-scrub-word");
+    const vh = window.innerHeight;
+    const top = el.getBoundingClientRect().top;
+    const start = vh * 0.84;
+    const end = vh * 0.38;
+    const p = Math.min(1, Math.max(0, (start - top) / (start - end)));
+    const n = spans.length;
+    spans.forEach((span, i) => {
+      // +3 overlap so neighbouring words brighten together instead of
+      // resolving one at a time like a ticker.
+      const t = Math.min(1, Math.max(0, p * (n + 3) - i));
+      span.style.opacity = String(0.16 + 0.84 * t);
+    });
+  }, !reduced);
 
   return (
-    <div style={{ background: "var(--bg-page)", overflowX: "hidden" }}>
+    <Tag ref={ref as never} className={`lp-scrub ${className}`}>
+      {words.map((w, i) => (
+        <span className="lp-scrub-word" key={i} style={{ opacity: reduced ? 1 : 0.16 }}>
+          {w.space ? " " : ""}
+          {w.em ? <em className="lp-em">{w.word}</em> : w.word}
+        </span>
+      ))}
+    </Tag>
+  );
+}
+
+/** Vertically cycling word stack. */
+function WordCycle({ words, interval = 1500 }: { words: string[]; interval?: number }) {
+  const [i, setI] = useState(0);
+  const reduced = useReducedMotion();
+  useEffect(() => {
+    if (reduced) return;
+    const t = setInterval(() => setI((v) => (v + 1) % words.length), interval);
+    return () => clearInterval(t);
+  }, [words.length, interval, reduced]);
+  return (
+    <span className="lp-wc" aria-live="polite">
+      {words.map((w, idx) => (
+        <span key={w} className={`lp-wc-item${idx === i ? " is-on" : ""}`}>
+          {w}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Section header: a full-bleed rule, the kicker on the left rail, the section
+ * index on the right. The rule and the index are what stop a section from
+ * reading as a lone centred column floating in margin.
+ */
+function SectionHead({
+  kicker,
+  index,
+  total,
+  dark = false,
+  children,
+}: {
+  kicker: string;
+  index: number;
+  total: number;
+  dark?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className={`lp-head${dark ? " is-dark" : ""}`}>
+      <div className="lp-head-bar" data-reveal>
+        <span className="lp-kicker">{kicker}</span>
+        <span className="lp-head-index">
+          {String(index).padStart(2, "0")} <span className="lp-head-slash">/</span>{" "}
+          {String(total).padStart(2, "0")}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/* ── page ────────────────────────────────────────────────────────────────── */
+
+const NAV_LINKS: [string, string][] = [
+  ["flow", "How it works"],
+  ["demo", "Live demo"],
+  ["features", "Features"],
+  ["pricing", "Pricing"],
+];
+
+export default function Landing() {
+  const reduced = useReducedMotion();
+  useRevealOnScroll(reduced);
+  const p = useMountProgress(1600, !reduced);
+
+  return (
+    <div className="lp-root">
       <style>{LP_CSS}</style>
       <Nav />
-      <Hero p={p} />
-      <RiskDemo />
-      <HowItWorks />
-      <Features />
-      <Marquee />
-      <Pricing />
-      <FinalCta />
+      <main>
+        <Hero p={p} reduced={reduced} />
+        <Marquee />
+        <StatBand />
+        <Flow reduced={reduced} />
+        <Stance reduced={reduced} />
+        <RiskDemo reduced={reduced} />
+        <Features reduced={reduced} />
+        <HowItWorks reduced={reduced} />
+        <Guardrails reduced={reduced} />
+        <Pricing reduced={reduced} />
+        <Waitlist reduced={reduced} />
+      </main>
       <Footer />
     </div>
   );
 }
 
-/* ── Nav ── */
+/* ── Nav — transparent over the dark hero, cream once past it ── */
 function Nav() {
+  const [solid, setSolid] = useState(false);
+  const active = useActiveSection(NAV_LINKS.map(([id]) => id));
+
+  useRafScroll(() => setSolid(window.scrollY > window.innerHeight * 0.7));
+
   return (
-    <header
-      className="sticky top-0 z-40 border-b"
-      style={{ background: "rgba(251,246,238,.86)", backdropFilter: "blur(10px)", borderColor: "#E6D8C6" }}
-    >
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
-        <div className="flex items-center gap-2.5">
-          <span
-            className="font-logo inline-flex h-[30px] w-[30px] items-center justify-center rounded-full text-[19px]"
-            style={{ background: "var(--ink-strong)", color: "var(--cream-text)" }}
-          >
-            C
-          </span>
-          <span className="font-display text-[21px] font-bold tracking-tight" style={{ color: "var(--ink)" }}>
-            Churnary
-          </span>
-        </div>
-        <nav className="hidden items-center gap-1 md:flex">
-          {[
-            ["#demo", "Live demo"],
-            ["#how", "How it works"],
-            ["#features", "Features"],
-            ["#pricing", "Pricing"],
-          ].map(([href, label]) => (
+    <header className={`lp-nav${solid ? " is-solid" : ""}`}>
+      <div className="lp-nav-inner">
+        <a href="#top" className="lp-brand" aria-label="Churnary, top of page">
+          {/* Tile only once the nav turns cream — over the dark hero the mark's
+              own espresso tile would disappear into the background. */}
+          <ChurnaryMark size={30} tile={solid} className="lp-brand-mark" />
+          <span className="font-display lp-brand-word">Churnary</span>
+        </a>
+        <nav className="lp-nav-links" aria-label="Sections">
+          {NAV_LINKS.map(([id, label]) => (
             <a
-              key={href}
-              href={href}
-              className="rounded-full px-3.5 py-2 text-sm font-semibold transition hover:bg-[#F0E6D6]"
-              style={{ color: "var(--muted)" }}
+              key={id}
+              href={`#${id}`}
+              className={active === id ? "is-active" : ""}
+              aria-current={active === id ? "true" : undefined}
             >
               {label}
             </a>
           ))}
         </nav>
-        <div className="flex items-center gap-3">
-          <Link
-            to="/login"
-            className="rounded-full px-4 py-2 text-sm font-semibold transition hover:bg-[#F0E6D6]"
-            style={{ color: "var(--ink-strong)" }}
-          >
+        <div className="lp-nav-cta">
+          <Link to="/login" className="lp-nav-signin">
             Sign in
           </Link>
-          <Link
-            to="/login"
-            className="rounded-full px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-px"
-            style={{ background: "var(--accent)", boxShadow: "0 6px 16px -6px rgba(180,83,42,.7)" }}
-          >
-            Start free trial
-          </Link>
+          <a href="#waitlist" className="lp-btn lp-btn-primary lp-btn-sm">
+            Join the waitlist
+          </a>
         </div>
       </div>
     </header>
   );
 }
 
-/* ── Hero with cursor spotlight + tilt preview ── */
-function Hero({ p }: { p: number }) {
-  const ref = useRef<HTMLDivElement>(null);
+/* ── Hero — dark, full-bleed, parallax curtain + cursor spotlight ── */
+function Hero({ p, reduced }: { p: number; reduced: boolean }) {
+  const sectionRef = useRef<HTMLElement>(null);
+  const bgRef = useRef<HTMLDivElement>(null);
+
+  // Curtain: the background drifts down at a fraction of scroll speed, so the
+  // copy and the next section slide up over a near-static image.
+  useRafScroll(() => {
+    const el = bgRef.current;
+    const sec = sectionRef.current;
+    if (!el || !sec) return;
+    const top = sec.getBoundingClientRect().top;
+    if (top > 0) {
+      el.style.transform = "translate3d(0,0,0)";
+      return;
+    }
+    el.style.transform = `translate3d(0, ${Math.min(-top * 0.35, window.innerHeight * 0.5)}px, 0)`;
+  }, !reduced);
 
   const onMove = (e: React.MouseEvent) => {
-    const el = ref.current;
+    if (reduced) return;
+    const el = sectionRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     el.style.setProperty("--mx", `${e.clientX - r.left}px`);
@@ -134,157 +424,363 @@ function Hero({ p }: { p: number }) {
   const money = (n: number) => "$" + Math.round(n).toLocaleString();
 
   return (
-    <section
-      ref={ref}
-      onMouseMove={onMove}
-      className="relative"
-      style={{
-        background:
-          "radial-gradient(560px 380px at var(--mx, 70%) var(--my, 20%), rgba(180,83,42,.14), transparent 70%), radial-gradient(1200px 600px at 80% -10%, #FBF6EE 0%, #F0E7D8 55%, #EBE0CE 100%)",
-      }}
-    >
-      <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-20 pt-16 lg:grid-cols-[1.1fr_1fr]">
-        <div>
-          <span
-            className="lp-fade-1 inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-[12.5px] font-bold"
-            style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--accent)", letterSpacing: ".08em", textTransform: "uppercase" }}
-          >
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full rounded-full" style={{ background: "var(--accent)", animation: "pulseFade 2.4s ease-out infinite" }} />
-              <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: "var(--accent)" }} />
-            </span>
+    <section id="top" ref={sectionRef} onMouseMove={onMove} className="lp-hero">
+      <div ref={bgRef} className="lp-hero-bg" aria-hidden>
+        <DotField />
+      </div>
+      <div className="lp-hero-veil" aria-hidden />
+
+      <div className="lp-hero-inner">
+        <div className="lp-hero-copy">
+          <span className="lp-kicker-pill">
+            <span className="lp-pulse-dot" aria-hidden />
             AI retention for local business
           </span>
 
-          <h1
-            className="lp-fade-2 font-display mt-6 text-[52px] font-bold leading-[1.05] tracking-tight md:text-[64px]"
-            style={{ color: "var(--ink)" }}
-          >
-            Win customers back{" "}
-            <em style={{ color: "var(--accent)", fontStyle: "italic" }}>before</em> revenue walks out the door.
-          </h1>
-
-          <p className="lp-fade-3 mt-5 max-w-lg text-[17px] leading-relaxed" style={{ color: "var(--muted)" }}>
-            Churnary watches your Square, Stripe, or CSV data, flags regulars who are quietly slipping away —
-            with the reason in plain English — and drafts the win-back email. You just tap approve.
+          <p className="lp-hero-eyebrow">
+            For{" "}
+            <WordCycle
+              words={["cafés", "salons", "gyms", "med spas", "barbershops", "studios"]}
+              interval={1500}
+            />
           </p>
 
-          <div className="lp-fade-4 mt-8 flex flex-wrap items-center gap-4">
-            <Link
-              to="/login"
-              className="rounded-full px-7 py-3.5 text-[15px] font-bold text-white transition hover:-translate-y-0.5"
-              style={{ background: "var(--accent)", boxShadow: "0 10px 24px -8px rgba(180,83,42,.8)" }}
-            >
-              Start your 14-day trial →
-            </Link>
-            <a
-              href="#demo"
-              className="rounded-full border px-6 py-3.5 text-[15px] font-semibold transition hover:bg-[#F6ECDD]"
-              style={{ borderColor: "var(--border)", color: "var(--ink-strong)", background: "var(--surface)" }}
-            >
+          <SplitChars
+            className="font-display lp-h1"
+            text="Win regulars back *before* the revenue walks out."
+            reduced={reduced}
+            delay={0.1}
+          />
+
+          <p className="lp-hero-lede">
+            Churnary watches your Square, Stripe or CSV data, flags the regulars quietly slipping
+            away — with the reason in plain English — and drafts the win-back email. You just tap
+            approve.
+          </p>
+
+          <div className="lp-hero-actions">
+            <a href="#waitlist" className="lp-btn lp-btn-primary lp-btn-lg">
+              Join the waitlist <span aria-hidden>→</span>
+            </a>
+            <a href="#demo" className="lp-btn lp-btn-ghost lp-btn-lg">
               Try the live demo
             </a>
           </div>
 
-          <div className="lp-fade-5 mt-10 flex gap-10">
+          <dl className="lp-hero-stats" aria-label="What Churnary does">
             <HeroStat value={money(5806 * p)} label="revenue at risk, caught at one café" />
             <HeroStat value={`${Math.round(120 * p)} sec`} label="from CSV upload to first insight" />
             <HeroStat value={`${(0.9 * p).toFixed(1)}¢`} label="AI cost per win-back email" />
-          </div>
+          </dl>
         </div>
 
-        <TiltPreview />
+        <TiltPreview reduced={reduced} />
       </div>
+
+      <a href="#flow" className="lp-scroll-cue" aria-label="Scroll to how it works">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+          <path d="M4 7 L9 12 L14 7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+        </svg>
+      </a>
     </section>
   );
 }
 
 function HeroStat({ value, label }: { value: string; label: string }) {
   return (
-    <div>
-      <p className="font-display text-[30px] font-bold leading-none" style={{ color: "var(--ink)" }}>{value}</p>
-      <p className="mt-1.5 max-w-[150px] text-xs leading-snug" style={{ color: "var(--muted-2)" }}>{label}</p>
+    <div className="lp-hero-stat">
+      <dt className="font-display lp-hero-stat-num">{value}</dt>
+      <dd className="lp-hero-stat-label">{label}</dd>
     </div>
   );
 }
 
+/**
+ * Background dot field — one dot per "customer", a handful glowing terracotta.
+ * Deterministic positions: a random layout would reshuffle on every re-render.
+ */
+function DotField() {
+  const dots = useMemo(() => {
+    const out: { x: number; y: number; hot: boolean; d: number }[] = [];
+    const cols = 30;
+    const rows = 16;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        // Deterministic pseudo-jitter so the grid reads organic, not graph paper.
+        const j = Math.sin(r * 12.9898 + c * 78.233) * 43758.5453;
+        const frac = j - Math.floor(j);
+        out.push({
+          x: (c / (cols - 1)) * 100,
+          y: (r / (rows - 1)) * 100,
+          hot: frac > 0.955,
+          d: frac * 4,
+        });
+      }
+    }
+    return out;
+  }, []);
+
+  return (
+    <svg className="lp-dots" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+      {dots.map((d, i) => (
+        <circle
+          key={i}
+          cx={d.x}
+          cy={d.y}
+          r={d.hot ? 0.4 : 0.18}
+          className={d.hot ? "lp-dot is-hot" : "lp-dot"}
+          style={d.hot ? { animationDelay: `${d.d}s` } : undefined}
+        />
+      ))}
+    </svg>
+  );
+}
+
 /* ── 3D-tilt dashboard preview ── */
-function TiltPreview() {
+function TiltPreview({ reduced }: { reduced: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
 
   const onMove = (e: React.MouseEvent) => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || reduced) return;
     const r = el.getBoundingClientRect();
     const x = (e.clientX - r.left) / r.width - 0.5;
     const y = (e.clientY - r.top) / r.height - 0.5;
-    el.style.transform = `perspective(1000px) rotateY(${x * 10}deg) rotateX(${-y * 10}deg)`;
+    el.style.transform = `perspective(1100px) rotateY(${x * 8}deg) rotateX(${-y * 8}deg)`;
   };
   const onLeave = () => {
-    if (ref.current) ref.current.style.transform = "perspective(1000px) rotateY(0deg) rotateX(0deg)";
+    if (ref.current) ref.current.style.transform = "perspective(1100px) rotateY(0deg) rotateX(0deg)";
   };
 
   return (
-    <div className="lp-fade-4 hidden lg:block" style={{ perspective: 1000 }}>
+    <div className="lp-preview-wrap">
       <div
         ref={ref}
         onMouseMove={onMove}
         onMouseLeave={onLeave}
-        className="rounded-[20px] border p-5 transition-transform duration-150 ease-out"
-        style={{
-          background: "var(--surface)",
-          borderColor: "var(--border)",
-          boxShadow: "0 30px 60px -24px rgba(59,42,32,.45)",
-          animation: "lpFloat 6s ease-in-out infinite",
-        }}
+        className={`lp-preview${reduced ? "" : " is-floating"}`}
       >
-        {/* hero action row */}
-        <div
-          className="flex items-center gap-3.5 rounded-xl p-4"
-          style={{ background: "linear-gradient(115deg,#3B2A20,#4A3527)", color: "var(--cream-text)" }}
-        >
-          <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base" style={{ background: "var(--accent)" }}>
-            <span className="absolute inset-0 rounded-full" style={{ background: "var(--accent)", animation: "pulseFade 2.4s ease-out infinite" }} />
-            ☕
-          </span>
-          <div className="min-w-0">
-            <p className="text-[9.5px] font-bold uppercase" style={{ color: "var(--on-espresso-accent)", letterSpacing: ".14em" }}>Your #1 action today</p>
-            <p className="font-display text-[15px] font-semibold">Reach out to Isabella Torres</p>
-            <p className="truncate text-[11px]" style={{ color: "#CDB9A8" }}>45 days out · 6.9× her usual gap · Loves Avocado Toast</p>
-          </div>
-          <span className="ml-auto shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold" style={{ background: "var(--cream-text)", color: "var(--ink-strong)" }}>Send →</span>
+        <div className="lp-preview-chrome" aria-hidden>
+          <span className="lp-preview-tab is-on">Today</span>
+          <span className="lp-preview-tab">Customers</span>
+          <span className="lp-preview-tab">Campaigns</span>
         </div>
 
-        {/* KPIs */}
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="lp-preview-action">
+          <span className="lp-preview-avatar" aria-hidden>
+            <span className="lp-preview-ping" />☕
+          </span>
+          <div className="lp-preview-action-text">
+            <p className="lp-preview-eyebrow">Your #1 action today</p>
+            <p className="font-display lp-preview-name">Reach out to Isabella Torres</p>
+            <p className="lp-preview-meta">45 days out · 6.9× her usual gap · Loves Avocado Toast</p>
+          </div>
+          <span className="lp-preview-send">Send →</span>
+        </div>
+
+        <div className="lp-preview-kpis">
           {[
-            ["At Risk", "$5,806", "#A23B1E"],
-            ["Attention", "6", "#2A211C"],
-            ["Days Away", "8", "#2A211C"],
-            ["Recovered", "$640", "#4F7A40"],
+            ["At Risk", "$5,806", "var(--accent-dark)"],
+            ["Attention", "6", "var(--ink)"],
+            ["Days Away", "8", "var(--ink)"],
+            ["Recovered", "$640", "var(--sage-text)"],
           ].map(([l, v, c]) => (
-            <div key={l} className="rounded-lg p-2.5" style={{ background: "var(--surface-2)" }}>
-              <p className="text-[9.5px]" style={{ color: "var(--muted)" }}>{l}</p>
-              <p className="font-display text-[17px] font-bold" style={{ color: c }}>{v}</p>
+            <div key={l} className="lp-preview-kpi">
+              <p className="lp-preview-kpi-l">{l}</p>
+              <p className="font-display lp-preview-kpi-v" style={{ color: c }}>
+                {v}
+              </p>
             </div>
           ))}
         </div>
 
-        {/* risk rows */}
-        <div className="mt-3 space-y-1.5">
+        <div className="lp-preview-rows">
           {[
-            ["Isabella Torres", "Critical 91", "#A23B1E", "#F7E3DC"],
-            ["Priya Ferreira", "At Risk 62", "#C0632F", "#F7E6DA"],
-            ["Marcus Silva", "Watch 48", "#A9781F", "#F4EAD1"],
-          ].map(([name, badge, color, bg]) => (
-            <div key={name} className="flex items-center justify-between rounded-lg border px-3 py-2" style={{ borderColor: "var(--border-soft)", background: "var(--surface)" }}>
-              <span className="text-[12px] font-bold" style={{ color: "var(--ink)" }}>{name}</span>
-              <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ color, background: bg }}>{badge}</span>
+            ["Isabella Torres", "21 days · 6.9× gap", "Critical 91", "#A23B1E", "#F7E3DC"],
+            ["Priya Ferreira", "14 days · 2.8× gap", "At Risk 62", "#C0632F", "#F7E6DA"],
+            ["Marcus Silva", "9 days · 1.8× gap", "Watch 48", "#A9781F", "#F4EAD1"],
+            ["Ana Beatriz", "3 days · on rhythm", "Healthy 12", "#4F7A40", "#E6EFDF"],
+          ].map(([name, why, badge, color, bg]) => (
+            <div key={name} className="lp-preview-row">
+              <span className="lp-preview-row-name">{name}</span>
+              <span className="lp-preview-row-why">{why}</span>
+              <span className="lp-preview-row-badge" style={{ color, background: bg }}>
+                {badge}
+              </span>
             </div>
           ))}
         </div>
       </div>
     </div>
+  );
+}
+
+/* ── Marquee of verticals ── */
+function Marquee() {
+  const words = [
+    "Cafés", "Coffee shops", "Salons", "Barbershops", "Fitness studios",
+    "Gyms", "Med spas", "Juice bars", "Bakeries", "Yoga studios",
+  ];
+  const row = (
+    <>
+      {words.map((w) => (
+        <span key={w} className="lp-marquee-item font-display">
+          {w}
+          <span className="lp-marquee-dot" aria-hidden>·</span>
+        </span>
+      ))}
+    </>
+  );
+  return (
+    <div className="lp-marquee-band">
+      <div className="lp-marquee" aria-hidden>
+        {row}
+        {row}
+      </div>
+      <span className="lp-sr-only">Built for cafés, salons, barbershops, gyms, med spas and studios.</span>
+    </div>
+  );
+}
+
+/* ── Stat band — full-width, hairline-divided figures ── */
+const STATS: [string, string, string][] = [
+  ["~$970", "what one saved regular is worth per year", "So three saves cover any plan."],
+  ["21 days", "typical gap before a café regular is gone for good", "Churnary flags them at day 8."],
+  ["2 min", "from CSV upload to your first risk list", "No onboarding call, no IT."],
+  ["0", "emails sent without your approval", "Approve-to-send is the default."],
+];
+
+function StatBand() {
+  return (
+    <section className="lp-statband">
+      <dl className="lp-statband-grid">
+        {STATS.map(([n, label, note], i) => (
+          <div className="lp-statcell" key={label} data-reveal style={{ transitionDelay: `${i * 70}ms` }}>
+            <dt className="font-display lp-statcell-n">{n}</dt>
+            <dd className="lp-statcell-body">
+              <span className="lp-statcell-label">{label}</span>
+              <span className="lp-statcell-note">{note}</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+/* ── Flow diagram — signals in, a recovered regular out ── */
+const FLOW_IN = ["Square", "Stripe", "CSV upload"];
+const FLOW_OUT = ["Risk score + plain-English reason", "Drafted win-back email", "Recovered revenue, attributed"];
+
+function Flow({ reduced }: { reduced: boolean }) {
+  const y = (i: number, n: number) => 170 + (i - (n - 1) / 2) * 62;
+  const arrow = "M -6 -5 L 5 0 L -6 5 Z";
+
+  return (
+    <section id="flow" className="lp-section lp-alt">
+      <SectionHead kicker="How it works" index={1} total={7}>
+        <div className="lp-head-split">
+          <ScrubWords
+            className="font-display lp-h2"
+            text="Your data goes in. A *recovered regular* comes out."
+            reduced={reduced}
+          />
+          <div className="lp-head-aside" data-reveal>
+            <p>
+              No dashboards to learn and no model to take on faith. Every score shows its reasons,
+              and nothing sends without you.
+            </p>
+            <p className="lp-head-aside-note">
+              Adding a new data source never changes anything downstream — that's an architectural
+              guarantee, not a roadmap promise.
+            </p>
+          </div>
+        </div>
+      </SectionHead>
+
+      <figure className="lp-flow" data-reveal>
+        {/* viewBox height is cropped to the drawing (chips end at y≈251), not a
+            round 340 — the slack was rendering as an empty band under the figure. */}
+        <svg viewBox="0 0 900 264" className="lp-flow-svg" role="img" aria-label="Square, Stripe and CSV uploads feed into Churnary's scoring engine, which produces a risk score with a plain-English reason, a drafted win-back email, and attributed recovered revenue.">
+          <text x="0" y="24" className="lp-flow-head">WHAT YOU ALREADY HAVE</text>
+          <text x="900" y="24" textAnchor="end" className="lp-flow-head">WHAT CHURNARY MAKES</text>
+
+          {FLOW_IN.map((_, i) => (
+            <line key={i} x1={222} y1={y(i, FLOW_IN.length)} x2={318} y2={170}
+              className="lp-flow-wire" pathLength={1} style={{ animationDelay: `${0.1 + i * 0.08}s` }} />
+          ))}
+          <circle cx={318} cy={170} r={4} className="lp-flow-hub" />
+          <line x1={318} y1={170} x2={366} y2={170} className="lp-flow-wire" pathLength={1} style={{ animationDelay: "0.34s" }} />
+          <path d={arrow} className="lp-flow-arrow" transform="translate(370 170)" />
+
+          <rect x={374} y={104} width={152} height={132} rx={14} className="lp-flow-core" />
+          <text x={450} y={152} className="font-display lp-flow-core-mark">Churnary</text>
+          <text x={450} y={176} className="lp-flow-core-line">TRANSPARENT</text>
+          <text x={450} y={192} className="lp-flow-core-line">SCORING ENGINE</text>
+          <text x={450} y={214} className="lp-flow-core-sub">+ CLAUDE COPY</text>
+
+          <line x1={534} y1={170} x2={582} y2={170} className="lp-flow-wire" pathLength={1} style={{ animationDelay: "0.42s" }} />
+          <circle cx={582} cy={170} r={4} className="lp-flow-hub" />
+          {FLOW_OUT.map((_, i) => (
+            <line key={i} x1={582} y1={170} x2={654} y2={y(i, FLOW_OUT.length)}
+              className="lp-flow-wire" pathLength={1} style={{ animationDelay: `${0.5 + i * 0.08}s` }} />
+          ))}
+          {FLOW_OUT.map((_, i) => (
+            <path key={i} d={arrow} className="lp-flow-arrow" transform={`translate(654 ${y(i, FLOW_OUT.length)})`} />
+          ))}
+
+          {FLOW_IN.map((label, i) => (
+            <g key={label}>
+              <rect x={0} y={y(i, FLOW_IN.length) - 19} width={222} height={38} rx={8} className="lp-flow-chip" />
+              <text x={18} y={y(i, FLOW_IN.length) + 5} className="lp-flow-chip-label">{label}</text>
+            </g>
+          ))}
+          {FLOW_OUT.map((label, i) => (
+            <g key={label}>
+              <rect x={656} y={y(i, FLOW_OUT.length) - 19} width={244} height={38} rx={8} className="lp-flow-chip is-out" />
+              <text x={674} y={y(i, FLOW_OUT.length) + 5} className="lp-flow-chip-label is-out">{label}</text>
+            </g>
+          ))}
+        </svg>
+      </figure>
+    </section>
+  );
+}
+
+/* ── Stance — the division of labour, as a ruled ledger ── */
+const STANCE: [string, string, string][] = [
+  [
+    "Churnary decides",
+    "Who is drifting, and why",
+    "It scores every customer nightly against their own visit rhythm, ranks the ones worth a message, and writes a draft that mentions what they actually order.",
+  ],
+  [
+    "You decide",
+    "Whether a word of it goes out",
+    "Nothing sends on its own. You read the draft, edit it or bin it, and press approve. Autopilot exists, but you have to go and turn it on.",
+  ],
+];
+
+function Stance({ reduced }: { reduced: boolean }) {
+  return (
+    <section className="lp-section">
+      <SectionHead kicker="Where the line sits" index={2} total={7}>
+        <ScrubWords
+          className="font-display lp-h2 is-wide"
+          text="Churnary proposes. *You* approve."
+          reduced={reduced}
+        />
+      </SectionHead>
+      <div className="lp-stance">
+        {STANCE.map(([role, title, body], i) => (
+          <div className={`lp-stance-col${i === 1 ? " is-you" : ""}`} key={role} data-reveal style={{ transitionDelay: `${i * 90}ms` }}>
+            <span className="lp-stance-role">{role}</span>
+            <h3 className="font-display lp-stance-h">{title}</h3>
+            <p className="lp-stance-body">{body}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -295,7 +791,7 @@ const DEMO_VERTICALS = [
   { id: "salon", label: "Salon", interval: 35, unit: "days" },
 ];
 
-function RiskDemo() {
+function RiskDemo({ reduced }: { reduced: boolean }) {
   const [vertical, setVertical] = useState(DEMO_VERTICALS[0]);
   const [days, setDays] = useState(12);
 
@@ -305,277 +801,317 @@ function RiskDemo() {
     ratio >= 2.5
       ? { label: "Needs Attention", color: "#A23B1E", bg: "#F7E3DC", action: "Churnary drafts a win-back email — you tap approve." }
       : ratio >= 1.5
-      ? { label: "Keep an Eye On", color: "#A9781F", bg: "#F4EAD1", action: "Churnary watches daily and flags them the moment risk rises." }
-      : { label: "Healthy Regular", color: "#4F7A40", bg: "#E6EFDF", action: "All good — no outreach needed." };
+        ? { label: "Keep an Eye On", color: "#A9781F", bg: "#F4EAD1", action: "Churnary watches daily and flags them the moment risk rises." }
+        : { label: "Healthy Regular", color: "#4F7A40", bg: "#E6EFDF", action: "All good — no outreach needed." };
 
   const maxDays = vertical.interval * 12;
 
   return (
-    <section id="demo" className="mx-auto max-w-6xl scroll-mt-20 px-6 py-20">
-      <div className="lp-reveal">
-        <SectionHead
-          eyebrow="Try it yourself"
-          title="This is the entire product, in one slider."
-          sub="Drag the slider — Churnary scores churn risk from each customer's own rhythm, and explains it in plain English."
-        />
-      </div>
-
-      <div className="lp-reveal mx-auto mt-10 max-w-3xl rounded-[20px] border p-8" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
-        {/* vertical picker */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="mr-1 text-sm font-semibold" style={{ color: "var(--muted)" }}>A regular at your…</span>
-          {DEMO_VERTICALS.map((v) => (
-            <button
-              key={v.id}
-              onClick={() => { setVertical(v); setDays(Math.min(3 * v.interval, v.interval * 12)); }}
-              className="rounded-full border px-4 py-1.5 text-sm font-semibold transition"
-              style={
-                vertical.id === v.id
-                  ? { background: "var(--ink-strong)", borderColor: "var(--ink-strong)", color: "var(--cream-text)" }
-                  : { background: "var(--surface)", borderColor: "var(--border)", color: "#6B5647" }
-              }
-            >
-              {v.label}
-            </button>
-          ))}
-          <span className="text-sm" style={{ color: "var(--muted-2)" }}>usually visits every {v_label(vertical)}</span>
-        </div>
-
-        {/* slider */}
-        <div className="mt-8">
-          <div className="flex items-baseline justify-between">
-            <label className="text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>
-              Days since their last visit
-            </label>
-            <span className="font-display text-3xl font-bold" style={{ color: band.color }}>{days}</span>
-          </div>
-          <input
-            type="range"
-            min={1}
-            max={maxDays}
-            value={Math.min(days, maxDays)}
-            onChange={(e) => setDays(Number(e.target.value))}
-            className="lp-slider mt-3 w-full"
-            style={{ accentColor: band.color, color: band.color }}
+    <section id="demo" className="lp-section lp-alt">
+      <SectionHead kicker="Try it yourself" index={3} total={7} />
+      <div className="lp-demo">
+        <div className="lp-demo-copy">
+          <ScrubWords
+            className="font-display lp-h2"
+            text="The whole product, in *one slider*."
+            reduced={reduced}
           />
-          <div className="mt-1 flex justify-between text-[11px]" style={{ color: "var(--muted-2)" }}>
-            <span>just visited</span>
-            <span>long gone</span>
-          </div>
+          <p className="lp-demo-lede" data-reveal>
+            Drag it. Churnary scores churn risk from each customer's own rhythm — and says why in a
+            sentence you could read aloud to them.
+          </p>
+          <ul className="lp-demo-points" data-reveal>
+            <li>
+              <span className="lp-demo-point-k">Per vertical</span>
+              A med-spa client returning in five months is normal. A gym member gone three weeks
+              is not. The thresholds differ by trade.
+            </li>
+            <li>
+              <span className="lp-demo-point-k">No black box</span>
+              This is a transparent weighted heuristic, not a model you have to trust. The same
+              maths runs in the product.
+            </li>
+            <li>
+              <span className="lp-demo-point-k">Reasons first</span>
+              The sentence under the dial is the actual output shape — reasons are a feature, not
+              a debug view.
+            </li>
+          </ul>
         </div>
 
-        {/* readout */}
-        <div className="mt-8 flex flex-col items-start gap-5 rounded-2xl p-6 sm:flex-row sm:items-center" style={{ background: "var(--surface-2)" }}>
-          <ScoreDial score={score} color={band.color} />
-          <div className="min-w-0 flex-1">
-            <span className="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[13.5px] font-bold" style={{ background: band.bg, color: band.color }}>
-              <span className="h-2 w-2 rounded-full" style={{ background: band.color }} />
-              {band.label} · risk {score}
-            </span>
-            <p className="mt-3 text-[15px]" style={{ color: "var(--ink-strong)" }}>
-              “Usually visits every {vertical.interval} days — it's been <b>{days} days</b>
-              {ratio >= 1.2 && <> ({ratio.toFixed(1)}× their rhythm)</>}.”
-            </p>
-            <p className="mt-1.5 text-sm" style={{ color: "var(--muted)" }}>{band.action}</p>
+        <div className="lp-demo-card" data-reveal>
+          <div className="lp-demo-picker">
+            <span className="lp-demo-picker-label">A regular at your…</span>
+            {DEMO_VERTICALS.map((v) => (
+              <button
+                key={v.id}
+                onClick={() => { setVertical(v); setDays(Math.min(3 * v.interval, v.interval * 12)); }}
+                className={`lp-chip${vertical.id === v.id ? " is-on" : ""}`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+          <p className="lp-demo-picker-note">
+            usually visits every {vertical.interval} {vertical.unit}
+          </p>
+
+          <div className="lp-demo-slider">
+            <div className="lp-demo-slider-head">
+              <label htmlFor="lp-days" className="lp-demo-slider-label">
+                Days since their last visit
+              </label>
+              <span className="font-display lp-demo-days" style={{ color: band.color }}>{days}</span>
+            </div>
+            <input
+              id="lp-days"
+              type="range"
+              min={1}
+              max={maxDays}
+              value={Math.min(days, maxDays)}
+              onChange={(e) => setDays(Number(e.target.value))}
+              className="lp-slider"
+              style={{ accentColor: band.color, color: band.color }}
+            />
+            <div className="lp-demo-slider-ends">
+              <span>just visited</span>
+              <span>long gone</span>
+            </div>
+          </div>
+
+          <div className="lp-demo-readout">
+            <ScoreDial score={score} color={band.color} />
+            <div className="lp-demo-readout-text">
+              <span className="lp-demo-band" style={{ background: band.bg, color: band.color }}>
+                <span className="lp-demo-band-dot" style={{ background: band.color }} />
+                {band.label} · risk {score}
+              </span>
+              <p className="lp-demo-quote">
+                “Usually visits every {vertical.interval} {vertical.unit} — it's been <b>{days} days</b>
+                {ratio >= 1.2 && <> ({ratio.toFixed(1)}× their rhythm)</>}.”
+              </p>
+              <p className="lp-demo-action">{band.action}</p>
+            </div>
           </div>
         </div>
-
-        <p className="mt-4 text-center text-xs" style={{ color: "var(--muted-2)" }}>
-          Same transparent scoring that runs in the product — no black box, every score shows its reasons.
-        </p>
       </div>
     </section>
   );
-}
-
-function v_label(v: { interval: number; unit: string }) {
-  return `${v.interval} ${v.unit}`;
 }
 
 function ScoreDial({ score, color }: { score: number; color: string }) {
   const C = 2 * Math.PI * 42;
   return (
-    <div className="relative h-[110px] w-[110px] shrink-0">
-      <svg viewBox="0 0 100 100" width={110} height={110}>
-        <circle cx="50" cy="50" r="42" fill="none" stroke="#EADDCC" strokeWidth="10" />
+    <div className="lp-dial">
+      <svg viewBox="0 0 100 100" width={116} height={116}>
+        <circle cx="50" cy="50" r="42" fill="none" stroke="var(--border)" strokeWidth="9" />
         <circle
-          cx="50" cy="50" r="42" fill="none" stroke={color} strokeWidth="10" strokeLinecap="round"
+          cx="50" cy="50" r="42" fill="none" stroke={color} strokeWidth="9" strokeLinecap="round"
           strokeDasharray={`${(score / 100) * C} ${C}`}
           transform="rotate(-90 50 50)"
-          style={{ transition: "stroke-dasharray .35s cubic-bezier(.2,.8,.2,1), stroke .35s ease" }}
+          className="lp-dial-arc"
         />
       </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="font-display text-[26px] font-bold leading-none" style={{ color }}>{score}</span>
-        <span className="text-[9.5px] uppercase" style={{ color: "var(--muted-2)", letterSpacing: ".1em" }}>risk</span>
+      <div className="lp-dial-center">
+        <span className="font-display lp-dial-num" style={{ color }}>{score}</span>
+        <span className="lp-dial-cap">risk</span>
       </div>
     </div>
+  );
+}
+
+/* ── Features — hairline ledger, no floating cards ── */
+function Features({ reduced }: { reduced: boolean }) {
+  const items = [
+    { title: "Transparent scoring", body: "Every risk score shows its reasons — visit gap, spend drop, favourite item. Trust it today, not “someday, with more AI.”" },
+    { title: "AI drafts, you approve", body: "Claude writes the win-back copy; Suggest / Approve / Autopilot modes keep a human in control. Approve-to-send is the default." },
+    { title: "Compliant by design", body: "CAN-SPAM unsubscribe on every email, TCPA quiet hours for SMS, and we never touch medical data. Guardrails built in, not bolted on." },
+    { title: "Works with your tools", body: "Square and Stripe connect live; CSV upload covers anything else. Adding a source never means redoing your setup." },
+    { title: "Nightly re-scoring", body: "Every customer is re-scored automatically as new visits land. The dashboard is always this-morning fresh." },
+    { title: "Attribution you can bank", body: "Recovered customers tie back to the exact message that brought them in: “3 customers recovered, ~$640 saved.”" },
+  ];
+  return (
+    <section id="features" className="lp-section">
+      <SectionHead kicker="Why owners trust it" index={4} total={7}>
+        <div className="lp-head-split">
+          <ScrubWords
+            className="font-display lp-h2"
+            text="Automation you can hand the *keys* to."
+            reduced={reduced}
+          />
+          <div className="lp-head-aside" data-reveal>
+            <p>
+              Churnary is aimed at people who run a counter, not a marketing team. Everything below
+              is either already shipped or a hard guarantee in how it's built.
+            </p>
+          </div>
+        </div>
+      </SectionHead>
+      <ol className="lp-ledger lp-ledger-3">
+        {items.map((f, i) => (
+          <li className="lp-ledger-cell" key={f.title} data-reveal style={{ transitionDelay: `${(i % 3) * 70}ms` }}>
+            <span className="lp-ledger-n">{String(i + 1).padStart(2, "0")}</span>
+            <h3 className="font-display lp-ledger-h">{f.title}</h3>
+            <p className="lp-ledger-body">{f.body}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
 /* ── How it works ── */
-function HowItWorks() {
+function HowItWorks({ reduced }: { reduced: boolean }) {
   const steps = [
-    { n: "01", title: "Connect in 2 minutes", body: "Link Square or Stripe, or just upload a customer CSV. No IT department required — if you can attach a file to an email, you can set up Churnary." },
-    { n: "02", title: "See who's slipping — and why", body: "Every customer gets a transparent risk score built from their own visit rhythm, with the reason in plain English. No black-box AI to take on faith." },
-    { n: "03", title: "Approve the win-back", body: "Churnary drafts a personalized email mentioning their favorite order. You tap approve, it sends, and recovered visits are tracked back to the message." },
+    { title: "Connect in 2 minutes", body: "Link Square or Stripe, or upload a customer CSV. If you can attach a file to an email, you can set up Churnary.", foot: "Square · Stripe · CSV" },
+    { title: "See who's slipping — and why", body: "Every customer gets a transparent risk score built from their own visit rhythm, with the reason in plain English.", foot: "Re-scored nightly" },
+    { title: "Approve the win-back", body: "Churnary drafts a personal email mentioning their favourite order. You tap approve, it sends, and recovered visits are tracked back to it.", foot: "Email today · SMS on Growth" },
   ];
   return (
-    <section id="how" className="scroll-mt-20 py-20" style={{ background: "var(--surface)" }}>
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="lp-reveal">
-          <SectionHead eyebrow="How it works" title="Owner-simple, on purpose." sub="Built for people who run a counter, not a CRM." />
-        </div>
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {steps.map((s, i) => (
-            <div
-              key={s.n}
-              className="lp-reveal rounded-[18px] border p-7 transition hover:-translate-y-1"
-              style={{ background: "var(--bg-page)", borderColor: "var(--border)", transitionDelay: `${i * 90}ms` }}
-            >
-              <span className="font-display text-[28px] font-bold" style={{ color: "var(--accent)" }}>{s.n}</span>
-              <h3 className="font-display mt-3 text-xl font-semibold" style={{ color: "var(--ink)" }}>{s.title}</h3>
-              <p className="mt-2.5 text-[14.5px] leading-relaxed" style={{ color: "var(--muted)" }}>{s.body}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+    <section id="how" className="lp-section lp-alt">
+      <SectionHead kicker="Owner-simple, on purpose" index={5} total={7}>
+        <ScrubWords
+          className="font-display lp-h2 is-wide"
+          text="Built for people who run a counter, *not a CRM*."
+          reduced={reduced}
+        />
+      </SectionHead>
+      <ol className="lp-steps">
+        {steps.map((s, i) => (
+          <li className="lp-step" key={s.title} data-reveal style={{ transitionDelay: `${i * 80}ms` }}>
+            <span className="lp-step-n">{String(i + 1).padStart(2, "0")}</span>
+            <h3 className="font-display lp-step-h">{s.title}</h3>
+            <p className="lp-step-body">{s.body}</p>
+            <span className="lp-step-foot">{s.foot}</span>
+          </li>
+        ))}
+      </ol>
     </section>
   );
 }
 
-/* ── Features ── */
-function Features() {
-  const items = [
-    { icon: "◎", title: "Transparent scoring", body: "Every risk score shows its reasons — visit gap, spend drop, favorite item. Trust it today, not “someday, with more AI.”" },
-    { icon: "✎", title: "AI drafts, you approve", body: "Claude writes the win-back copy; Suggest / Approve / Autopilot modes keep a human in control. Approve-to-send is the default." },
-    { icon: "⛨", title: "Compliant by design", body: "CAN-SPAM unsubscribe on every email, TCPA quiet hours for SMS, and we never touch medical data. Guardrails built in, not bolted on." },
-    { icon: "⇄", title: "Works with your tools", body: "Square and Stripe connect live; CSV upload works with anything else. Adding a source never means re-doing your setup." },
-    { icon: "◷", title: "Nightly re-scoring", body: "Every customer is re-scored automatically as new visits land. The dashboard is always this-morning fresh." },
-    { icon: "$", title: "Attribution you can bank", body: "Recovered customers are tied back to the exact message that brought them in: “3 customers recovered, ~$640 saved.”" },
-  ];
+/* ── Guardrails — the things Churnary refuses to do ── */
+const GUARDRAILS: [string, string][] = [
+  ["CAN-SPAM", "An unsubscribe link in every single email. Not a setting you can switch off."],
+  ["TCPA", "No SMS before 9am or after 8pm in the customer's own time zone. STOP is honoured instantly."],
+  ["HIPAA", "We never ingest medical or treatment data — only name, contact, visit times and spend."],
+  ["Your data", "A per-business deletion endpoint, and OAuth tokens encrypted at rest. Leaving is one request."],
+];
+
+function Guardrails({ reduced }: { reduced: boolean }) {
   return (
-    <section id="features" className="mx-auto max-w-6xl scroll-mt-20 px-6 py-20">
-      <div className="lp-reveal">
-        <SectionHead eyebrow="Why owners trust it" title="Automation you can hand the keys to." />
-      </div>
-      <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        {items.map((f, i) => (
-          <div
-            key={f.title}
-            className="lp-reveal rounded-[18px] border p-6 transition hover:-translate-y-1"
-            style={{ background: "var(--surface)", borderColor: "var(--border)", transitionDelay: `${(i % 3) * 90}ms` }}
-          >
-            <span className="text-2xl" style={{ color: "var(--accent)" }}>{f.icon}</span>
-            <h3 className="font-display mt-3 text-lg font-semibold" style={{ color: "var(--ink)" }}>{f.title}</h3>
-            <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--muted)" }}>{f.body}</p>
+    <section className="lp-section lp-dark-section">
+      <SectionHead kicker="Guardrails" index={6} total={7} dark>
+        <div className="lp-head-split">
+          <ScrubWords
+            className="font-display lp-h2 is-dark"
+            text="The parts we *won't* let you switch off."
+            reduced={reduced}
+          />
+          <div className="lp-head-aside is-dark" data-reveal>
+            <p>
+              Outreach automation goes wrong in expensive, legally interesting ways. These are wired
+              in below the settings screen, so no configuration can turn them off.
+            </p>
+          </div>
+        </div>
+      </SectionHead>
+      <dl className="lp-ledger lp-ledger-4 is-dark">
+        {GUARDRAILS.map(([k, v], i) => (
+          <div className="lp-ledger-cell" key={k} data-reveal style={{ transitionDelay: `${i * 70}ms` }}>
+            <dt className="font-display lp-ledger-h">{k}</dt>
+            <dd className="lp-ledger-body">{v}</dd>
           </div>
         ))}
-      </div>
+      </dl>
     </section>
-  );
-}
-
-/* ── Marquee ── */
-function Marquee() {
-  const words = ["Cafés", "Coffee shops", "Salons", "Barbershops", "Fitness studios", "Gyms", "Med spas", "Juice bars", "Bakeries", "Yoga studios"];
-  const row = words.map((w, i) => (
-    <span key={i} className="mx-6 inline-flex items-center gap-6 font-display text-2xl font-semibold" style={{ color: "var(--cream-text)" }}>
-      {w} <span style={{ color: "var(--on-espresso-accent)" }}>·</span>
-    </span>
-  ));
-  return (
-    <div className="overflow-hidden py-8" style={{ background: "var(--ink-strong)" }}>
-      <div className="lp-marquee whitespace-nowrap">
-        {row}
-        {row}
-      </div>
-    </div>
   );
 }
 
 /* ── Pricing ── */
-function Pricing() {
+function Pricing({ reduced }: { reduced: boolean }) {
   const tiers = [
-    { name: "Starter", price: 199, blurb: "1 integration · 1,000 customers · email win-backs", hot: false },
-    { name: "Growth", price: 299, blurb: "All integrations · 2,500 customers · email + SMS · automations", hot: true },
-    { name: "Pro", price: 499, blurb: "Unlimited customers · multi-location ready", hot: false },
+    { name: "Starter", price: 199, hot: false, lines: ["1 integration", "1,000 customers", "Email win-backs", "Transparent risk scores"] },
+    { name: "Growth", price: 299, hot: true, lines: ["All integrations", "2,500 customers", "Email + SMS", "Automation rules", "Recovery attribution"] },
+    { name: "Pro", price: 499, hot: false, lines: ["Unlimited customers", "Multi-location ready", "Everything in Growth", "Priority support"] },
   ];
   return (
-    <section id="pricing" className="mx-auto max-w-6xl scroll-mt-20 px-6 py-20">
-      <div className="lp-reveal">
-        <SectionHead
-          eyebrow="Pricing"
-          title="Pays for itself on the first save."
-          sub="A saved regular is worth ~$970/year. Save three and any plan pays for itself. 14-day free trial on every tier."
-        />
-      </div>
-      <div className="mt-12 grid gap-5 md:grid-cols-3">
+    <section id="pricing" className="lp-section">
+      <SectionHead kicker="Pricing" index={7} total={7}>
+        <div className="lp-head-split">
+          <ScrubWords
+            className="font-display lp-h2"
+            text="Pays for itself on the *first save*."
+            reduced={reduced}
+          />
+          <div className="lp-head-aside" data-reveal>
+            <p>
+              A saved regular is worth roughly $970 a year. Save three and any plan has paid for
+              itself. 14-day trial on every tier, annual billing is two months free.
+            </p>
+          </div>
+        </div>
+      </SectionHead>
+      <div className="lp-tiers">
         {tiers.map((t, i) => (
           <div
             key={t.name}
-            className="lp-reveal relative rounded-[20px] border p-7 transition hover:-translate-y-1"
-            style={{
-              background: t.hot ? "linear-gradient(135deg,#3B2A20,#4A3527)" : "var(--surface)",
-              borderColor: t.hot ? "var(--ink-strong)" : "var(--border)",
-              transitionDelay: `${i * 90}ms`,
-              boxShadow: t.hot ? "0 24px 48px -20px rgba(59,42,32,.6)" : "none",
-            }}
+            className={`lp-tier${t.hot ? " is-hot" : ""}`}
+            data-reveal
+            style={{ transitionDelay: `${i * 80}ms` }}
           >
-            {t.hot && (
-              <span className="absolute -top-3 left-7 rounded-full px-3 py-1 text-[11px] font-bold uppercase text-white" style={{ background: "var(--accent)", letterSpacing: ".06em" }}>
-                Most popular
-              </span>
-            )}
-            <h3 className="font-display text-xl font-semibold" style={{ color: t.hot ? "var(--cream-text)" : "var(--ink)" }}>{t.name}</h3>
-            <p className="mt-4">
-              <span className="font-display text-[44px] font-bold" style={{ color: t.hot ? "var(--on-espresso-accent)" : "var(--ink)" }}>${t.price}</span>
-              <span className="text-sm" style={{ color: t.hot ? "#CDB9A8" : "var(--muted-2)" }}>/month</span>
+            <div className="lp-tier-top">
+              <h3 className="font-display lp-tier-name">{t.name}</h3>
+              {t.hot && <span className="lp-tier-flag">Most popular</span>}
+            </div>
+            <p className="lp-tier-price">
+              <span className="font-display lp-tier-amount">${t.price}</span>
+              <span className="lp-tier-per">/month</span>
             </p>
-            <p className="mt-3 text-sm leading-relaxed" style={{ color: t.hot ? "#CDB9A8" : "var(--muted)" }}>{t.blurb}</p>
-            <Link
-              to="/login"
-              className="mt-6 block rounded-full py-2.5 text-center text-sm font-bold transition hover:brightness-95"
-              style={
-                t.hot
-                  ? { background: "var(--accent)", color: "#fff" }
-                  : { background: "var(--surface-2)", color: "var(--ink-strong)", border: "1px solid var(--border)" }
-              }
-            >
-              Start free trial
-            </Link>
+            <ul className="lp-tier-lines">
+              {t.lines.map((l) => (
+                <li key={l}>{l}</li>
+              ))}
+            </ul>
+            <a href="#waitlist" className={`lp-btn lp-tier-cta${t.hot ? " lp-btn-primary" : ""}`}>
+              Join the waitlist
+            </a>
           </div>
         ))}
       </div>
-      <p className="lp-reveal mt-6 text-center text-xs" style={{ color: "var(--muted-2)" }}>
-        14-day trial · annual billing = 2 months free · cancel anytime
-      </p>
     </section>
   );
 }
 
-/* ── Final CTA ── */
-function FinalCta() {
+/* ── Waitlist — the dark band that ends the page ── */
+function Waitlist({ reduced }: { reduced: boolean }) {
   return (
-    <section className="px-6 pb-24 pt-4">
-      <div
-        className="lp-reveal mx-auto max-w-4xl rounded-[24px] px-8 py-14 text-center"
-        style={{ background: "linear-gradient(115deg,#3B2A20,#4A3527)", boxShadow: "0 30px 60px -28px rgba(59,42,32,.8)" }}
-      >
-        <h2 className="font-display text-[34px] font-bold leading-tight md:text-[42px]" style={{ color: "var(--cream-text)" }}>
-          Your regulars are worth fighting for.
-        </h2>
-        <p className="mx-auto mt-3 max-w-xl text-[15.5px]" style={{ color: "#CDB9A8" }}>
-          Upload a CSV and see which customers are at risk — and why — in under two minutes. Free for 14 days.
-        </p>
-        <Link
-          to="/login"
-          className="mt-8 inline-block rounded-full px-8 py-4 text-[15px] font-bold text-white transition hover:-translate-y-0.5"
-          style={{ background: "var(--accent)", boxShadow: "0 12px 28px -8px rgba(180,83,42,.9)" }}
-        >
-          Get started free →
-        </Link>
+    <section id="waitlist" className="lp-waitlist">
+      <div className="lp-waitlist-grid">
+        <div className="lp-waitlist-copy">
+          <span className="lp-kicker is-dark" data-reveal>Early access</span>
+          <ScrubWords
+            className="font-display lp-h2 is-dark"
+            text="Your regulars are worth *fighting for*."
+            reduced={reduced}
+          />
+          <p className="lp-waitlist-sub" data-reveal>
+            We're onboarding local businesses a handful at a time so each one gets set up properly.
+            Tell us where to reach you and we'll open a seat.
+          </p>
+          <ul className="lp-waitlist-points" data-reveal>
+            <li>We'll import your data with you on the first call.</li>
+            <li>No card until you've seen your own risk list.</li>
+            <li>One email when a seat opens. Nothing else, ever.</li>
+          </ul>
+        </div>
+        <div className="lp-waitlist-card" data-reveal>
+          <WaitlistForm />
+        </div>
       </div>
+      <p className="lp-waitlist-alt">
+        Already have an account? <Link to="/login">Sign in</Link>
+      </p>
     </section>
   );
 }
@@ -583,17 +1119,19 @@ function FinalCta() {
 /* ── Footer ── */
 function Footer() {
   return (
-    <footer className="border-t py-10" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 sm:flex-row">
-        <div className="flex items-center gap-2">
-          <span className="font-logo inline-flex h-6 w-6 items-center justify-center rounded-full text-[13px]" style={{ background: "var(--ink-strong)", color: "var(--cream-text)" }}>C</span>
-          <span className="font-display text-base font-bold" style={{ color: "var(--ink)" }}>Churnary</span>
-          <span className="text-xs" style={{ color: "var(--muted-2)" }}>— AI retention for local business</span>
+    <footer className="lp-footer">
+      <div className="lp-footer-inner">
+        <div className="lp-brand">
+          <ChurnaryMark size={24} className="lp-brand-mark" />
+          <span className="font-display lp-brand-word is-sm">Churnary</span>
+          <span className="lp-footer-tag">— AI retention for local business</span>
         </div>
-        <div className="flex items-center gap-5 text-xs" style={{ color: "var(--muted-2)" }}>
-          <a href="#how" className="hover:underline">How it works</a>
-          <a href="#pricing" className="hover:underline">Pricing</a>
-          <Link to="/login" className="hover:underline">Sign in</Link>
+        <div className="lp-footer-links">
+          <a href="#flow">How it works</a>
+          <a href="#demo">Live demo</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#waitlist">Waitlist</a>
+          <Link to="/login">Sign in</Link>
           <span>© 2026 Churnary</span>
         </div>
       </div>
@@ -601,53 +1139,713 @@ function Footer() {
   );
 }
 
-/* ── shared bits ── */
-function SectionHead({ eyebrow, title, sub }: { eyebrow: string; title: string; sub?: string }) {
-  return (
-    <div className="mx-auto max-w-2xl text-center">
-      <p className="eyebrow" style={{ color: "var(--accent)" }}>{eyebrow}</p>
-      <h2 className="font-display mt-3 text-[34px] font-bold leading-tight tracking-tight md:text-[40px]" style={{ color: "var(--ink)" }}>
-        {title}
-      </h2>
-      {sub && <p className="mt-3 text-[15.5px]" style={{ color: "var(--muted)" }}>{sub}</p>}
-    </div>
-  );
-}
+/* ── styles ───────────────────────────────────────────────────────────────── */
 
 const LP_CSS = `
-  .lp-reveal { opacity: 0; transform: translateY(26px); transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1); }
-  .lp-reveal.lp-visible { opacity: 1; transform: translateY(0); }
+  .lp-root {
+    --lp-espresso: #241A14;
+    --lp-espresso-2: #33241B;
+    --lp-h1-size: clamp(38px, 6.4vw, 108px);
+    --lp-h2-size: clamp(28px, 3.7vw, 60px);
+    /* Grows with the viewport instead of parking content at a fixed max-width,
+       so a wide monitor gains content rather than margin. */
+    --lp-gutter: clamp(20px, 5.4vw, 108px);
+    --lp-rule: var(--border);
+    background: var(--bg-page);
+    overflow-x: clip;
+  }
+  .lp-root ::selection { background: var(--accent); color: #fff; }
 
-  .lp-fade-1, .lp-fade-2, .lp-fade-3, .lp-fade-4, .lp-fade-5 { animation: fadeUp .7s ease both; }
-  .lp-fade-2 { animation-delay: .08s; }
-  .lp-fade-3 { animation-delay: .16s; }
-  .lp-fade-4 { animation-delay: .24s; }
-  .lp-fade-5 { animation-delay: .34s; }
-
-  @keyframes lpFloat {
-    0%, 100% { translate: 0 0; }
-    50% { translate: 0 -10px; }
+  .lp-sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
   }
 
-  .lp-marquee { display: inline-block; animation: lpMarquee 28s linear infinite; }
-  @keyframes lpMarquee {
-    from { transform: translateX(0); }
-    to   { transform: translateX(-50%); }
+  /* ── reveal ── */
+  [data-reveal] {
+    opacity: 0; transform: translateY(20px);
+    transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1);
+  }
+  [data-reveal].is-in { opacity: 1; transform: none; }
+
+  /* ── type ── */
+  .lp-h1 {
+    font-size: var(--lp-h1-size);
+    line-height: 1.0;
+    letter-spacing: -0.03em;
+    font-weight: 600;
+    margin: 16px 0 0;
+    color: var(--cream-text);
+  }
+  .lp-h2 {
+    font-size: var(--lp-h2-size);
+    line-height: 1.05;
+    letter-spacing: -0.028em;
+    font-weight: 600;
+    margin: 0;
+    color: var(--ink);
+    max-width: 17ch;
+  }
+  .lp-h2.is-wide { max-width: 26ch; }
+  .lp-h2.is-dark { color: var(--cream-text); }
+  .lp-em { font-style: italic; font-weight: 500; color: var(--accent-2); }
+  .lp-h2 .lp-em { color: var(--accent); }
+  .lp-h2.is-dark .lp-em { color: var(--on-espresso-accent); }
+
+  /* Secondary copy runs on one fluid scale rather than a pile of one-off px
+     values. --lp-body is the workhorse (ledger cells, list rows, asides);
+     --lp-body-lg is for ledes that carry a section. Both are comfortably above
+     the 13-14px the first pass used, which was too small to read at arm's
+     length — and because the measure caps are in ch, larger text also fills
+     more of each column. */
+  .lp-root {
+    --lp-body: clamp(14.5px, 1.02vw, 16.5px);
+    --lp-body-lg: clamp(15.5px, 1.2vw, 18.5px);
+    --lp-label: 11.5px;
   }
 
-  .lp-slider { height: 8px; border-radius: 999px; background: var(--surface-3); appearance: none; -webkit-appearance: none; cursor: pointer; }
+  .lp-kicker {
+    font-size: var(--lp-label); letter-spacing: .15em; text-transform: uppercase;
+    font-weight: 700; color: var(--accent); margin: 0;
+  }
+  .lp-kicker.is-dark { color: var(--on-espresso-accent); }
+
+  /* char stagger */
+  .lp-word { display: inline-block; white-space: nowrap; }
+  .lp-char { display: inline-block; animation: lpCharIn .8s cubic-bezier(.2,.8,.2,1) both; }
+  .lp-char-space { display: inline-block; width: 0.26em; }
+  @keyframes lpCharIn {
+    from { opacity: 0; transform: translateY(0.45em); }
+    to   { opacity: 1; transform: none; }
+  }
+  .lp-scrub .lp-scrub-word { display: inline; transition: opacity .1s linear; }
+
+  /* ── buttons — crisp, not pills ── */
+  .lp-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+    border-radius: 6px; font-weight: 700; white-space: nowrap; border: 1px solid transparent;
+    transition: transform .16s cubic-bezier(.23,1,.32,1), background .16s ease,
+                color .16s ease, border-color .16s ease;
+  }
+  .lp-btn:hover { transform: translateY(-1px); }
+  .lp-btn-sm { padding: .55rem 1.05rem; font-size: 13.5px; }
+  .lp-btn-lg { padding: .9rem 1.6rem; font-size: 15.5px; }
+  .lp-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .lp-btn-primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; }
+  .lp-btn-ghost { border-color: rgba(244,236,224,.32); color: var(--cream-text); background: transparent; }
+  .lp-btn-ghost:hover { background: var(--cream-text); border-color: var(--cream-text); color: var(--lp-espresso); }
+
+  /* ── nav ── */
+  .lp-nav {
+    position: fixed; inset: 0 0 auto; z-index: 50;
+    transition: background .3s ease, border-color .3s ease;
+    border-bottom: 1px solid transparent;
+  }
+  .lp-nav.is-solid {
+    background: rgba(251,246,238,.9); backdrop-filter: blur(12px);
+    border-bottom-color: var(--lp-rule);
+  }
+  .lp-nav-inner {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 13px var(--lp-gutter);
+  }
+  .lp-brand { display: inline-flex; align-items: center; gap: 9px; }
+  /* Inline SVG (ChurnaryMark) — it carries its own tile and colours, so there's
+     nothing to invert between the transparent and cream nav states. */
+  .lp-brand-mark { display: block; flex: none; }
+  .lp-brand-word {
+    font-size: 20px; font-weight: 600; letter-spacing: -0.025em; color: var(--cream-text);
+    transition: color .3s ease;
+  }
+  .lp-nav.is-solid .lp-brand-word { color: var(--ink); }
+  .lp-brand-word.is-sm { font-size: 15.5px; color: var(--ink); }
+
+  .lp-nav-links { display: none; align-items: center; gap: 4px; }
+  @media (min-width: 920px) { .lp-nav-links { display: flex; } }
+  .lp-nav-links a {
+    position: relative; padding: 7px 12px; border-radius: 5px;
+    font-size: 14px; font-weight: 600; color: rgba(244,236,224,.72);
+    transition: color .2s ease, background .2s ease;
+  }
+  .lp-nav-links a:hover { color: var(--cream-text); background: rgba(244,236,224,.09); }
+  .lp-nav-links a.is-active { color: var(--cream-text); }
+  .lp-nav-links a.is-active::after {
+    content: ''; position: absolute; left: 12px; right: 12px; bottom: 1px;
+    height: 1.5px; background: var(--on-espresso-accent);
+  }
+  .lp-nav.is-solid .lp-nav-links a { color: var(--muted); }
+  .lp-nav.is-solid .lp-nav-links a:hover { color: var(--ink); background: var(--surface-2); }
+  .lp-nav.is-solid .lp-nav-links a.is-active { color: var(--accent); }
+  .lp-nav.is-solid .lp-nav-links a.is-active::after { background: var(--accent); }
+
+  .lp-nav-cta { display: flex; align-items: center; gap: 8px; }
+  .lp-nav-signin {
+    font-size: 14px; font-weight: 600; color: rgba(244,236,224,.8); padding: 6px 8px;
+    transition: color .2s ease;
+  }
+  .lp-nav-signin:hover { color: var(--cream-text); }
+  .lp-nav.is-solid .lp-nav-signin { color: var(--ink-strong); }
+  .lp-nav.is-solid .lp-nav-signin:hover { color: var(--accent); }
+
+  /* ── hero ── */
+  .lp-hero {
+    position: relative; isolation: isolate; overflow: hidden;
+    min-height: 100svh; display: flex; align-items: center;
+    padding: 124px var(--lp-gutter) 92px;
+    background: var(--lp-espresso); color: var(--cream-text);
+  }
+  .lp-hero-bg {
+    position: absolute; inset: -10% 0 0; z-index: 0; will-change: transform;
+    background:
+      radial-gradient(1000px 560px at 76% 6%, rgba(180,83,42,.30), transparent 68%),
+      radial-gradient(760px 520px at 10% 94%, rgba(92,138,74,.13), transparent 70%),
+      linear-gradient(150deg, #241A14 0%, #33241B 52%, #1F1610 100%);
+  }
+  .lp-hero-veil {
+    position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background: radial-gradient(540px 400px at var(--mx, 72%) var(--my, 24%), rgba(224,160,116,.16), transparent 72%);
+  }
+  .lp-dots { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .5; }
+  .lp-dot { fill: rgba(244,236,224,.18); }
+  .lp-dot.is-hot { fill: var(--accent-2); animation: lpDotPulse 3.4s ease-in-out infinite; }
+  /* Opacity only — animating the SVG r geometry property from CSS is not
+     reliable across engines, and a brightness pulse reads the same anyway. */
+  @keyframes lpDotPulse { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
+
+  .lp-hero-inner {
+    position: relative; z-index: 2; width: 100%;
+    display: grid; gap: 48px; align-items: center;
+  }
+  @media (min-width: 1040px) { .lp-hero-inner { grid-template-columns: minmax(0,1fr) minmax(0,.92fr); gap: clamp(36px, 4vw, 76px); } }
+
+  .lp-kicker-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid rgba(244,236,224,.2); border-radius: 5px;
+    background: rgba(244,236,224,.07);
+    padding: 7px 13px; font-size: var(--lp-label); font-weight: 700;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--on-espresso-accent);
+    animation: lpFadeUp .7s ease both;
+  }
+  .lp-pulse-dot {
+    position: relative; width: 6px; height: 6px; border-radius: 999px;
+    background: var(--accent-2); flex: none;
+  }
+  .lp-pulse-dot::after {
+    content: ''; position: absolute; inset: 0; border-radius: 999px;
+    background: var(--accent-2); animation: pulseFade 2.4s ease-out infinite;
+  }
+
+  .lp-hero-eyebrow {
+    margin: 24px 0 0; font-size: clamp(16px, 1.5vw, 21px);
+    font-weight: 600; color: rgba(244,236,224,.62);
+    animation: lpFadeUp .7s ease .06s both;
+  }
+  .lp-wc { display: inline-grid; vertical-align: bottom; height: 1.42em; overflow: hidden; }
+  .lp-wc-item {
+    grid-area: 1 / 1; color: var(--on-espresso-accent); font-weight: 700;
+    opacity: 0; transform: translateY(.55em);
+    transition: opacity .42s ease, transform .42s cubic-bezier(.2,.8,.2,1);
+  }
+  .lp-wc-item.is-on { opacity: 1; transform: none; }
+
+  .lp-hero-lede {
+    margin: 20px 0 0; max-width: 50ch;
+    font-size: clamp(16px, 1.3vw, 20px); line-height: 1.58;
+    color: rgba(244,236,224,.78);
+    animation: lpFadeUp .7s ease .2s both;
+  }
+  .lp-hero-actions {
+    margin-top: 30px; display: flex; flex-wrap: wrap; gap: 11px;
+    animation: lpFadeUp .7s ease .28s both;
+  }
+  .lp-hero-stats {
+    margin: 40px 0 0; padding: 22px 0 0; display: flex; flex-wrap: wrap; gap: clamp(24px, 3vw, 52px);
+    border-top: 1px solid rgba(244,236,224,.16);
+    animation: lpFadeUp .7s ease .36s both;
+  }
+  .lp-hero-stat { margin: 0; }
+  .lp-hero-stat-num {
+    font-size: clamp(24px, 2.05vw, 34px); font-weight: 600; line-height: 1;
+    color: var(--cream-text); font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+  }
+  .lp-hero-stat-label {
+    margin: 7px 0 0; max-width: 20ch; font-size: 13px; line-height: 1.45;
+    color: rgba(244,236,224,.56);
+  }
+  @keyframes lpFadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+  .lp-scroll-cue {
+    position: absolute; left: 50%; bottom: 22px; z-index: 3; translate: -50% 0;
+    display: grid; place-items: center; width: 38px; height: 38px;
+    border-radius: 6px; border: 1px solid rgba(244,236,224,.3);
+    color: var(--cream-text); animation: lpCue 2.6s ease-in-out infinite;
+  }
+  .lp-scroll-cue:hover { background: rgba(244,236,224,.14); color: var(--cream-text); }
+  @keyframes lpCue { 0%,100% { translate: -50% 0; } 50% { translate: -50% 5px; } }
+
+  /* ── hero preview card ── */
+  .lp-preview-wrap { display: none; perspective: 1100px; }
+  @media (min-width: 1040px) { .lp-preview-wrap { display: block; } }
+  .lp-preview {
+    border-radius: 12px; border: 1px solid rgba(244,236,224,.13); padding: 0 0 16px;
+    background: var(--surface); overflow: hidden;
+    box-shadow: 0 40px 80px -30px rgba(0,0,0,.72);
+    transition: transform .18s ease-out;
+  }
+  .lp-preview.is-floating { animation: lpFloat 7s ease-in-out infinite; }
+  @keyframes lpFloat { 0%,100% { translate: 0 0; } 50% { translate: 0 -11px; } }
+  .lp-preview-chrome {
+    display: flex; gap: 4px; padding: 10px 14px;
+    border-bottom: 1px solid var(--border); background: var(--surface-2);
+  }
+  .lp-preview-tab {
+    padding: 5px 11px; border-radius: 4px; font-size: 12px; font-weight: 700;
+    color: var(--muted-2);
+  }
+  .lp-preview-tab.is-on { background: var(--ink-strong); color: var(--cream-text); }
+
+  .lp-preview-action {
+    display: flex; align-items: center; gap: 12px; margin: 14px; border-radius: 8px; padding: 14px;
+    background: linear-gradient(115deg, var(--lp-espresso), var(--lp-espresso-2));
+    color: var(--cream-text);
+  }
+  .lp-preview-avatar {
+    position: relative; display: grid; place-items: center; flex: none;
+    width: 34px; height: 34px; border-radius: 999px; background: var(--accent); font-size: 15px;
+  }
+  .lp-preview-ping {
+    position: absolute; inset: 0; border-radius: 999px; background: var(--accent);
+    animation: pulseFade 2.4s ease-out infinite;
+  }
+  .lp-preview-action-text { min-width: 0; }
+  .lp-preview-eyebrow {
+    margin: 0; font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .14em; color: var(--on-espresso-accent);
+  }
+  .lp-preview-name { margin: 3px 0 0; font-size: 16px; font-weight: 600; }
+  .lp-preview-meta {
+    margin: 3px 0 0; font-size: 11.5px; color: #D5C2B1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .lp-preview-send {
+    margin-left: auto; flex: none; border-radius: 5px; padding: 7px 12px;
+    font-size: 11.5px; font-weight: 700; background: var(--cream-text); color: var(--ink-strong);
+  }
+  .lp-preview-kpis {
+    margin: 0 14px; display: grid; grid-template-columns: repeat(4, 1fr);
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  }
+  .lp-preview-kpi { padding: 9px 10px; background: var(--surface-2); border-right: 1px solid var(--border); }
+  .lp-preview-kpi:last-child { border-right: none; }
+  .lp-preview-kpi-l { margin: 0; font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+  .lp-preview-kpi-v { margin: 4px 0 0; font-size: 18px; font-weight: 600; }
+  .lp-preview-rows { margin: 12px 14px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .lp-preview-row {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+    border-bottom: 1px solid var(--border-soft); background: var(--surface);
+  }
+  .lp-preview-row:last-child { border-bottom: none; }
+  .lp-preview-row-name { font-size: 13px; font-weight: 700; color: var(--ink); }
+  .lp-preview-row-why { font-size: 11.5px; color: var(--muted-2); margin-left: auto; }
+  .lp-preview-row-badge { border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700; flex: none; }
+
+  /* ── marquee ── */
+  .lp-marquee-band { overflow: hidden; padding: 20px 0; background: var(--lp-espresso); border-top: 1px solid rgba(244,236,224,.12); }
+  .lp-marquee { display: inline-block; white-space: nowrap; animation: lpMarquee 36s linear infinite; }
+  .lp-marquee-item {
+    display: inline-flex; align-items: center; gap: 20px; margin: 0 18px;
+    font-size: clamp(16px, 1.5vw, 23px); font-weight: 500; color: rgba(244,236,224,.8);
+    letter-spacing: -0.01em;
+  }
+  .lp-marquee-dot { color: var(--on-espresso-accent); }
+  @keyframes lpMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+  /* ── stat band ── */
+  .lp-statband { background: var(--surface); border-bottom: 1px solid var(--lp-rule); }
+  .lp-statband-grid {
+    margin: 0; padding: 0; display: grid; grid-template-columns: 1fr;
+  }
+  @media (min-width: 620px) { .lp-statband-grid { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 1040px) { .lp-statband-grid { grid-template-columns: repeat(4, 1fr); } }
+  .lp-statcell {
+    padding: clamp(26px, 2.6vw, 40px) clamp(20px, 2.2vw, 38px);
+    border-right: 1px solid var(--lp-rule); border-bottom: 1px solid var(--lp-rule);
+    transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1), background .25s ease;
+  }
+  .lp-statcell:hover { background: var(--surface-2); }
+  .lp-statcell:last-child { border-right: none; }
+  .lp-statband-grid > :first-child { padding-left: var(--lp-gutter); }
+  .lp-statband-grid > :last-child { padding-right: var(--lp-gutter); }
+  .lp-statcell-n {
+    font-size: clamp(30px, 3vw, 46px); font-weight: 600; line-height: 1;
+    letter-spacing: -0.03em; color: var(--ink); font-variant-numeric: tabular-nums;
+  }
+  .lp-statcell-body { margin: 13px 0 0; display: block; }
+  .lp-statcell-label { display: block; font-size: var(--lp-body); line-height: 1.5; color: var(--muted); max-width: 26ch; }
+  .lp-statcell-note { display: block; margin-top: 8px; font-size: 14px; font-weight: 600; color: var(--accent); }
+
+  /* ── section shell ──
+     Bottom padding is deliberately much tighter than the top: the last row of
+     a ledger/tier grid already carries its own bottom padding, and stacking a
+     full section pad on top of it left a dead band above every rule. */
+  .lp-section {
+    padding: clamp(52px, 5.8vw, 98px) var(--lp-gutter) clamp(26px, 2.6vw, 44px);
+    border-bottom: 1px solid var(--lp-rule); scroll-margin-top: 70px;
+  }
+  .lp-alt { background: var(--surface); }
+  .lp-dark-section {
+    background: var(--lp-espresso); color: var(--cream-text);
+    border-bottom-color: rgba(244,236,224,.14);
+  }
+
+  .lp-head-bar {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    padding-bottom: 13px; margin-bottom: clamp(22px, 2.4vw, 38px);
+    border-bottom: 1px solid var(--ink);
+  }
+  .lp-head.is-dark .lp-head-bar { border-bottom-color: rgba(244,236,224,.5); }
+  .lp-head-index {
+    font-size: var(--lp-label); font-weight: 700; letter-spacing: .12em; color: var(--muted-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .lp-head.is-dark .lp-head-index { color: rgba(244,236,224,.5); }
+  .lp-head-slash { opacity: .5; }
+  .lp-head-split { display: grid; gap: clamp(18px, 2.6vw, 52px); align-items: start; }
+  @media (min-width: 940px) { .lp-head-split { grid-template-columns: minmax(0,1.35fr) minmax(0,1fr); } }
+  .lp-head-aside { padding-top: 6px; }
+  .lp-head-aside p {
+    margin: 0; font-size: var(--lp-body-lg); line-height: 1.58; color: var(--muted);
+    max-width: 44ch;
+  }
+  .lp-head-aside p + p { margin-top: 13px; }
+  .lp-head-aside-note { color: var(--muted-2) !important; }
+  .lp-head-aside.is-dark p { color: rgba(244,236,224,.68); }
+
+  /* ── flow diagram ── */
+  .lp-flow { margin: clamp(30px, 3.6vw, 60px) 0 0; overflow-x: auto; }
+  .lp-flow-svg { display: block; width: 100%; min-width: 780px; height: auto; }
+  .lp-flow-head { font-size: 11.5px; font-weight: 700; letter-spacing: .14em; fill: var(--muted-2); }
+  .lp-flow-chip { fill: var(--bg-page); stroke: var(--border); stroke-width: 1; }
+  .lp-flow-chip.is-out { fill: #F7E9DE; stroke: #E6C6AE; }
+  .lp-flow-chip-label { font-size: 14px; font-weight: 600; fill: var(--ink); }
+  .lp-flow-chip-label.is-out { fill: var(--accent-dark); }
+  .lp-flow-hub { fill: var(--accent); }
+  .lp-flow-arrow { fill: var(--accent); }
+  .lp-flow-core { fill: var(--lp-espresso); stroke: var(--ink-strong); }
+  .lp-flow-core-mark { font-size: 20px; font-weight: 600; fill: var(--cream-text); text-anchor: middle; }
+  .lp-flow-core-line { font-size: 10px; font-weight: 700; letter-spacing: .12em; fill: var(--on-espresso-accent); text-anchor: middle; }
+  .lp-flow-core-sub { font-size: 9px; font-weight: 600; letter-spacing: .1em; fill: rgba(244,236,224,.52); text-anchor: middle; }
+  /* pathLength="1" normalizes each line, so one dasharray works for all of
+     them without measuring geometry in JS. */
+  .lp-flow-wire { stroke: var(--muted-2); stroke-width: 1.3; fill: none; opacity: .8; stroke-dasharray: 1; stroke-dashoffset: 1; }
+  [data-reveal].is-in .lp-flow-wire { animation: lpDraw .55s ease forwards; }
+  @keyframes lpDraw { to { stroke-dashoffset: 0; } }
+  .lp-flow-arrow, .lp-flow-hub { opacity: 0; }
+  [data-reveal].is-in .lp-flow-arrow, [data-reveal].is-in .lp-flow-hub { animation: lpFadeIn .4s ease .55s forwards; }
+  @keyframes lpFadeIn { to { opacity: 1; } }
+
+  /* ── stance ── */
+  .lp-stance { display: grid; grid-template-columns: 1fr; border-top: 1px solid var(--ink); }
+  @media (min-width: 800px) { .lp-stance { grid-template-columns: 1fr 1fr; } }
+  .lp-stance-col {
+    padding: clamp(22px, 2.2vw, 34px) clamp(22px, 2.4vw, 44px) clamp(24px, 2.4vw, 38px) 0;
+    transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1);
+  }
+  .lp-stance-col.is-you { border-top: 1px solid var(--lp-rule); padding-left: 0; }
+  @media (min-width: 800px) {
+    .lp-stance-col.is-you {
+      border-top: none; border-left: 1px solid var(--lp-rule);
+      padding-left: clamp(24px, 2.6vw, 48px);
+    }
+  }
+  .lp-stance-role {
+    display: block; font-size: var(--lp-label); font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted-2); margin-bottom: 12px;
+  }
+  .lp-stance-col.is-you .lp-stance-role { color: var(--accent); }
+  .lp-stance-h {
+    margin: 0; font-size: clamp(21px, 2vw, 32px); font-weight: 600;
+    letter-spacing: -0.025em; line-height: 1.12; color: var(--ink);
+  }
+  .lp-stance-body { margin: 13px 0 0; font-size: var(--lp-body-lg); line-height: 1.58; color: var(--muted); max-width: 42ch; }
+
+  /* ── demo ── */
+  .lp-demo { display: grid; gap: clamp(28px, 3.4vw, 60px); align-items: start; }
+  @media (min-width: 1000px) { .lp-demo { grid-template-columns: minmax(0,.92fr) minmax(0,1.08fr); } }
+  .lp-demo-lede { margin: 18px 0 0; font-size: var(--lp-body-lg); line-height: 1.58; color: var(--muted); max-width: 44ch; }
+  .lp-demo-points { margin: 26px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--lp-rule); }
+  .lp-demo-points li {
+    padding: 16px 0; border-bottom: 1px solid var(--lp-rule);
+    font-size: var(--lp-body); line-height: 1.58; color: var(--muted);
+  }
+  .lp-demo-point-k {
+    display: block; font-size: var(--lp-label); font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--ink-strong); margin-bottom: 6px;
+  }
+
+  .lp-demo-card {
+    border: 1px solid var(--lp-rule); border-radius: 12px;
+    padding: clamp(20px, 2.2vw, 32px); background: var(--bg-page);
+  }
+  .lp-alt .lp-demo-card { background: var(--surface); }
+  .lp-demo-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+  .lp-demo-picker-label { font-size: 14.5px; font-weight: 600; color: var(--muted); margin-right: 3px; }
+  .lp-demo-picker-note { margin: 10px 0 0; font-size: 14px; color: var(--muted-2); }
+  .lp-chip {
+    border: 1px solid var(--border); border-radius: 5px; padding: 7px 14px;
+    font-size: 14px; font-weight: 600; background: transparent; color: var(--muted);
+    transition: background .16s ease, color .16s ease, border-color .16s ease;
+  }
+  .lp-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .lp-chip.is-on { background: var(--ink-strong); border-color: var(--ink-strong); color: var(--cream-text); }
+
+  .lp-demo-slider { margin-top: 26px; }
+  .lp-demo-slider-head { display: flex; align-items: baseline; justify-content: space-between; }
+  .lp-demo-slider-label { font-size: 14.5px; font-weight: 600; color: var(--ink-strong); }
+  .lp-demo-days { font-size: 32px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .lp-demo-slider-ends { margin-top: 6px; display: flex; justify-content: space-between; font-size: 12px; color: var(--muted-2); }
+  .lp-slider {
+    margin-top: 11px; width: 100%; height: 6px; border-radius: 999px;
+    background: var(--surface-3); appearance: none; -webkit-appearance: none; cursor: pointer;
+  }
   .lp-slider::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none;
-    width: 26px; height: 26px; border-radius: 50%;
+    -webkit-appearance: none; appearance: none; width: 24px; height: 24px; border-radius: 50%;
     background: var(--surface); border: 3px solid currentColor;
-    box-shadow: 0 3px 8px rgba(59,42,32,.3); cursor: grab;
+    box-shadow: 0 2px 6px rgba(59,42,32,.3); cursor: grab;
   }
-  .lp-slider:active::-webkit-slider-thumb { cursor: grabbing; transform: scale(1.1); }
+  .lp-slider:active::-webkit-slider-thumb { cursor: grabbing; transform: scale(1.08); }
   .lp-slider::-moz-range-thumb {
-    width: 26px; height: 26px; border-radius: 50%;
+    width: 24px; height: 24px; border-radius: 50%;
     background: var(--surface); border: 3px solid currentColor;
-    box-shadow: 0 3px 8px rgba(59,42,32,.3); cursor: grab;
+    box-shadow: 0 2px 6px rgba(59,42,32,.3); cursor: grab;
   }
 
-  html { scroll-behavior: smooth; }
+  .lp-demo-readout {
+    margin-top: 26px; border-top: 1px solid var(--lp-rule); padding-top: 24px;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 18px;
+  }
+  @media (min-width: 560px) { .lp-demo-readout { flex-direction: row; align-items: center; } }
+  .lp-demo-readout-text { min-width: 0; flex: 1; }
+  .lp-dial { position: relative; width: 116px; height: 116px; flex: none; }
+  .lp-dial-arc { transition: stroke-dasharray .35s cubic-bezier(.2,.8,.2,1), stroke .35s ease; }
+  .lp-dial-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+  .lp-dial-num { font-size: 28px; font-weight: 600; line-height: 1; letter-spacing: -0.02em; }
+  .lp-dial-cap { font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted-2); }
+  .lp-demo-band {
+    display: inline-flex; align-items: center; gap: 7px; border-radius: 5px;
+    padding: 6px 12px; font-size: 13.5px; font-weight: 700;
+  }
+  .lp-demo-band-dot { width: 7px; height: 7px; border-radius: 999px; }
+  .lp-demo-quote { margin: 13px 0 0; font-size: var(--lp-body-lg); line-height: 1.52; color: var(--ink-strong); }
+  .lp-demo-action { margin: 7px 0 0; font-size: var(--lp-body); color: var(--muted); }
+
+  /* ── ledger grids (features, guardrails) ── */
+  .lp-ledger {
+    margin: 0; padding: 0; list-style: none;
+    display: grid; grid-template-columns: 1fr; border-top: 1px solid var(--ink);
+  }
+  .lp-ledger.is-dark { border-top-color: rgba(244,236,224,.5); }
+  @media (min-width: 620px) { .lp-ledger-3, .lp-ledger-4 { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 1000px) { .lp-ledger-3 { grid-template-columns: repeat(3, 1fr); } }
+  @media (min-width: 1000px) { .lp-ledger-4 { grid-template-columns: repeat(4, 1fr); } }
+  .lp-ledger-cell {
+    padding: clamp(20px, 2.1vw, 30px) clamp(20px, 2.2vw, 36px) clamp(24px, 2.3vw, 34px) 0;
+    border-bottom: 1px solid var(--lp-rule);
+    transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1);
+  }
+  .lp-ledger.is-dark .lp-ledger-cell { border-bottom-color: rgba(244,236,224,.16); }
+  .lp-ledger-n {
+    display: block; font-size: var(--lp-label); font-weight: 700; letter-spacing: .12em;
+    color: var(--accent); margin-bottom: 11px; font-variant-numeric: tabular-nums;
+  }
+  .lp-ledger-h {
+    margin: 0; font-size: clamp(18px, 1.55vw, 23px); font-weight: 600;
+    letter-spacing: -0.02em; line-height: 1.15; color: var(--ink);
+  }
+  .lp-ledger.is-dark .lp-ledger-h { color: var(--cream-text); }
+  .lp-ledger-body { margin: 10px 0 0; font-size: var(--lp-body); line-height: 1.58; color: var(--muted); max-width: 38ch; }
+  .lp-ledger.is-dark .lp-ledger-body { color: rgba(244,236,224,.66); }
+
+  /* vertical hairlines between ledger columns */
+  @media (min-width: 620px) {
+    .lp-ledger-3 > *, .lp-ledger-4 > * { border-right: 1px solid var(--lp-rule); padding-left: clamp(18px, 1.8vw, 30px); }
+    .lp-ledger-3 > :nth-child(2n), .lp-ledger-4 > :nth-child(2n) { border-right: none; }
+    .lp-ledger-3 > :nth-child(2n+1), .lp-ledger-4 > :nth-child(2n+1) { padding-left: 0; }
+    .lp-ledger.is-dark > * { border-right-color: rgba(244,236,224,.16); }
+  }
+  @media (min-width: 1000px) {
+    .lp-ledger-3 > * { border-right: 1px solid var(--lp-rule); padding-left: clamp(18px, 1.8vw, 30px); }
+    .lp-ledger-3 > :nth-child(3n) { border-right: none; }
+    .lp-ledger-3 > :nth-child(3n+1) { padding-left: 0; }
+    .lp-ledger-4 > * { border-right: 1px solid var(--lp-rule); padding-left: clamp(18px, 1.8vw, 30px); }
+    .lp-ledger-4 > :nth-child(4n) { border-right: none; }
+    .lp-ledger-4 > :nth-child(4n+1) { padding-left: 0; }
+    .lp-ledger.is-dark > * { border-right-color: rgba(244,236,224,.16); }
+  }
+
+  /* ── steps ── */
+  .lp-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: clamp(24px, 3vw, 60px); }
+  @media (min-width: 860px) { .lp-steps { grid-template-columns: repeat(3, 1fr); } }
+  .lp-step {
+    display: flex; flex-direction: column; border-top: 2px solid var(--accent); padding-top: 18px;
+    transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1);
+  }
+  .lp-step-n { font-size: var(--lp-label); font-weight: 700; letter-spacing: .12em; color: var(--accent); margin-bottom: 14px; }
+  .lp-step-h { margin: 0; font-size: clamp(20px, 1.75vw, 28px); font-weight: 600; letter-spacing: -0.025em; line-height: 1.14; color: var(--ink); }
+  .lp-step-body { margin: 12px 0 0; font-size: var(--lp-body-lg); line-height: 1.56; color: var(--muted); max-width: 33ch; }
+  .lp-step-foot {
+    margin-top: 17px; font-size: var(--lp-label); font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted-2);
+  }
+
+  /* ── pricing ── */
+  .lp-tiers { display: grid; grid-template-columns: 1fr; border-top: 1px solid var(--ink); }
+  @media (min-width: 860px) { .lp-tiers { grid-template-columns: repeat(3, 1fr); } }
+  .lp-tier {
+    display: flex; flex-direction: column;
+    padding: clamp(24px, 2.4vw, 36px) clamp(20px, 2.2vw, 34px) clamp(26px, 2.4vw, 36px) 0;
+    border-bottom: 1px solid var(--lp-rule);
+    transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1), background .25s ease;
+  }
+  @media (min-width: 860px) {
+    .lp-tier { border-right: 1px solid var(--lp-rule); padding-left: clamp(20px, 2.2vw, 34px); }
+    .lp-tier:first-child { padding-left: 0; }
+    .lp-tier:last-child { border-right: none; }
+  }
+  /* The highlight has to survive on both section backgrounds, so it leans on a
+     top accent bar rather than a tint a shade away from the surface it sits on. */
+  .lp-tier.is-hot { background: var(--surface); box-shadow: inset 0 2px 0 var(--accent); }
+  .lp-tier-top { display: flex; align-items: center; gap: 10px; }
+  .lp-tier-name { margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
+  .lp-tier-flag {
+    border-radius: 4px; padding: 3.5px 9px; font-size: 10.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .09em; background: var(--accent); color: #fff;
+  }
+  .lp-tier-price { margin: 14px 0 0; }
+  .lp-tier-amount { font-size: clamp(38px, 3.3vw, 52px); font-weight: 600; letter-spacing: -0.035em; color: var(--ink); }
+  .lp-tier-per { font-size: 14.5px; color: var(--muted-2); }
+  .lp-tier-lines { margin: 18px 0 0; padding: 0; list-style: none; flex: 1; }
+  .lp-tier-lines li {
+    padding: 8px 0 8px 17px; position: relative; font-size: var(--lp-body); line-height: 1.5; color: var(--muted);
+  }
+  .lp-tier-lines li::before {
+    content: ''; position: absolute; left: 0; top: 17px;
+    width: 7px; height: 1.5px; background: var(--accent);
+  }
+  .lp-tier-cta {
+    margin-top: 22px; padding: 12px 16px; font-size: 14.5px;
+    border-color: var(--border); color: var(--ink-strong); background: transparent;
+  }
+  .lp-tier-cta:hover { background: var(--ink-strong); border-color: var(--ink-strong); color: var(--cream-text); }
+
+  /* ── waitlist ── */
+  .lp-waitlist {
+    position: relative; overflow: hidden; scroll-margin-top: 70px;
+    padding: clamp(64px, 7.4vw, 128px) var(--lp-gutter) clamp(44px, 4.6vw, 76px);
+    background:
+      radial-gradient(820px 460px at 14% 6%, rgba(180,83,42,.26), transparent 68%),
+      linear-gradient(160deg, var(--lp-espresso) 0%, var(--lp-espresso-2) 62%, #1E1610 100%);
+    color: var(--cream-text);
+  }
+  /* centre, not start: the form card is much shorter than the copy column, and
+     top-aligning it left a large void under the card. */
+  .lp-waitlist-grid { display: grid; gap: clamp(30px, 3.6vw, 68px); align-items: center; }
+  @media (min-width: 980px) { .lp-waitlist-grid { grid-template-columns: minmax(0,.94fr) minmax(0,1.06fr); } }
+  .lp-waitlist-copy .lp-h2 { margin-top: 14px; }
+  .lp-waitlist-sub {
+    margin: 18px 0 0; max-width: 46ch; font-size: var(--lp-body-lg);
+    line-height: 1.58; color: rgba(244,236,224,.76);
+  }
+  .lp-waitlist-points { margin: 24px 0 0; padding: 0; list-style: none; border-top: 1px solid rgba(244,236,224,.18); }
+  .lp-waitlist-points li {
+    padding: 13px 0 13px 19px; position: relative; border-bottom: 1px solid rgba(244,236,224,.13);
+    font-size: var(--lp-body); color: rgba(244,236,224,.74);
+  }
+  .lp-waitlist-points li::before {
+    content: ''; position: absolute; left: 0; top: 21px;
+    width: 8px; height: 1.5px; background: var(--on-espresso-accent);
+  }
+  .lp-waitlist-card {
+    border: 1px solid rgba(244,236,224,.16); border-radius: 12px;
+    background: rgba(244,236,224,.045);
+    padding: clamp(20px, 2.4vw, 32px);
+  }
+  .lp-waitlist-alt {
+    margin: clamp(30px, 3.4vw, 52px) 0 0; padding-top: 20px;
+    border-top: 1px solid rgba(244,236,224,.14);
+    font-size: 14px; color: rgba(244,236,224,.6);
+  }
+  .lp-waitlist-alt a { color: var(--on-espresso-accent); text-decoration: underline; }
+
+  /* waitlist form (WaitlistForm.tsx) */
+  .lp-wl-grid { display: grid; gap: 14px; }
+  @media (min-width: 560px) { .lp-wl-grid { grid-template-columns: repeat(2, 1fr); } }
+  .lp-wl-field { display: block; }
+  .lp-wl-label {
+    display: block; margin-bottom: 7px;
+    font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+    color: rgba(244,236,224,.64);
+  }
+  .lp-wl-opt { font-weight: 600; letter-spacing: .06em; color: rgba(244,236,224,.4); }
+  .lp-wl-input {
+    width: 100%; border-radius: 6px; padding: 12px 14px;
+    border: 1px solid rgba(244,236,224,.2); background: rgba(21,15,11,.4);
+    color: var(--cream-text); font-family: inherit; font-size: 15.5px;
+    transition: border-color .18s ease, background .18s ease;
+  }
+  .lp-wl-input::placeholder { color: rgba(244,236,224,.32); }
+  .lp-wl-input:focus { outline: none; border-color: var(--on-espresso-accent); background: rgba(21,15,11,.58); }
+  .lp-wl-select { appearance: none; cursor: pointer; }
+  .lp-wl-select option { background: var(--lp-espresso); color: var(--cream-text); }
+  .lp-wl-honey { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+  .lp-wl-error {
+    margin: 14px 0 0; border-radius: 6px; padding: 10px 13px; font-size: 14px;
+    background: rgba(162,59,30,.24); border: 1px solid rgba(224,160,116,.4); color: #F6D9C8;
+  }
+  .lp-wl-actions { margin-top: 21px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+  .lp-wl-submit {
+    border-radius: 6px; padding: 13px 24px; font-size: 15.5px; font-weight: 700;
+    background: var(--accent); color: #fff; border: 1px solid var(--accent);
+    transition: transform .16s ease, background .16s ease;
+  }
+  .lp-wl-submit:hover:not(:disabled) { transform: translateY(-1px); background: var(--accent-dark); border-color: var(--accent-dark); }
+  .lp-wl-submit:disabled { opacity: .6; cursor: default; }
+  .lp-wl-fine { font-size: 13px; color: rgba(244,236,224,.54); max-width: 24ch; }
+
+  .lp-wl-done { text-align: center; padding: 12px 0 4px; }
+  .lp-wl-check {
+    display: grid; place-items: center; width: 42px; height: 42px; margin: 0 auto;
+    border-radius: 8px; background: rgba(92,138,74,.24);
+    border: 1px solid rgba(140,190,120,.5); color: #B9DCA6;
+    animation: lpPop .45s cubic-bezier(.2,1.4,.4,1) both;
+  }
+  @keyframes lpPop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
+  .lp-wl-done-h { margin: 15px 0 0; font-size: 25px; font-weight: 600; letter-spacing: -0.02em; color: var(--cream-text); }
+  .lp-wl-done-p { margin: 9px auto 0; max-width: 42ch; font-size: var(--lp-body-lg); line-height: 1.58; color: rgba(244,236,224,.76); }
+
+  /* ── footer ── */
+  .lp-footer { background: var(--surface); padding: 28px var(--lp-gutter); }
+  .lp-footer-inner { display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 14px; }
+  @media (min-width: 760px) { .lp-footer-inner { flex-direction: row; } }
+  .lp-footer-tag { font-size: 13px; color: var(--muted-2); }
+  .lp-footer-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 17px; font-size: 13px; color: var(--muted-2); }
+  .lp-footer-links a { color: var(--muted-2); }
+  .lp-footer-links a:hover { color: var(--accent); text-decoration: underline; }
+
+  /* Smooth anchor scrolling, but not for people who asked us not to. */
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+
+  /* ── reduced motion: keep colour and opacity cues, drop the movement ── */
+  @media (prefers-reduced-motion: reduce) {
+    .lp-root *, .lp-root *::before, .lp-root *::after {
+      animation-duration: .001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important;
+    }
+    .lp-root [data-reveal] { opacity: 1 !important; transform: none !important; }
+    .lp-marquee, .lp-preview.is-floating, .lp-scroll-cue { animation: none !important; }
+    .lp-flow-wire { stroke-dashoffset: 0 !important; }
+    .lp-flow-arrow, .lp-flow-hub { opacity: 1 !important; }
+    .lp-char { animation: none !important; opacity: 1 !important; transform: none !important; }
+  }
 `;
