@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   social,
+  type BufferConnect,
   type PostStatus,
   type SocialCampaign,
   type SocialPlatform,
@@ -54,8 +55,35 @@ const fmt = (iso: string) =>
     minute: "2-digit",
   });
 
+/**
+ * Open Buffer in a centred popup rather than navigating away.
+ *
+ * A popup keeps Churnary on screen behind it, so setting Buffer up reads as a
+ * step inside the app instead of leaving it. Buffer can't be embedded in an
+ * iframe — sign-in pages send `X-Frame-Options`/`frame-ancestors` to block
+ * clickjacking — so a separate window is as close as this gets.
+ *
+ * Returns false when a blocker swallowed the window, so the caller can say so
+ * instead of leaving the owner staring at a button that did nothing.
+ */
+function openBufferPopup(url: string, name: string): boolean {
+  const w = 620;
+  const h = 780;
+  const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
+  const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
+  const popup = window.open(
+    url,
+    name,
+    `popup=yes,width=${w},height=${h},left=${left},top=${top}`
+  );
+  if (!popup) return false;
+  popup.focus();
+  return true;
+}
+
 export default function Social() {
   const [status, setStatus] = useState<SocialStatus | null>(null);
+  const [buffer, setBuffer] = useState<BufferConnect | null>(null);
   const [campaigns, setCampaigns] = useState<SocialCampaign[]>([]);
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [filter, setFilter] = useState<PostStatus | "all">("all");
@@ -67,12 +95,17 @@ export default function Social() {
   const load = async () => {
     setError(null);
     try {
-      const [s, c, p] = await Promise.all([
+      const [s, b, c, p] = await Promise.all([
         social.status(),
+        // Additive: the connect card is a setup prompt, not part of reviewing
+        // posts. If it can't load, the queue below still has to work, so this
+        // one degrades to a hidden card instead of failing the whole page.
+        social.bufferConnect().catch(() => null),
         social.listCampaigns(),
         social.listPosts(),
       ]);
       setStatus(s);
+      setBuffer(b);
       setCampaigns(c);
       setPosts(p);
     } catch (e) {
@@ -172,15 +205,7 @@ export default function Social() {
         </div>
       )}
 
-      {status && !status.buffer_configured && (
-        <div
-          className="rounded-xl px-4 py-2.5 text-sm"
-          style={{ background: "var(--surface-2)", color: "var(--muted)" }}
-        >
-          Buffer isn't connected, so publishing is turned off. You can still generate, review,
-          and approve posts.
-        </div>
-      )}
+      {buffer && !buffer.connected && <ConnectBuffer buffer={buffer} onError={setError} />}
 
       {error && (
         <div
@@ -335,6 +360,103 @@ export default function Social() {
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * The Buffer setup path, laid out as the three steps it actually takes.
+ *
+ * Steps 1 and 2 happen on Buffer's own site and are live now. Step 3 is the
+ * part Churnary still owes — it stays disabled until the backend can exchange
+ * a token, so nobody clicks a button that quietly does nothing.
+ */
+function ConnectBuffer({
+  buffer,
+  onError,
+}: {
+  buffer: BufferConnect;
+  onError: (message: string) => void;
+}) {
+  const open = (url: string, name: string) => {
+    if (!openBufferPopup(url, name)) {
+      onError("Your browser blocked the Buffer window. Allow pop-ups for this site and try again.");
+    }
+  };
+
+  const steps: { label: string; blurb: string; action: () => void; cta: string; ready: boolean }[] = [
+    {
+      label: "Create your Buffer account",
+      blurb: "Buffer is what actually posts to LinkedIn and X. The free plan is enough to start.",
+      action: () => open(buffer.signup_url, "buffer-signup"),
+      cta: "Open Buffer",
+      ready: true,
+    },
+    {
+      label: "Add your LinkedIn and X accounts",
+      blurb: "This happens inside Buffer — the networks only grant posting access there.",
+      action: () => open(buffer.channels_url, "buffer-channels"),
+      cta: "Add accounts",
+      ready: true,
+    },
+    {
+      label: "Connect Buffer to Churnary",
+      blurb: "One click to link the account you just made. We're still building this step.",
+      action: () => {},
+      cta: "Coming soon",
+      ready: buffer.oauth_ready,
+    },
+  ];
+
+  return (
+    <section className="glass p-6">
+      <h2 className="font-display text-lg font-bold" style={{ color: "var(--ink)" }}>
+        Connect Buffer to publish
+      </h2>
+      <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+        Churnary writes and reviews posts on its own. Connecting Buffer is what lets an approved
+        post actually go out.
+      </p>
+
+      <ol className="mt-5 space-y-3">
+        {steps.map((step, index) => (
+          <li key={step.label} className="flex flex-wrap items-center gap-3">
+            <span
+              aria-hidden
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold"
+              style={{ background: "var(--surface-3)", color: "var(--muted)" }}
+            >
+              {index + 1}
+            </span>
+            <div className="min-w-48 flex-1">
+              <div className="text-sm font-semibold" style={{ color: "var(--ink)" }}>
+                {step.label}
+              </div>
+              <div className="text-xs" style={{ color: "var(--muted-2)" }}>
+                {step.blurb}
+              </div>
+            </div>
+            <button
+              onClick={step.action}
+              disabled={!step.ready}
+              className="shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
+              style={
+                step.ready
+                  ? { background: "var(--accent)", color: "#fff" }
+                  : { background: "var(--surface-3)", color: "var(--muted)" }
+              }
+            >
+              {step.cta}
+              {step.ready && <span aria-hidden> ↗</span>}
+            </button>
+          </li>
+        ))}
+      </ol>
+
+      <p className="mt-5 text-xs" style={{ color: "var(--muted-2)" }}>
+        Buffer opens in a separate window. Your LinkedIn and X passwords go straight to those
+        networks — Churnary never sees them.
+      </p>
+    </section>
   );
 }
 

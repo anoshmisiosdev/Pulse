@@ -414,3 +414,25 @@ async def social_status(
         "llm_configured": settings.llm_configured,
         "publish_mode": settings.buffer_publish_mode,
     }
+
+
+@router.get("/buffer/connect")
+async def buffer_connect(user: CurrentUser = CurrentUserDep) -> dict:
+    """Where to send an owner to set Buffer up, plus whether they're connected.
+
+    Scaffold only — there is deliberately no API key and no token exchange
+    here. ``connected`` answers "has *this business* authorized Buffer?", which
+    nothing can set to true yet: the shared ``BUFFER_API_KEY`` in the
+    environment is one Buffer account for the whole deployment, so it is not an
+    answer to that question and deliberately doesn't count.
+
+    ``oauth_ready`` stays false until the real handshake exists
+    (``auth.buffer.com``, Authorization Code + PKCE, one refresh-capable token
+    encrypted per business). The frontend uses it to keep step 3 disabled.
+    """
+    return {
+        "connected": False,
+        "oauth_ready": False,
+        "signup_url": settings.buffer_signup_url,
+        "channels_url": settings.buffer_channels_url,
+    }

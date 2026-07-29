@@ -142,6 +142,17 @@ class Settings(BaseSettings):
     buffer_profile_ids: str = ""  # fallback when the per-platform list is empty
     buffer_publish_mode: Literal["now", "queue"] = "now"
 
+    # Buffer's own web pages, opened in a popup from the Social tab so an owner
+    # can make an account and attach LinkedIn/X. Attaching a channel is not an
+    # API operation — it completes a platform OAuth that Buffer, not Churnary,
+    # is the registered partner for — so that step has to happen on Buffer.
+    # login.buffer.com, not buffer.com/signup — the latter sits behind bot
+    # protection and answers 403 to anything that isn't a full browser session.
+    # The channels URL bounces through login and back, so one popup covers both
+    # "sign in" and "attach an account".
+    buffer_signup_url: str = "https://login.buffer.com/signup"
+    buffer_channels_url: str = "https://publish.buffer.com/channels"
+
     @property
     def buffer_configured(self) -> bool:
         return bool(

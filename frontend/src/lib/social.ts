@@ -235,11 +235,29 @@ export interface SocialStatus {
   publish_mode: string;
 }
 
+/**
+ * Buffer setup state for this business.
+ *
+ * `connected` is per-business and distinct from `SocialStatus.buffer_configured`,
+ * which only reports the deployment-wide key. `oauth_ready` is false until the
+ * backend can actually exchange a token, and keeps step 3 disabled until then.
+ */
+export interface BufferConnect {
+  connected: boolean;
+  oauth_ready: boolean;
+  signup_url: string;
+  channels_url: string;
+}
+
 // ── Client ───────────────────────────────────────────────────────────────────
 
 export const social = {
   async status(): Promise<SocialStatus> {
     return asJson(await fetch(`${BASE}/api/social/status`, { headers: authHeaders() }));
+  },
+
+  async bufferConnect(): Promise<BufferConnect> {
+    return asJson(await fetch(`${BASE}/api/social/buffer/connect`, { headers: authHeaders() }));
   },
 
   async getBrandKit(): Promise<BrandKit> {
