@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.core.database import Base, get_db
 from app.main import fastapi_app
 from app.models import Business, Campaign, CampaignSend, Customer, EngagementEvent
+from conftest import TEST_DATABASE_URL
 
 SECRET = "whsec_" + base64.b64encode(b"test-signing-key-32-bytes-long!!").decode()
 
@@ -40,7 +41,7 @@ def _resend_secret(monkeypatch):
 
 @pytest.fixture
 async def seeded(monkeypatch):
-    engine = create_async_engine("sqlite+aiosqlite://")
+    engine = create_async_engine(TEST_DATABASE_URL)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     SessionLocal = async_sessionmaker(engine, expire_on_commit=False)

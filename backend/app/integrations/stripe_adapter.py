@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 
+from app.core.http_retry import retry_transient
 from app.integrations.base import DataSourceAdapter, IntegrationError
 from app.schemas.normalized import (
     NormalizedCustomer,
@@ -80,10 +81,13 @@ class StripeAdapter(DataSourceAdapter):
         # Charges power both transactions and visits — fetch once per sync.
         self._tx_cache: tuple[datetime | None, list[NormalizedTransaction]] | None = None
 
+    @retry_transient
     async def _get(self, client: httpx.AsyncClient, path: str, **params) -> dict:
         resp = await client.get(
             f"{API}{path}", params=params, auth=(self._api_key or "", "")
         )
+        if resp.status_code >= 500:
+            resp.raise_for_status()  # transient — retried by the decorator
         if resp.status_code == 401:
             raise IntegrationError("Stripe rejected the API key (401)")
         if resp.status_code == 403:

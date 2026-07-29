@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 
+from app.core.http_retry import retry_transient
 from app.integrations.base import DataSourceAdapter, IntegrationError
 from app.schemas.normalized import (
     NormalizedCustomer,
@@ -90,9 +91,12 @@ class SquareAdapter(DataSourceAdapter):
             "Content-Type": "application/json",
         }
 
+    @retry_transient
     async def _get(self, client: httpx.AsyncClient, path: str, **params) -> dict:
         base = _HOSTS[self._environment]
         resp = await client.get(f"{base}{path}", params=params, headers=self._headers())
+        if resp.status_code >= 500:
+            resp.raise_for_status()  # transient — retried by the decorator
         if resp.status_code == 401:
             raise IntegrationError("Square rejected the access token (401)")
         if resp.status_code == 429:

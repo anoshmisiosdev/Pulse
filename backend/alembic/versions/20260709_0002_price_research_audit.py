@@ -11,7 +11,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "20260709_0002"
 down_revision: str | None = "20260709_0001"
@@ -20,33 +20,44 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
+    _add_column_if_missing(
         "competitor_price_sources",
         sa.Column("attempted_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.add_column(
+    _add_column_if_missing(
         "competitor_price_sources",
         sa.Column(
             "attempt_status", sa.String(length=32), nullable=False, server_default="discovered"
         ),
     )
-    op.add_column("competitor_price_sources", sa.Column("failure_reason", sa.Text(), nullable=True))
-    op.add_column(
+    _add_column_if_missing(
+        "competitor_price_sources", sa.Column("failure_reason", sa.Text(), nullable=True)
+    )
+    _add_column_if_missing(
         "competitor_price_observations",
         sa.Column("price_channel", sa.String(length=32), nullable=False, server_default="unknown"),
     )
-    op.add_column(
+    _add_column_if_missing(
         "competitor_price_observations",
         sa.Column("match_quality", sa.String(length=16), nullable=False, server_default="weak"),
     )
-    op.add_column(
+    _add_column_if_missing(
         "competitor_price_observations",
         sa.Column("corroborated", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
-    op.add_column(
+    _add_column_if_missing(
         "competitor_price_observations",
         sa.Column("included_in_summary", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
+
+
+def _add_column_if_missing(table_name: str, column: sa.Column) -> None:
+    if context.is_offline_mode():
+        op.add_column(table_name, column)
+        return
+    columns = {item["name"] for item in sa.inspect(op.get_bind()).get_columns(table_name)}
+    if column.name not in columns:
+        op.add_column(table_name, column)
 
 
 def downgrade() -> None:

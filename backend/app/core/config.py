@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +29,9 @@ class Settings(BaseSettings):
     # Supabase Postgres. Use the *pooler* URL (port 6543) for the app at runtime,
     # and the *direct* URL (port 5432) for Alembic migrations. asyncpg driver.
     database_url: str = "postgresql+asyncpg://pulse:pulse@localhost:5432/pulse"
+    # Optional direct Postgres URL used by Alembic. Runtime traffic can continue
+    # through a transaction pooler while schema changes use port 5432 directly.
+    database_migration_url: str = ""
     # Set true when database_url points at Supabase's transaction pooler (pgBouncer).
     db_use_pgbouncer: bool = False
     # asyncpg SSL mode: "" (off, local) | "require" (Supabase) | "verify-full".
@@ -60,24 +64,43 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-4-6"
 
     @property
+    def effective_database_migration_url(self) -> str:
+        return self.database_migration_url or self.database_url
+
+    @property
     def llm_configured(self) -> bool:
         return bool(self.token_router_api_key or self.anthropic_api_key)
 
-    # Competitor research uses Perplexity for grounded web results and DeepSeek
-    # for strict structured parsing. Google Maps is used only for geocoding.
+    # Competitor research uses Google Places for authoritative local-business
+    # discovery and Perplexity Sonar for grounded research and structured output.
     strict_free_tier: bool = True
+    google_maps_server_api_key: str = ""
     google_maps_api_key: str = ""
+    enable_google_places_discovery: bool = True
+    google_places_base_url: str = "https://places.googleapis.com/v1"
+    enable_direct_source_fetch: bool = True
+    source_fetch_timeout_seconds: float = 10.0
+    source_fetch_max_bytes: int = 2_000_000
+    source_fetch_max_redirects: int = 3
+    third_party_freshness_months: int = 18
+    competitor_research_deadline_seconds: float = 60.0
 
-    # Competitor price source discovery and extraction.
-    # Perplexity Search returns structured web results; TokenMart provides the
-    # OpenAI-compatible gateway used to call the DeepSeek model.
+    # Competitor price source discovery and extraction. Raw Search finds
+    # candidate pages; Sonar structures grounded results and handles the
+    # bounded AI extraction fallback.
     perplexity_api_key: str = ""
     perplexity_search_base_url: str = "https://api.perplexity.ai"
     enable_perplexity_search: bool = True
+    enable_perplexity_sonar: bool = True
+    perplexity_sonar_model: str = "sonar"
+    perplexity_sonar_max_tokens: int = 1600
     perplexity_search_country: str = "US"
     perplexity_search_context_size: str = "high"
     perplexity_max_results: int = 5
     perplexity_max_queries_per_competitor: int = 3
+    perplexity_max_tokens_per_page: int = 2048
+    # Legacy settings remain accepted while old deployments roll forward.
+    # The pricing workflow no longer calls these providers.
     tokenmart_api_key: str = ""
     tokenmart_base_url: str = "https://model.service-inference.ai/v1"
     tokenmart_model: str = "deepseek-v4-flash"
@@ -102,6 +125,11 @@ class Settings(BaseSettings):
     @property
     def rag_configured(self) -> bool:
         return bool(self.bedrock_embedding_model)
+
+    @property
+    def effective_google_maps_api_key(self) -> str:
+        """Prefer the dedicated server key while preserving legacy deployments."""
+        return self.google_maps_server_api_key or self.google_maps_api_key
 
     @property
     def auth_configured(self) -> bool:
@@ -208,6 +236,24 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @model_validator(mode="after")
+    def _validate_production_secrets(self) -> Settings:
+        """Fail fast in production if critical secrets are missing or weak."""
+        if not self.is_production:
+            return self
+        missing: list[str] = []
+        if not self.fernet_key:
+            missing.append("FERNET_KEY")
+        if not self.supabase_url:
+            missing.append("SUPABASE_URL")
+        if self.supabase_jwt_secret and len(self.supabase_jwt_secret) < 32:
+            missing.append("SUPABASE_JWT_SECRET (must be >=32 chars or blank for JWKS)")
+        if missing:
+            raise ValueError(
+                f"Production requires these settings: {', '.join(missing)}"
+            )
+        return self
 
     @property
     def cors_origins(self) -> list[str]:

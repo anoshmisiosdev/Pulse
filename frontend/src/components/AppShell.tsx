@@ -33,7 +33,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           borderColor: "#E6D8C6",
         }}
       >
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-3.5">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-4 py-3.5 sm:gap-4 sm:px-6">
           <div className="flex items-center gap-7">
             <div className="flex items-center gap-2.5">
               <ChurnaryMark size={30} />
@@ -60,15 +60,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </nav>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-4">
             <div className="relative">
               <button
                 onClick={() => setMenuOpen((v) => !v)}
-                className="flex items-center gap-2 rounded-full px-4 py-[7px] text-sm font-semibold transition hover:brightness-95"
+                className="flex items-center gap-2 rounded-full px-3 py-[7px] text-sm font-semibold transition hover:brightness-95 sm:px-4"
                 style={{ background: "var(--surface-3)", color: "var(--ink-strong)" }}
               >
                 <span className="h-2 w-2 rounded-full" style={{ background: "var(--sage)" }} />
-                <span className="max-w-36 truncate">{businessName}</span>
+                <span className="max-w-20 truncate sm:max-w-36">{businessName}</span>
                 <span style={{ color: "var(--muted-2)", fontSize: 11 }}>⌄</span>
               </button>
               {menuOpen && (
@@ -83,7 +83,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                     <p className="truncate px-2 text-xs" style={{ color: "var(--muted-2)" }}>{user.email}</p>
                   )}
                   <NavLink
-                    to="/connect"
+                    to="/setup"
                     onClick={() => setMenuOpen(false)}
                     className="mt-2 block rounded-xl px-3 py-2 text-sm font-medium transition hover:brightness-95"
                     style={{ background: "var(--surface-2)", color: "var(--ink-strong)" }}
@@ -105,19 +105,20 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
             <button
               onClick={() => setBriefing(true)}
-              className="flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-px"
+              aria-label="Open daily briefing"
+              className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white transition hover:-translate-y-px sm:h-auto sm:w-auto sm:gap-2 sm:px-5 sm:py-2.5"
               style={{
                 background: "var(--accent)",
                 boxShadow: "0 6px 16px -6px rgba(180,83,42,.7)",
               }}
             >
-              <SpeakerIcon /> Daily Briefing
+              <SpeakerIcon /> <span className="hidden sm:inline">Daily Briefing</span>
             </button>
           </div>
         </div>
 
         {/* mobile nav */}
-        <nav className="flex items-center gap-1 overflow-x-auto px-6 pb-2 md:hidden">
+        <nav className="flex items-center gap-1 overflow-x-auto px-4 pb-2 sm:px-6 md:hidden">
           {NAV.map((n) => (
             <NavLink
               key={n.to}

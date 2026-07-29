@@ -8,12 +8,15 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     dockerCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    preDeployCommand: uv run alembic upgrade head
     healthCheckPath: /api/health
     plan: starter
     envVars:
       - key: ENVIRONMENT
         value: production
       - key: DATABASE_URL # Supabase pooler URL (port 6543)
+        sync: false
+      - key: DATABASE_MIGRATION_URL # Supabase direct URL (port 5432)
         sync: false
       - key: DB_USE_PGBOUNCER
         value: "true"
@@ -25,12 +28,16 @@ services:
         sync: false
       - key: FERNET_KEY
         sync: false
+      - key: GOOGLE_MAPS_SERVER_API_KEY
+        sync: false
+      - key: PERPLEXITY_API_KEY
+        sync: false
       - key: TOKEN_ROUTER_API_KEY
         sync: false
       - key: TOKEN_ROUTER_BASE_URL
         sync: false
       - key: TOKEN_ROUTER_MODEL
-        value: claude-opus-4-8
+        value: claude-sonnet-4-6
       - key: REDIS_URL
         fromService: { type: keyvalue, name: pulse-redis, property: connectionString }
       - key: CELERY_BROKER_URL
@@ -55,6 +62,10 @@ services:
       - key: TOKEN_ROUTER_API_KEY
         sync: false
       - key: TOKEN_ROUTER_BASE_URL
+        sync: false
+      - key: GOOGLE_MAPS_SERVER_API_KEY
+        sync: false
+      - key: PERPLEXITY_API_KEY
         sync: false
       - key: REDIS_URL
         fromService: { type: keyvalue, name: pulse-redis, property: connectionString }

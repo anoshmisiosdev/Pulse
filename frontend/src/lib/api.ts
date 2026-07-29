@@ -2,6 +2,10 @@
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
+// localStorage flag: owner chose "skip setup" — lives here (not Setup.tsx) so the
+// route gate can read it without pulling the lazy-loaded Setup page into the main chunk.
+export const SETUP_SKIPPED_KEY = "pulse_setup_skipped";
+
 export type Band = "low" | "med" | "high";
 export type Segment =
   | "needs_attention"
@@ -61,6 +65,7 @@ export interface Portfolio {
   /** "empty" = no data source connected yet; "ready" = tenant data loaded. */
   status?: "empty" | "ready";
   connections?: Connection[];
+  location_label?: string | null;
 }
 
 export interface GeneratedCopy {
@@ -177,6 +182,13 @@ export interface CompetitorPrice {
   priceChannel: "in_store" | "delivery" | "unknown";
   corroborated: boolean;
   includedInMarketSummary: boolean;
+  sourcePublishedAt?: string | null;
+  sourceUpdatedAt?: string | null;
+  verifiedAt?: string | null;
+  retrievalMethod?: "direct_fetch" | "perplexity_content" | "search_snippet" | "none";
+  extractionMethod?: "json_ld" | "visible_text" | "search_snippet" | "sonar" | "tokenmart" | "method_consensus";
+  freshnessStatus?: "current" | "stale" | "unknown" | "expired";
+  needsReview?: boolean;
 }
 
 export interface CompetitorPriceCompetitor {
@@ -190,6 +202,8 @@ export interface CompetitorPriceCompetitor {
   confidence: number;
   radiusVerified: boolean;
   exclusionReasons: string[];
+  placeId?: string | null;
+  discoveryProvider?: "google_places" | "perplexity";
 }
 
 export interface CompetitorPriceMarketSummary {
@@ -210,6 +224,7 @@ export interface CompetitorPriceResearchResponse {
     targetOffer: string;
     locationLabel: string;
     radiusMiles: number;
+    currentPrice?: number | null;
   };
   competitors: CompetitorPriceCompetitor[];
   marketSummary: CompetitorPriceMarketSummary;
@@ -225,9 +240,13 @@ export interface CompetitorPriceResearchResponse {
       googleMaps: boolean;
       urlContext: boolean;
       perplexitySearch?: boolean;
+      perplexitySonar?: boolean;
+      sonarExtraction?: boolean;
+      sonarResearch?: boolean;
       deepseekExtraction?: boolean;
       deepseekResearch?: boolean;
       googleGeocoding?: boolean;
+      googlePlaces?: boolean;
     };
     generatedAt: string;
     cached: boolean;
@@ -239,8 +258,47 @@ export interface CompetitorPriceResearchResponse {
       sourcesChecked: number;
       sourcesAccepted: number;
       corroboratedCompetitors: number;
+      pagesFetched?: number;
+      pagesParsed?: number;
+      deterministicExtractions?: number;
+      aiExtractions?: number;
+      staleExclusions?: number;
+      conflictingExclusions?: number;
+    };
+    providerStats?: {
+      googlePlacesRequests: number;
+      googleGeocodingRequests: number;
+      perplexityRequests: number;
+      perplexityModel?: string | null;
+      perplexityUsage?: Record<string, number>;
+      pageFetchRequests: number;
+      tokenmartRequests: number;
+      durationMsByProvider: Record<string, number>;
+      tokenmartGateway?: string | null;
+      tokenmartRequestedModel?: string | null;
+      tokenmartReturnedModels?: string[];
+      tokenmartUsage?: Record<string, number>;
     };
   };
+}
+
+export interface CompetitorPriceHistoryItem {
+  id: string;
+  targetOffer: string;
+  businessCategory: string;
+  generatedAt: string;
+  priceMedian: number | null;
+  sampleSize: number;
+  confidence: number;
+  changePercent: number | null;
+}
+
+export interface CompetitorPriceWatch {
+  enabled: boolean;
+  intervalHours: number;
+  request: CompetitorPriceResearchInput;
+  lastRunAt: string | null;
+  nextRunAt: string;
 }
 
 // The current Supabase access token, kept in sync by AuthContext.
@@ -270,16 +328,35 @@ export async function asJson<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** GET with up to 2 retries on network failure or 5xx. GETs are idempotent, so
+ * retrying is safe; writes (POST/PATCH/DELETE) stay single-shot on purpose. */
+async function getJson<T>(path: string): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * attempt));
+    try {
+      const res = await fetch(`${BASE}${path}`, { headers: authHeaders() });
+      if (res.status >= 500 && attempt < 2) continue;
+      return await asJson<T>(res);
+    } catch (err) {
+      if (err instanceof TypeError) {
+        lastError = err; // network failure — retry
+        continue;
+      }
+      throw err; // HTTP error from asJson — don't retry 4xx
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Request failed");
+}
+
 export const api = {
   async me(): Promise<AuthUser> {
-    const res = await fetch(`${BASE}/api/auth/me`, { headers: authHeaders() });
-    return asJson<AuthUser>(res);
+    return getJson<AuthUser>("/api/auth/me");
   },
 
   /** The tenant's persisted dashboard data. status:"empty" → route to /setup. */
   async portfolio(): Promise<Portfolio> {
-    const res = await fetch(`${BASE}/api/portfolio`, { headers: authHeaders() });
-    return asJson<Portfolio>(res);
+    return getJson<Portfolio>("/api/portfolio");
   },
 
   /** Connect Stripe/Square, pull all customer data, persist it for this tenant. */
@@ -313,8 +390,7 @@ export const api = {
 
   /** Which providers can show a "Connect with …" button. */
   async oauthAvailability(): Promise<{ stripe: boolean; square: boolean }> {
-    const res = await fetch(`${BASE}/api/integrations/oauth/availability`);
-    return asJson(res);
+    return getJson("/api/integrations/oauth/availability");
   },
 
   /** Get the provider authorize URL, then send the browser there. */
@@ -328,10 +404,9 @@ export const api = {
       business_name: businessName,
       return_to: window.location.origin,
     });
-    const res = await fetch(`${BASE}/api/integrations/oauth/${provider}/start?${qs}`, {
-      headers: authHeaders(),
-    });
-    const data = await asJson<{ url: string }>(res);
+    const data = await getJson<{ url: string }>(
+      `/api/integrations/oauth/${provider}/start?${qs}`
+    );
     return data.url;
   },
 
@@ -392,14 +467,54 @@ export const api = {
     return asJson<CompetitorPriceResearchResponse>(res);
   },
 
+  async latestCompetitorPrices(): Promise<CompetitorPriceResearchResponse | null> {
+    const res = await fetch(`${BASE}/api/competitor-prices/latest`, {
+      headers: authHeaders(),
+    });
+    return asJson<CompetitorPriceResearchResponse | null>(res);
+  },
+
+  async competitorPricePortfolio(limit = 24): Promise<CompetitorPriceResearchResponse[]> {
+    const res = await fetch(`${BASE}/api/competitor-prices/portfolio?limit=${limit}`, {
+      headers: authHeaders(),
+    });
+    return asJson<CompetitorPriceResearchResponse[]>(res);
+  },
+
+  async competitorPriceHistory(limit = 12): Promise<CompetitorPriceHistoryItem[]> {
+    const res = await fetch(`${BASE}/api/competitor-prices/history?limit=${limit}`, {
+      headers: authHeaders(),
+    });
+    return asJson<CompetitorPriceHistoryItem[]>(res);
+  },
+
+  async competitorPriceWatch(): Promise<CompetitorPriceWatch | null> {
+    const res = await fetch(`${BASE}/api/competitor-prices/watch`, {
+      headers: authHeaders(),
+    });
+    return asJson<CompetitorPriceWatch | null>(res);
+  },
+
+  async saveCompetitorPriceWatch(input: {
+    enabled: boolean;
+    intervalHours: number;
+    request: CompetitorPriceResearchInput;
+  }): Promise<CompetitorPriceWatch> {
+    const res = await fetch(`${BASE}/api/competitor-prices/watch`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(input),
+    });
+    return asJson<CompetitorPriceWatch>(res);
+  },
+
   templateUrl(): string {
     return `${BASE}/api/integrations/csv/template`;
   },
 
   /** Everything taught so far — retrieved into campaign generation (RAG). */
   async listKnowledge(): Promise<KnowledgeItem[]> {
-    const res = await fetch(`${BASE}/api/knowledge`, { headers: authHeaders() });
-    return asJson<KnowledgeItem[]>(res);
+    return getJson<KnowledgeItem[]>("/api/knowledge");
   },
 
   /** Add a snippet (service, brand voice, past campaign example, or a general
@@ -425,8 +540,7 @@ export const api = {
 
   // ── Automations (SMS/email rule engine) ──────────────────────────────────
   async listAutomationRules(): Promise<AutomationRule[]> {
-    const res = await fetch(`${BASE}/api/automations/rules`, { headers: authHeaders() });
-    return asJson<AutomationRule[]>(res);
+    return getJson<AutomationRule[]>("/api/automations/rules");
   },
 
   async createAutomationRule(input: AutomationRuleInput): Promise<AutomationRule> {
@@ -461,10 +575,7 @@ export const api = {
   },
 
   async listSends(limit = 50): Promise<CampaignSend[]> {
-    const res = await fetch(`${BASE}/api/automations/sends?limit=${limit}`, {
-      headers: authHeaders(),
-    });
-    return asJson<CampaignSend[]>(res);
+    return getJson<CampaignSend[]>(`/api/automations/sends?limit=${limit}`);
   },
 
   async approveSend(id: string): Promise<CampaignSend> {

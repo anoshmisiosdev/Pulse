@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import ChurnaryMark from "../components/ChurnaryMark";
 import WaitlistForm from "../components/WaitlistForm";
+import useMountProgress from "../hooks/useMountProgress";
 
 /* ─────────────────────────────────────────────────────────────
    Public marketing landing page. Fully self-contained: no data
@@ -63,24 +64,6 @@ function useRafScroll(onScroll: () => void, enabled = true) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
-}
-
-/** 0→1 mount progress, easeOutCubic — drives hero count-ups. */
-function useMountProgress(duration = 1600, enabled = true): number {
-  const [p, setP] = useState(enabled ? 0 : 1);
-  useEffect(() => {
-    if (!enabled) return;
-    let raf = 0;
-    const start = performance.now();
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
-      setP(1 - Math.pow(1 - t, 3));
-      if (t < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [duration, enabled]);
-  return p;
 }
 
 /** Adds .is-in to every [data-reveal] once it enters the viewport. */
@@ -328,7 +311,11 @@ const NAV_LINKS: [string, string][] = [
 export default function Landing() {
   const reduced = useReducedMotion();
   useRevealOnScroll(reduced);
-  const p = useMountProgress(1600, !reduced);
+  // The shared hook has no enabled flag, so gate its output rather than the
+  // call — a hook can't be called conditionally. Under reduced motion the
+  // counters jump straight to their final value.
+  const progress = useMountProgress(1600);
+  const p = reduced ? 1 : progress;
 
   return (
     <div className="lp-root">

@@ -4,9 +4,9 @@ Everything here is shaped by that: bounded field lengths (enforced by
 ``WaitlistIn``), a honeypot, and an upsert instead of a uniqueness error so a
 repeat submit is idempotent rather than a 409 the visitor has to interpret.
 
-Deliberately not rate-limited in code. The abuse ceiling is one row per email
-address, and the real defence belongs at the edge (CloudFront/WAF) where it can
-see the client. Revisit if that changes.
+Rate limited per IP in ``app/main.py`` alongside the auth endpoints — an
+unauthenticated write is worth a bucket even though the ceiling is one row per
+email address. A human submits this once.
 """
 
 from __future__ import annotations

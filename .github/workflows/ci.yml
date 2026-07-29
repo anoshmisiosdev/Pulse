@@ -21,6 +21,8 @@ jobs:
         run: uv sync --all-extras --dev
       - name: Lint
         run: uv run ruff check .
+      - name: Validate Alembic migration chain
+        run: uv run alembic upgrade head --sql > /dev/null
       - name: Tests (with coverage gate on scoring + adapters)
         run: uv run pytest --cov=app/scoring --cov=app/integrations --cov-report=term-missing --cov-fail-under=70
 

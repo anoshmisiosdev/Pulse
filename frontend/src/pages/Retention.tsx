@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { usePulse } from "../context/PulseContext";
 import { relativeDays, type CustomerRisk } from "../lib/api";
 import { urgencyOf } from "../lib/segments";
@@ -6,6 +7,7 @@ import CustomerDrawer from "../components/CustomerDrawer";
 
 export default function Retention() {
   const { customers, markContacted } = usePulse();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selected, setSelected] = useState<CustomerRisk | null>(null);
   const [done, setDone] = useState<Record<string, boolean>>({});
 
@@ -21,6 +23,21 @@ export default function Retention() {
   const doneCount = Object.values(done).filter(Boolean).length;
   const remaining = Math.max(0, total - doneCount);
   const progressPct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+  const requestedCustomerId = searchParams.get("customer");
+
+  useEffect(() => {
+    if (!requestedCustomerId) return;
+    const requested = customers.find((customer) => customer.customer_id === requestedCustomerId);
+    if (requested) setSelected(requested);
+  }, [customers, requestedCustomerId]);
+
+  const closeSelected = () => {
+    setSelected(null);
+    if (!requestedCustomerId) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("customer");
+    setSearchParams(next, { replace: true });
+  };
 
   const mark = (c: CustomerRisk) => {
     setDone((d) => ({ ...d, [c.customer_id]: true }));
@@ -135,7 +152,7 @@ export default function Retention() {
         </ul>
       </div>
 
-      {selected && <CustomerDrawer customer={selected} onClose={() => setSelected(null)} />}
+      {selected && <CustomerDrawer customer={selected} onClose={closeSelected} />}
     </div>
   );
 }

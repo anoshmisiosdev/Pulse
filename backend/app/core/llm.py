@@ -19,6 +19,7 @@ import re
 import httpx
 
 from app.core.config import settings
+from app.core.http_retry import retry_transient
 
 logger = logging.getLogger("pulse.llm")
 
@@ -60,6 +61,14 @@ def _base_url() -> str:
     return settings.token_router_base_url.rstrip("/")
 
 
+@retry_transient
+async def _post_json(url: str, headers: dict, payload: dict) -> dict:
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def _call_openai_compatible(system: str, user: str, max_tokens: int) -> str:
     url = f"{_base_url()}/chat/completions"
     headers = {
@@ -74,10 +83,7 @@ async def _call_openai_compatible(system: str, user: str, max_tokens: int) -> st
             {"role": "user", "content": user},
         ],
     }
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
+    data = await _post_json(url, headers, payload)
     try:
         return data["choices"][0]["message"]["content"] or ""
     except (KeyError, IndexError, TypeError) as exc:
@@ -97,10 +103,7 @@ async def _call_anthropic_compatible(system: str, user: str, max_tokens: int) ->
         "system": system,
         "messages": [{"role": "user", "content": user}],
     }
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
+    data = await _post_json(url, headers, payload)
     try:
         return "".join(b.get("text", "") for b in data["content"] if b.get("type") == "text")
     except (KeyError, TypeError) as exc:

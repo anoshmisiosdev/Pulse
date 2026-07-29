@@ -1,18 +1,23 @@
+import { Suspense, lazy } from "react";
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import EmptyState from "./components/EmptyState";
+import ErrorBoundary from "./components/ErrorBoundary";
+import PageSkeleton from "./components/PageSkeleton";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PulseProvider, usePulse } from "./context/PulseContext";
-import Dashboard from "./pages/Dashboard";
-import Customers from "./pages/Customers";
-import Retention from "./pages/Retention";
-import Automations from "./pages/Automations";
-import SocialHub from "./pages/SocialHub";
-import Pricing from "./pages/Pricing";
-import Onboarding from "./pages/Onboarding";
-import Landing from "./pages/Landing";
-import Login from "./pages/Login";
-import Setup, { SETUP_SKIPPED_KEY } from "./pages/Setup";
+import { SETUP_SKIPPED_KEY } from "./lib/api";
+
+// Each page is its own chunk — visitors only download the routes they visit.
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Customers = lazy(() => import("./pages/Customers"));
+const Retention = lazy(() => import("./pages/Retention"));
+const Automations = lazy(() => import("./pages/Automations"));
+const SocialHub = lazy(() => import("./pages/SocialHub"));
+const Pricing = lazy(() => import("./pages/Pricing"));
+const Landing = lazy(() => import("./pages/Landing"));
+const Login = lazy(() => import("./pages/Login"));
+const Setup = lazy(() => import("./pages/Setup"));
 
 function Spinner({ label }: { label: string }) {
   return (
@@ -43,7 +48,7 @@ function DataGate({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (status === "loading") return <Spinner label="Loading your customers…" />;
+  if (status === "loading") return <PageSkeleton />;
 
   if (status === "empty") {
     // First visit with no data → take them to setup. If they chose to skip,
@@ -80,7 +85,7 @@ function AuthedApp() {
             <AppShell>
               <Routes>
                 <Route path="/setup" element={<Setup />} />
-                <Route path="/connect" element={<Onboarding />} />
+                <Route path="/connect" element={<Navigate to="/setup" replace />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/" element={<DataGate><Dashboard /></DataGate>} />
                 <Route path="/customers" element={<DataGate><Customers /></DataGate>} />
@@ -123,8 +128,12 @@ function Gate() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Gate />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <Suspense fallback={<Spinner label="Loading…" />}>
+          <Gate />
+        </Suspense>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

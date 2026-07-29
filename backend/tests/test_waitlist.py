@@ -7,6 +7,8 @@ honeypot that fails closed without saying so.
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -16,6 +18,13 @@ from app.core import database as database_module
 from app.core.database import Base, get_db
 from app.main import app, fastapi_app
 from app.models.waitlist import WaitlistSignup
+
+# /api/waitlist is rate limited per IP (5/60s) and the limiter's buckets live on
+# the middleware instance for the life of the process — so a shared client IP
+# would make later tests 429 depending on how many ran before them. Each test
+# gets its own address out of TEST-NET-2, which the limiter reads from
+# X-Forwarded-For.
+_ips = itertools.count(1)
 
 
 @pytest.fixture
@@ -35,7 +44,8 @@ async def client(monkeypatch):
             await session.commit()
 
     fastapi_app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as c:
+    headers = {"x-forwarded-for": f"198.51.100.{next(_ips) % 250 + 1}"}
+    with TestClient(app, headers=headers) as c:
         yield c, SessionLocal
     fastapi_app.dependency_overrides.clear()
     await engine.dispose()
@@ -155,3 +165,16 @@ async def test_needs_no_authentication(client):
     c, _ = client
     resp = c.post("/api/waitlist", json={"name": "Dana", "email": "dana@bluebird.com"})
     assert resp.status_code == 200
+
+
+async def test_is_rate_limited_per_ip(client):
+    """An unauthenticated write needs a ceiling, or the table is a free-for-all."""
+    c, SessionLocal = client
+    codes = [
+        c.post("/api/waitlist", json={"name": "Dana", "email": f"d{i}@bluebird.com"}).status_code
+        for i in range(7)
+    ]
+    assert codes[:5] == [200] * 5
+    assert codes[5:] == [429, 429]
+    # The 429s never reached the handler, so only the allowed ones were stored.
+    assert await _count(SessionLocal) == 5

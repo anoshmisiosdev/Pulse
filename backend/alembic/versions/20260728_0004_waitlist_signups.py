@@ -14,7 +14,10 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260728_0004"
-down_revision: str | None = "20260712_0003"
+# Chains onto the merge revision, not 20260712_0003 — branching off an older
+# node would give `alembic upgrade head` two heads to choose between, which is
+# the failure 20260715_0006 exists to have fixed.
+down_revision: str | None = "20260715_0006"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

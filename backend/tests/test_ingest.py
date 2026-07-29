@@ -7,10 +7,6 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-from app.core.database import Base
 from app.models import Customer, SyncRun
 from app.schemas.normalized import (
     NormalizedCustomer,
@@ -21,18 +17,6 @@ from app.schemas.normalized import (
 from app.services import ingest
 
 BUSINESS_ID = str(uuid.uuid4())
-
-
-@pytest.fixture
-async def db():
-    engine = create_async_engine("sqlite+aiosqlite://")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
-    async with SessionLocal() as session:
-        yield session
-        await session.rollback()
-    await engine.dispose()
 
 
 def _sample_sync(now) -> SyncResult:

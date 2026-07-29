@@ -23,6 +23,17 @@ SourceType = Literal[
 ]
 MatchQuality = Literal["exact", "close", "weak"]
 PriceChannel = Literal["in_store", "delivery", "unknown"]
+RetrievalMethod = Literal["direct_fetch", "perplexity_content", "search_snippet", "none"]
+ExtractionMethod = Literal[
+    "json_ld",
+    "visible_text",
+    "search_snippet",
+    "sonar",
+    "tokenmart",
+    "method_consensus",
+]
+FreshnessStatus = Literal["current", "stale", "unknown", "expired"]
+DiscoveryProvider = Literal["google_places", "perplexity"]
 
 
 class CamelModel(BaseModel):
@@ -110,6 +121,7 @@ class QueryOut(CamelModel):
     target_offer: str = Field(alias="targetOffer")
     location_label: str = Field(alias="locationLabel")
     radius_miles: float = Field(alias="radiusMiles")
+    current_price: float | None = Field(default=None, alias="currentPrice")
 
 
 class PriceObservationOut(CamelModel):
@@ -129,6 +141,13 @@ class PriceObservationOut(CamelModel):
     price_channel: PriceChannel = Field(default="unknown", alias="priceChannel")
     corroborated: bool = False
     included_in_market_summary: bool = Field(default=False, alias="includedInMarketSummary")
+    source_published_at: str | None = Field(default=None, alias="sourcePublishedAt")
+    source_updated_at: str | None = Field(default=None, alias="sourceUpdatedAt")
+    verified_at: str | None = Field(default=None, alias="verifiedAt")
+    retrieval_method: RetrievalMethod = Field(default="search_snippet", alias="retrievalMethod")
+    extraction_method: ExtractionMethod = Field(default="search_snippet", alias="extractionMethod")
+    freshness_status: FreshnessStatus = Field(default="unknown", alias="freshnessStatus")
+    needs_review: bool = Field(default=False, alias="needsReview")
 
 
 class CompetitorOut(CamelModel):
@@ -142,6 +161,8 @@ class CompetitorOut(CamelModel):
     confidence: float = 0.0
     radius_verified: bool = Field(default=False, alias="radiusVerified")
     exclusion_reasons: list[str] = Field(default_factory=list, alias="exclusionReasons")
+    place_id: str | None = Field(default=None, alias="placeId")
+    discovery_provider: DiscoveryProvider = Field(default="perplexity", alias="discoveryProvider")
 
 
 class MarketSummaryOut(CamelModel):
@@ -168,6 +189,31 @@ class ResearchStatsOut(CamelModel):
     sources_checked: int = Field(default=0, alias="sourcesChecked")
     sources_accepted: int = Field(default=0, alias="sourcesAccepted")
     corroborated_competitors: int = Field(default=0, alias="corroboratedCompetitors")
+    pages_fetched: int = Field(default=0, alias="pagesFetched")
+    pages_parsed: int = Field(default=0, alias="pagesParsed")
+    deterministic_extractions: int = Field(default=0, alias="deterministicExtractions")
+    ai_extractions: int = Field(default=0, alias="aiExtractions")
+    stale_exclusions: int = Field(default=0, alias="staleExclusions")
+    conflicting_exclusions: int = Field(default=0, alias="conflictingExclusions")
+
+
+class ProviderStatsOut(CamelModel):
+    google_places_requests: int = Field(default=0, alias="googlePlacesRequests")
+    google_geocoding_requests: int = Field(default=0, alias="googleGeocodingRequests")
+    perplexity_requests: int = Field(default=0, alias="perplexityRequests")
+    perplexity_model: str | None = Field(default=None, alias="perplexityModel")
+    perplexity_usage: dict[str, int] = Field(default_factory=dict, alias="perplexityUsage")
+    page_fetch_requests: int = Field(default=0, alias="pageFetchRequests")
+    tokenmart_requests: int = Field(default=0, alias="tokenmartRequests")
+    duration_ms_by_provider: dict[str, int] = Field(
+        default_factory=dict, alias="durationMsByProvider"
+    )
+    tokenmart_gateway: str | None = Field(default=None, alias="tokenmartGateway")
+    tokenmart_requested_model: str | None = Field(default=None, alias="tokenmartRequestedModel")
+    tokenmart_returned_models: list[str] = Field(
+        default_factory=list, alias="tokenmartReturnedModels"
+    )
+    tokenmart_usage: dict[str, int] = Field(default_factory=dict, alias="tokenmartUsage")
 
 
 class GroundingUsedOut(CamelModel):
@@ -175,9 +221,13 @@ class GroundingUsedOut(CamelModel):
     google_maps: bool = Field(default=False, alias="googleMaps")
     url_context: bool = Field(default=False, alias="urlContext")
     perplexity_search: bool = Field(default=False, alias="perplexitySearch")
+    perplexity_sonar: bool = Field(default=False, alias="perplexitySonar")
+    sonar_extraction: bool = Field(default=False, alias="sonarExtraction")
+    sonar_research: bool = Field(default=False, alias="sonarResearch")
     deepseek_extraction: bool = Field(default=False, alias="deepseekExtraction")
     deepseek_research: bool = Field(default=False, alias="deepseekResearch")
     google_geocoding: bool = Field(default=False, alias="googleGeocoding")
+    google_places: bool = Field(default=False, alias="googlePlaces")
 
 
 class MetadataOut(CamelModel):
@@ -189,6 +239,9 @@ class MetadataOut(CamelModel):
     research_stats: ResearchStatsOut = Field(
         default_factory=ResearchStatsOut, alias="researchStats"
     )
+    provider_stats: ProviderStatsOut = Field(
+        default_factory=ProviderStatsOut, alias="providerStats"
+    )
 
 
 class CompetitorPriceResearchResponse(CamelModel):
@@ -198,6 +251,28 @@ class CompetitorPriceResearchResponse(CamelModel):
     channel_summaries: ChannelSummariesOut | None = Field(default=None, alias="channelSummaries")
     warnings: list[str] = Field(default_factory=list)
     metadata: MetadataOut
+
+
+class PriceHistoryItemOut(CamelModel):
+    id: str
+    target_offer: str = Field(alias="targetOffer")
+    business_category: str = Field(alias="businessCategory")
+    generated_at: datetime = Field(alias="generatedAt")
+    price_median: float | None = Field(alias="priceMedian")
+    sample_size: int = Field(alias="sampleSize")
+    confidence: float
+    change_percent: float | None = Field(default=None, alias="changePercent")
+
+
+class PriceWatchIn(CamelModel):
+    enabled: bool = True
+    interval_hours: int = Field(default=24, alias="intervalHours", ge=2, le=168)
+    request: CompetitorPriceResearchRequest
+
+
+class PriceWatchOut(PriceWatchIn):
+    last_run_at: datetime | None = Field(default=None, alias="lastRunAt")
+    next_run_at: datetime = Field(alias="nextRunAt")
 
 
 class DiscoveredCompetitor(CamelModel):
@@ -214,6 +289,8 @@ class DiscoveredCompetitor(CamelModel):
     source_urls: list[str] = Field(default_factory=list, alias="sourceUrls")
     radius_verified: bool = Field(default=False, alias="radiusVerified")
     exclusion_reasons: list[str] = Field(default_factory=list, alias="exclusionReasons")
+    place_id: str | None = Field(default=None, alias="placeId")
+    discovery_provider: DiscoveryProvider = Field(default="perplexity", alias="discoveryProvider")
 
 
 class CompetitorDiscoveryResult(CamelModel):
@@ -226,6 +303,13 @@ class DiscoveredSource(CamelModel):
     snippet: str | None = None
     source_type: SourceType = Field(default="unknown", alias="sourceType")
     relevance: float = 0.0
+    published_at: str | None = Field(default=None, alias="publishedAt")
+    updated_at: str | None = Field(default=None, alias="updatedAt")
+    retrieved_at: datetime | None = Field(default=None, alias="retrievedAt")
+    retrieval_method: RetrievalMethod = Field(default="search_snippet", alias="retrievalMethod")
+    http_status: int | None = Field(default=None, alias="httpStatus")
+    content_type: str | None = Field(default=None, alias="contentType")
+    content_hash: str | None = Field(default=None, alias="contentHash")
 
     @field_validator("url")
     @classmethod
@@ -247,6 +331,13 @@ class ExtractedPrice(CamelModel):
     observed_at: date = Field(alias="observedAt")
     match_quality: MatchQuality = Field(default="weak", alias="matchQuality")
     notes: str | None = None
+    source_published_at: str | None = Field(default=None, alias="sourcePublishedAt")
+    source_updated_at: str | None = Field(default=None, alias="sourceUpdatedAt")
+    verified_at: str | None = Field(default=None, alias="verifiedAt")
+    retrieval_method: RetrievalMethod = Field(default="search_snippet", alias="retrievalMethod")
+    extraction_method: ExtractionMethod = Field(default="search_snippet", alias="extractionMethod")
+    freshness_status: FreshnessStatus = Field(default="unknown", alias="freshnessStatus")
+    needs_review: bool = Field(default=False, alias="needsReview")
 
 
 class PriceExtractionResult(CamelModel):
@@ -259,6 +350,22 @@ class ResearchCallMetadata(CamelModel):
     google_maps_used: bool = Field(default=False, alias="googleMapsUsed")
     url_context_used: bool = Field(default=False, alias="urlContextUsed")
     perplexity_search_used: bool = Field(default=False, alias="perplexitySearchUsed")
+    perplexity_sonar_used: bool = Field(default=False, alias="perplexitySonarUsed")
+    sonar_extraction_used: bool = Field(default=False, alias="sonarExtractionUsed")
+    sonar_research_used: bool = Field(default=False, alias="sonarResearchUsed")
     deepseek_extraction_used: bool = Field(default=False, alias="deepseekExtractionUsed")
     deepseek_research_used: bool = Field(default=False, alias="deepseekResearchUsed")
     google_geocoding_used: bool = Field(default=False, alias="googleGeocodingUsed")
+    google_places_used: bool = Field(default=False, alias="googlePlacesUsed")
+    google_places_requests: int = 0
+    google_geocoding_requests: int = 0
+    perplexity_requests: int = 0
+    page_fetch_requests: int = 0
+    tokenmart_requests: int = 0
+    pages_fetched: int = 0
+    pages_parsed: int = 0
+    deterministic_extractions: int = 0
+    ai_extractions: int = 0
+    stale_exclusions: int = 0
+    conflicting_exclusions: int = 0
+    duration_ms_by_provider: dict[str, int] = Field(default_factory=dict)

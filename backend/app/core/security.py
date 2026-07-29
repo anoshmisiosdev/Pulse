@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from functools import lru_cache
 
 import jwt
 from cryptography.fernet import Fernet, InvalidToken
@@ -63,11 +64,11 @@ def decrypt_state(token: str, max_age_seconds: int = 600) -> dict:
         raise ValueError("Invalid or expired OAuth state") from exc
 
 
-_jwks_client = None  # cached PyJWKClient for asymmetric Supabase projects
-
-
-def _jwks_url() -> str:
-    return f"{settings.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
+@lru_cache(maxsize=1)
+def _jwks_client() -> jwt.PyJWKClient:
+    """Cached PyJWKClient for asymmetric Supabase projects."""
+    url = f"{settings.supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
+    return jwt.PyJWKClient(url)
 
 
 def verify_supabase_jwt(token: str) -> dict:
@@ -92,10 +93,7 @@ def verify_supabase_jwt(token: str) -> dict:
                 audience="authenticated",
             )
         # Asymmetric: fetch (and cache) the project's signing keys.
-        global _jwks_client
-        if _jwks_client is None:
-            _jwks_client = jwt.PyJWKClient(_jwks_url())
-        signing_key = _jwks_client.get_signing_key_from_jwt(token)
+        signing_key = _jwks_client().get_signing_key_from_jwt(token)
         return jwt.decode(
             token,
             signing_key.key,

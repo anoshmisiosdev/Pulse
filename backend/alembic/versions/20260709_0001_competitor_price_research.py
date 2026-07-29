@@ -11,7 +11,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "20260709_0001"
 down_revision: str | None = None
@@ -20,6 +20,20 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # Pricing initially shipped through SQLAlchemy create_all(). Adopt databases
+    # that already contain the complete legacy table set, then let later
+    # revisions add any missing columns and record the Alembic head normally.
+    if not context.is_offline_mode():
+        existing_tables = set(sa.inspect(op.get_bind()).get_table_names())
+        legacy_tables = {
+            "competitor_price_research_runs",
+            "competitor_price_competitors",
+            "competitor_price_sources",
+            "competitor_price_observations",
+        }
+        if legacy_tables.issubset(existing_tables):
+            return
+
     op.create_table(
         "competitor_price_research_runs",
         sa.Column("business_id", sa.Uuid(), nullable=False),
