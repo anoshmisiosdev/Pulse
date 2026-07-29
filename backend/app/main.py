@@ -18,6 +18,7 @@ from app.api import (
     knowledge,
     portfolio,
     social,
+    waitlist,
 )
 from app.core.config import settings
 
@@ -101,6 +102,8 @@ fastapi_app.include_router(competitor_prices.router, prefix=API_PREFIX)
 fastapi_app.include_router(knowledge.router, prefix=API_PREFIX)
 fastapi_app.include_router(automations.router, prefix=API_PREFIX)
 fastapi_app.include_router(social.router, prefix=API_PREFIX)
+# Public: the marketing page posts here before anyone has an account.
+fastapi_app.include_router(waitlist.router, prefix=API_PREFIX)
 
 
 @fastapi_app.get("/")

@@ -1,0 +1,157 @@
+"""Public waitlist endpoint.
+
+The one route an unauthenticated caller can write with, so the tests lean on
+the things that keep that safe: bounded input, an idempotent upsert, and a
+honeypot that fails closed without saying so.
+"""
+
+from __future__ import annotations
+
+import pytest
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from starlette.testclient import TestClient
+
+from app.core import database as database_module
+from app.core.database import Base, get_db
+from app.main import app, fastapi_app
+from app.models.waitlist import WaitlistSignup
+
+
+@pytest.fixture
+async def client(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+
+    # The app's lifespan re-imports the module-level engine and runs create_all
+    # against it; without this it would reach for the real (private) RDS host.
+    monkeypatch.setattr(database_module, "engine", engine)
+
+    async def override_get_db():
+        async with SessionLocal() as session:
+            yield session
+            await session.commit()
+
+    fastapi_app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as c:
+        yield c, SessionLocal
+    fastapi_app.dependency_overrides.clear()
+    await engine.dispose()
+
+
+async def _rows(SessionLocal) -> list[WaitlistSignup]:
+    async with SessionLocal() as db:
+        return list((await db.execute(select(WaitlistSignup))).scalars())
+
+
+async def _count(SessionLocal) -> int:
+    async with SessionLocal() as db:
+        return (await db.execute(select(func.count(WaitlistSignup.id)))).scalar_one()
+
+
+async def test_signup_is_recorded(client):
+    c, SessionLocal = client
+    resp = c.post(
+        "/api/waitlist",
+        json={
+            "name": "Dana Okafor",
+            "email": "dana@bluebirdcoffee.com",
+            "business_name": "Bluebird Coffee",
+            "vertical": "cafe",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "already_joined": False}
+
+    (row,) = await _rows(SessionLocal)
+    assert row.name == "Dana Okafor"
+    assert row.email == "dana@bluebirdcoffee.com"
+    assert row.business_name == "Bluebird Coffee"
+    assert row.vertical == "cafe"
+    assert row.source == "landing"
+
+
+async def test_email_is_normalized(client):
+    """Mixed case and stray whitespace must not create a second person."""
+    c, SessionLocal = client
+    c.post("/api/waitlist", json={"name": "Dana", "email": "  Dana@Bluebird.com "})
+    (row,) = await _rows(SessionLocal)
+    assert row.email == "dana@bluebird.com"
+
+
+async def test_repeat_signup_upserts_rather_than_duplicating(client):
+    c, SessionLocal = client
+    c.post("/api/waitlist", json={"name": "D", "email": "dana@bluebird.com"})
+    resp = c.post(
+        "/api/waitlist",
+        json={
+            "name": "Dana Okafor",
+            "email": "dana@bluebird.com",
+            "business_name": "Bluebird Coffee",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True, "already_joined": True}
+
+    (row,) = await _rows(SessionLocal)
+    assert row.name == "Dana Okafor"  # corrected
+    assert row.business_name == "Bluebird Coffee"  # added
+
+
+async def test_repeat_signup_never_blanks_existing_fields(client):
+    c, SessionLocal = client
+    c.post(
+        "/api/waitlist",
+        json={"name": "Dana", "email": "dana@bluebird.com", "business_name": "Bluebird"},
+    )
+    c.post("/api/waitlist", json={"name": "Dana", "email": "dana@bluebird.com"})
+
+    (row,) = await _rows(SessionLocal)
+    assert row.business_name == "Bluebird"
+
+
+async def test_honeypot_is_dropped_without_telling_the_bot(client):
+    c, SessionLocal = client
+    resp = c.post(
+        "/api/waitlist",
+        json={"name": "Bot", "email": "bot@spam.example", "website": "http://spam.example"},
+    )
+    # Indistinguishable from success on the wire...
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    # ...but nothing was stored.
+    assert await _count(SessionLocal) == 0
+
+
+async def test_invalid_email_is_rejected(client):
+    c, SessionLocal = client
+    resp = c.post("/api/waitlist", json={"name": "Dana", "email": "not-an-email"})
+    assert resp.status_code == 422
+    assert await _count(SessionLocal) == 0
+
+
+async def test_blank_name_is_rejected(client):
+    c, SessionLocal = client
+    resp = c.post("/api/waitlist", json={"name": "", "email": "dana@bluebird.com"})
+    assert resp.status_code == 422
+    assert await _count(SessionLocal) == 0
+
+
+async def test_overlong_fields_are_rejected(client):
+    """Bounded input is the main defence on an unauthenticated write."""
+    c, SessionLocal = client
+    resp = c.post(
+        "/api/waitlist",
+        json={"name": "D" * 121, "email": "dana@bluebird.com"},
+    )
+    assert resp.status_code == 422
+    assert await _count(SessionLocal) == 0
+
+
+async def test_needs_no_authentication(client):
+    """No Authorization header anywhere in these tests — that's the point."""
+    c, _ = client
+    resp = c.post("/api/waitlist", json={"name": "Dana", "email": "dana@bluebird.com"})
+    assert resp.status_code == 200
