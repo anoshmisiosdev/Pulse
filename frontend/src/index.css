@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Spectral:wght@500;600;700&family=Instrument+Serif&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Spectral:wght@500;600;700&display=swap');
 @import 'tailwindcss';
 
 /* ===== Design System: Coffeehouse Editorial — Pulse ===== */
@@ -63,7 +63,6 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .font-display { font-family: var(--font-display); }
-.font-logo { font-family: 'Instrument Serif', serif; }
 
 /* Cream cards (class names kept from the previous system so shared
    screens like Login stay styled) */
