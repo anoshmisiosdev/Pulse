@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { usePulse } from "../context/PulseContext";
 import { useAuth } from "../context/AuthContext";
 import { api, formatCurrency } from "../lib/api";
+import ChurnaryMark from "./ChurnaryMark";
 import KnowledgeChat from "./KnowledgeChat";
 
 const NAV = [
@@ -35,12 +36,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-3.5">
           <div className="flex items-center gap-7">
             <div className="flex items-center gap-2.5">
-              <span
-                className="font-logo inline-flex h-[30px] w-[30px] items-center justify-center rounded-full text-[19px]"
-                style={{ background: "var(--ink-strong)", color: "var(--cream-text)" }}
-              >
-                C
-              </span>
+              <ChurnaryMark size={30} />
               <span className="font-display text-[21px] font-bold tracking-tight" style={{ color: "var(--ink)" }}>
                 Churnary
               </span>

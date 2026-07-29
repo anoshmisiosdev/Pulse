@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import ChurnaryMark from "../components/ChurnaryMark";
 
 export default function Login() {
   const { login, signup, signInWithGoogle } = useAuth();
@@ -49,12 +50,7 @@ export default function Login() {
     <div className="grid min-h-screen place-items-center px-4">
       <div className="w-full max-w-sm">
         <Link to="/" className="mb-6 flex items-center justify-center gap-2">
-          <span
-            className="font-logo inline-flex h-10 w-10 items-center justify-center rounded-full text-2xl"
-            style={{ background: "var(--ink-strong)", color: "var(--cream-text)" }}
-          >
-            C
-          </span>
+          <ChurnaryMark size={40} />
           <span className="font-display text-2xl font-bold tracking-tight" style={{ color: "var(--ink)" }}>Churnary</span>
         </Link>
         <p className="mb-4 -mt-3 text-center text-xs">
