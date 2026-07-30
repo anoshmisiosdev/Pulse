@@ -1,8 +1,15 @@
 // Typed client for the Pulse API. Mirrors backend/app/schemas/api.py.
 
+import {
+  ANALYTICS_ID_STORAGE_KEY,
+  PRIVACY_PREFERENCE_EVENT,
+  VISITOR_SESSION_STORAGE_KEY,
+  hasAnalyticsConsent,
+} from "./privacyPreferences";
+
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 export const POSTHOG_DISTINCT_ID_HEADER = "X-PostHog-Distinct-Id";
-const POSTHOG_DISTINCT_ID_STORAGE_KEY = "pulse_posthog_distinct_id";
+export const VISITOR_SESSION_ID_HEADER = "X-Visitor-Session-Id";
 
 // localStorage flag: owner chose "skip setup" — lives here (not Setup.tsx) so the
 // route gate can read it without pulling the lazy-loaded Setup page into the main chunk.
@@ -144,6 +151,103 @@ export interface AuthUser {
   business_id: string;
   business_name: string;
   role: string;
+  can_manage_visitors: boolean;
+}
+
+export type VisitorStatus =
+  | "new"
+  | "reviewing"
+  | "qualified"
+  | "contacted"
+  | "dismissed";
+export type VisitorIdentityLevel =
+  | "anonymous"
+  | "company"
+  | "person"
+  | "waitlist"
+  | "account";
+
+export interface VisitorSummary {
+  active_24h: number;
+  unique_visitors: number;
+  identified_visitors: number;
+  identification_rate: number;
+  high_intent: number;
+  waitlist_conversions: number;
+  provider_matches: number;
+  window_days: number;
+}
+
+export interface VisitorListItem {
+  id: string;
+  primary_email: string | null;
+  full_name: string | null;
+  job_title: string | null;
+  linkedin_url: string | null;
+  company_name: string | null;
+  company_domain: string | null;
+  company_website: string | null;
+  industry: string | null;
+  employee_count: string | null;
+  estimated_revenue: string | null;
+  city: string | null;
+  state: string | null;
+  zipcode: string | null;
+  identity_level: VisitorIdentityLevel;
+  source_provider: string;
+  status: VisitorStatus;
+  intent_score: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  visit_count: number;
+  pageview_count: number;
+  last_path: string | null;
+  referrer_host: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  tags: string[];
+  waitlist_signup_id: string | null;
+  authenticated_user_id: string | null;
+  suppressed: boolean;
+}
+
+export interface VisitorEvent {
+  id: string;
+  event_name: string;
+  occurred_at: string;
+  path: string | null;
+  referrer: string | null;
+  provider: string;
+  properties: Record<string, unknown>;
+}
+
+export interface VisitorDetail extends VisitorListItem {
+  events: VisitorEvent[];
+}
+
+export interface VisitorList {
+  items: VisitorListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  summary: VisitorSummary;
+}
+
+export interface VisitorPilotMetrics {
+  provider: string;
+  window_days: number;
+  deliveries: number;
+  unique_profiles: number;
+  person_matches: number;
+  company_matches: number;
+  repeat_visitors: number;
+  high_intent_matches: number;
+  waitlist_conversions: number;
+  conversion_rate: number;
+  monthly_cost_usd: number | null;
+  cost_per_match_usd: number | null;
+  recommendation: string;
 }
 
 export interface CompetitorPriceResearchInput {
@@ -306,6 +410,16 @@ export interface CompetitorPriceWatch {
 // The current Supabase access token, kept in sync by AuthContext.
 let accessToken: string | null = null;
 let analyticsDistinctId: string | null = null;
+let visitorSessionId: string | null = null;
+
+if (typeof window !== "undefined") {
+  window.addEventListener(PRIVACY_PREFERENCE_EVENT, () => {
+    if (!hasAnalyticsConsent()) {
+      analyticsDistinctId = null;
+      visitorSessionId = null;
+    }
+  });
+}
 
 export function setAccessToken(t: string | null): void {
   accessToken = t;
@@ -316,7 +430,7 @@ export function getAnalyticsDistinctId(): string {
 
   if (typeof window !== "undefined") {
     try {
-      const stored = window.localStorage.getItem(POSTHOG_DISTINCT_ID_STORAGE_KEY);
+      const stored = window.localStorage.getItem(ANALYTICS_ID_STORAGE_KEY);
       if (stored) {
         analyticsDistinctId = stored;
         return stored;
@@ -333,7 +447,7 @@ export function getAnalyticsDistinctId(): string {
 
   if (typeof window !== "undefined") {
     try {
-      window.localStorage.setItem(POSTHOG_DISTINCT_ID_STORAGE_KEY, analyticsDistinctId);
+      window.localStorage.setItem(ANALYTICS_ID_STORAGE_KEY, analyticsDistinctId);
     } catch {
       // The in-memory ID still keeps this page load internally consistent.
     }
@@ -341,11 +455,43 @@ export function getAnalyticsDistinctId(): string {
   return analyticsDistinctId;
 }
 
+export function getVisitorSessionId(): string {
+  if (visitorSessionId) return visitorSessionId;
+  if (typeof window !== "undefined") {
+    try {
+      const stored = window.sessionStorage.getItem(VISITOR_SESSION_STORAGE_KEY);
+      if (stored) {
+        visitorSessionId = stored;
+        return stored;
+      }
+    } catch {
+      // Session storage can be unavailable in privacy-restricted contexts.
+    }
+  }
+  visitorSessionId =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  if (typeof window !== "undefined") {
+    try {
+      window.sessionStorage.setItem(VISITOR_SESSION_STORAGE_KEY, visitorSessionId);
+    } catch {
+      // The in-memory session remains usable for this page load.
+    }
+  }
+  return visitorSessionId;
+}
+
 /** Exported so lib/social.ts can share one auth + analytics-header convention. */
 export function authHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    [POSTHOG_DISTINCT_ID_HEADER]: getAnalyticsDistinctId(),
-  };
+  const headers: Record<string, string> = {};
+  if (hasAnalyticsConsent()) {
+    headers[POSTHOG_DISTINCT_ID_HEADER] = getAnalyticsDistinctId();
+    headers[VISITOR_SESSION_ID_HEADER] = getVisitorSessionId();
+  } else {
+    analyticsDistinctId = null;
+    visitorSessionId = null;
+  }
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   return headers;
 }
@@ -390,6 +536,63 @@ async function getJson<T>(path: string): Promise<T> {
 export const api = {
   async me(): Promise<AuthUser> {
     return getJson<AuthUser>("/api/auth/me");
+  },
+
+  async listVisitors(filters: {
+    days?: number;
+    limit?: number;
+    offset?: number;
+    q?: string;
+    status?: VisitorStatus | "";
+    identity?: VisitorIdentityLevel | "";
+    source?: string;
+  } = {}): Promise<VisitorList> {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== "") params.set(key, String(value));
+    });
+    return getJson<VisitorList>(`/api/visitors?${params}`);
+  },
+
+  async visitorDetail(id: string): Promise<VisitorDetail> {
+    return getJson<VisitorDetail>(`/api/visitors/${id}`);
+  },
+
+  async updateVisitorStatus(
+    id: string,
+    visitorStatus: VisitorStatus
+  ): Promise<VisitorListItem> {
+    const res = await fetch(`${BASE}/api/visitors/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ status: visitorStatus }),
+    });
+    return asJson<VisitorListItem>(res);
+  },
+
+  async suppressVisitor(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/visitors/${id}/suppress`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!res.ok && res.status !== 204) {
+      throw new Error(`Request failed (${res.status})`);
+    }
+  },
+
+  async deleteVisitor(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/visitors/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok && res.status !== 204) {
+      throw new Error(`Request failed (${res.status})`);
+    }
+  },
+
+  async visitorPilot(days = 30, provider = "rb2b"): Promise<VisitorPilotMetrics> {
+    const params = new URLSearchParams({ days: String(days), provider });
+    return getJson<VisitorPilotMetrics>(`/api/visitors/pilot?${params}`);
   },
 
   /** The tenant's persisted dashboard data. status:"empty" → route to /setup. */

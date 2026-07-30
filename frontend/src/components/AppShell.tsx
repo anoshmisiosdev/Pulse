@@ -14,12 +14,17 @@ const NAV = [
   { to: "/social", label: "Social" },
   { to: "/pricing", label: "Pricing" },
   { to: "/setup", label: "Data sources" },
+  { to: "/visitors", label: "Recent visitors" },
 ];
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const { businessName: dataBusiness } = usePulse();
   const { user, logout, configured } = useAuth();
   const businessName = user?.business_name ?? dataBusiness;
+  const nav = NAV.filter(
+    (item) =>
+      item.to !== "/visitors" || !configured || Boolean(user?.can_manage_visitors)
+  );
   const [briefing, setBriefing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -42,7 +47,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               </span>
             </div>
             <nav className="hidden items-center gap-1 md:flex">
-              {NAV.map((n) => (
+              {nav.map((n) => (
                 <NavLink
                   key={n.to}
                   to={n.to}
@@ -119,7 +124,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         {/* mobile nav */}
         <nav className="flex items-center gap-1 overflow-x-auto px-4 pb-2 sm:px-6 md:hidden">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <NavLink
               key={n.to}
               to={n.to}

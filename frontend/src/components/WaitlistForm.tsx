@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { trackLandingEvent } from "../lib/landingAnalytics";
 import { EMAIL_RE, waitlist } from "../lib/waitlist";
 
@@ -192,7 +193,10 @@ export default function WaitlistForm() {
           {phase === "sending" ? "Joining…" : "Join the waitlist"}
           {phase !== "sending" && <span aria-hidden> →</span>}
         </button>
-        <span className="lp-wl-fine">No spam. One email when we open a seat for you.</span>
+        <span className="lp-wl-fine">
+          No spam. One email when we open a seat. See our{" "}
+          <Link to="/privacy">Privacy Policy</Link>.
+        </span>
       </div>
     </form>
   );

@@ -138,6 +138,7 @@ class AuthUser(BaseModel):
     business_id: str
     business_name: str
     role: str = "owner"
+    can_manage_visitors: bool = False
 
 
 # ── integrations / per-tenant portfolio ──

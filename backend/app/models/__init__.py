@@ -32,6 +32,7 @@ from app.models.social import (
     SocialComment,
     SocialPost,
 )
+from app.models.visitor import VisitorEvent, VisitorIdentifier, VisitorProfile
 from app.models.waitlist import WaitlistSignup
 
 __all__ = [
@@ -62,4 +63,7 @@ __all__ = [
     "CompetitorPriceObservation",
     "CompetitorPriceWatch",
     "WaitlistSignup",
+    "VisitorProfile",
+    "VisitorIdentifier",
+    "VisitorEvent",
 ]

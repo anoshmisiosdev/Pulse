@@ -260,6 +260,22 @@ class Settings(BaseSettings):
     posthog_host: str = "https://us.i.posthog.com"
     posthog_disabled: bool = False
 
+    # Platform-owned marketing visitor intelligence. This data is deliberately
+    # separate from tenant customer data and only visible to platform admins.
+    visitor_admin_emails: str = ""
+    # RB2B's generic webhook cannot attach custom headers, so its opaque secret
+    # is included as a query parameter in the URL configured in RB2B.
+    rb2b_webhook_secret: str = ""
+    rb2b_monthly_cost_usd: float = 0.0
+
+    @property
+    def visitor_admin_email_set(self) -> set[str]:
+        return {
+            email.strip().casefold()
+            for email in self.visitor_admin_emails.split(",")
+            if email.strip()
+        }
+
     @property
     def cors_origins(self) -> list[str]:
         """Allowed browser origins: the frontend origin plus any extras from env."""

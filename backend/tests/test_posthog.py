@@ -221,6 +221,22 @@ def test_auth_me_links_browser_and_authenticated_ids(monkeypatch):
     ]
 
 
+def test_auth_me_without_analytics_header_does_not_identify(monkeypatch):
+    calls: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(
+        auth_api,
+        "identify_user",
+        lambda distinct_id, **kwargs: calls.append((distinct_id, kwargs)),
+    )
+    monkeypatch.setattr(settings, "supabase_url", "")
+    monkeypatch.setattr(settings, "supabase_jwt_secret", "")
+
+    response = TestClient(app).get("/api/auth/me")
+
+    assert response.status_code == 200
+    assert calls == []
+
+
 def test_demo_captures_browser_distinct_id(monkeypatch):
     calls: list[tuple[str, dict[str, Any]]] = []
 

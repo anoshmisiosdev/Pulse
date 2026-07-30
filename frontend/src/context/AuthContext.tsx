@@ -32,6 +32,7 @@ function toAuthUser(session: Session | null): AuthUser | null {
     business_id: String(appMeta.business_id ?? u.id),
     business_name: (meta.business_name as string) || u.email || "My Business",
     role: (appMeta.role as string) ?? "owner",
+    can_manage_visitors: false,
   };
 }
 
@@ -55,9 +56,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (identifiedUserId === userId) return;
 
       identifiedUserId = userId;
-      void api.me().catch(() => {
-        if (mounted && identifiedUserId === userId) identifiedUserId = null;
-      });
+      void api
+        .me()
+        .then((resolved) => {
+          if (mounted && identifiedUserId === userId) setUser(resolved);
+        })
+        .catch(() => {
+          if (mounted && identifiedUserId === userId) identifiedUserId = null;
+        });
     };
 
     supabase.auth.getSession().then(({ data }) => {

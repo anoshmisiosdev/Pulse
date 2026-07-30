@@ -20,6 +20,7 @@ from app.api import (
     knowledge,
     portfolio,
     social,
+    visitors,
     waitlist,
 )
 from app.core.config import settings
@@ -30,6 +31,7 @@ from app.core.posthog_client import (
     shutdown_posthog,
 )
 from app.core.ratelimit import RateLimitMiddleware
+from app.visitor_intelligence.service import VISITOR_SESSION_ID_HEADER
 
 setup_logging()
 logger = logging.getLogger("pulse")
@@ -104,6 +106,8 @@ fastapi_app.include_router(social.router, prefix=API_PREFIX)
 fastapi_app.include_router(analytics.router, prefix=API_PREFIX)
 # Public: the marketing page posts here before anyone has an account.
 fastapi_app.include_router(waitlist.router, prefix=API_PREFIX)
+# Public provider webhook plus platform-admin reporting endpoints.
+fastapi_app.include_router(visitors.router, prefix=API_PREFIX)
 
 # Rate limiting: protect auth (brute-force) and competitor research (expensive LLM).
 # Applied to the inner app so CORS-wrapped 429s still get Access-Control-Allow-Origin.
@@ -114,6 +118,7 @@ fastapi_app.add_middleware(
         "/api/competitor-prices": (3, 60),  # 3 per 60s — expensive LLM calls
         "/api/analytics": (60, 60),         # bounded public landing-page metrics
         "/api/waitlist": (5, 60),           # 5 per 60s — unauthenticated public write
+        "/api/visitors/webhooks": (120, 60), # bounded third-party identity deliveries
     },
 )
 
@@ -140,5 +145,6 @@ app = CORSMiddleware(
         "Content-Type",
         "X-Request-ID",
         POSTHOG_DISTINCT_ID_HEADER,
+        VISITOR_SESSION_ID_HEADER,
     ],
 )

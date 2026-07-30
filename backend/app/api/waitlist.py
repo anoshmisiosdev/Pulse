@@ -18,9 +18,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.posthog_client import capture_event, request_distinct_id
+from app.core.posthog_client import capture_event, identify_user, request_distinct_id
 from app.models.waitlist import WaitlistSignup
 from app.schemas.waitlist import WaitlistIn, WaitlistOut
+from app.visitor_intelligence.service import (
+    link_waitlist_signup,
+    request_session_id,
+)
 
 router = APIRouter(prefix="/waitlist", tags=["waitlist"])
 
@@ -65,11 +69,12 @@ async def join_waitlist(
     }
     # The API has now accepted a valid, non-honeypot submission. Keeping this
     # adjacent to the conversion event preserves ordering in PostHog.
-    capture_event(
-        "landing_waitlist_submitted",
-        distinct_id=distinct_id,
-        properties=acquisition_properties,
-    )
+    if distinct_id:
+        capture_event(
+            "landing_waitlist_submitted",
+            distinct_id=distinct_id,
+            properties=acquisition_properties,
+        )
 
     # WaitlistIn has already stripped and lowercased these.
     existing = (
@@ -83,30 +88,50 @@ async def join_waitlist(
         existing.business_name = payload.business_name or existing.business_name
         existing.vertical = payload.vertical or existing.vertical
         existing.note = payload.note or existing.note
+        signup = existing
         already_joined = True
     else:
-        db.add(
-            WaitlistSignup(
-                email=payload.email,
-                name=payload.name,
-                business_name=payload.business_name,
-                vertical=payload.vertical,
-                note=payload.note,
-            )
+        signup = WaitlistSignup(
+            email=payload.email,
+            name=payload.name,
+            business_name=payload.business_name,
+            vertical=payload.vertical,
+            note=payload.note,
         )
+        db.add(signup)
         already_joined = False
 
+    await db.flush()
+    await link_waitlist_signup(
+        db,
+        signup=signup,
+        anonymous_id=distinct_id,
+        session_id=request_session_id(request),
+        already_joined=already_joined,
+    )
     # This is the acquisition conversion event, so emit it only after the
     # database has confirmed the write. The dependency's final commit is then
     # an idempotent no-op.
     await db.commit()
-    capture_event(
-        "landing_waitlist_joined",
-        distinct_id=distinct_id,
-        properties={
-            **acquisition_properties,
-            "already_joined": already_joined,
-        },
-    )
+    # Alias the pseudonymous browser history to an opaque waitlist record ID.
+    # Names and emails remain in Churnary's own database, never in PostHog.
+    if distinct_id:
+        identify_user(
+            f"waitlist:{signup.id}",
+            anonymous_id=distinct_id,
+            properties={
+                "lifecycle_stage": "waitlist",
+                "source": "landing",
+                "vertical": _vertical_bucket(payload.vertical),
+            },
+        )
+        capture_event(
+            "landing_waitlist_joined",
+            distinct_id=distinct_id,
+            properties={
+                **acquisition_properties,
+                "already_joined": already_joined,
+            },
+        )
     logger.info("waitlist signup recorded (already_joined=%s)", already_joined)
     return WaitlistOut(ok=True, already_joined=already_joined)

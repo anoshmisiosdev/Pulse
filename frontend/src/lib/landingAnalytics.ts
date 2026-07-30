@@ -1,4 +1,5 @@
 import { API_BASE, authHeaders } from "./api";
+import { hasAnalyticsConsent } from "./privacyPreferences";
 
 export type LandingMetric =
   | {
@@ -71,6 +72,7 @@ export function landingViewMetric(): Extract<LandingMetric, { event: "landing_vi
 
 /** Fire-and-forget by design: analytics can never block a visitor action. */
 export async function trackLandingEvent(metric: LandingMetric): Promise<void> {
+  if (!hasAnalyticsConsent()) return;
   try {
     await fetch(`${API_BASE}/api/analytics/landing`, {
       method: "POST",

@@ -152,12 +152,41 @@ async def test_repeat_signup_marks_conversion_as_already_joined(client, monkeypa
         lambda event, **kwargs: calls.append((event, kwargs)),
     )
 
-    c.post("/api/waitlist", json={"name": "Dana", "email": "dana@bluebird.com"})
-    c.post("/api/waitlist", json={"name": "Dana", "email": "dana@bluebird.com"})
+    headers = {POSTHOG_DISTINCT_ID_HEADER: "landing-browser-789"}
+    c.post(
+        "/api/waitlist",
+        headers=headers,
+        json={"name": "Dana", "email": "dana@bluebird.com"},
+    )
+    c.post(
+        "/api/waitlist",
+        headers=headers,
+        json={"name": "Dana", "email": "dana@bluebird.com"},
+    )
 
     assert calls[-1][0] == "landing_waitlist_joined"
     assert calls[-1][1]["properties"]["already_joined"] is True
     assert calls[-1][1]["properties"]["vertical"] == "not_provided"
+
+
+async def test_signup_without_analytics_consent_does_not_send_posthog_events(
+    client, monkeypatch
+):
+    c, _ = client
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        waitlist_api,
+        "capture_event",
+        lambda event, **kwargs: calls.append((event, kwargs)),
+    )
+
+    response = c.post(
+        "/api/waitlist",
+        json={"name": "Dana", "email": "dana@bluebird.com"},
+    )
+
+    assert response.status_code == 200
+    assert calls == []
 
 
 async def test_email_is_normalized(client):

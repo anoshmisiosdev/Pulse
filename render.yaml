@@ -30,6 +30,12 @@ services:
         sync: false
       - key: POSTHOG_HOST
         value: https://us.i.posthog.com
+      - key: VISITOR_ADMIN_EMAILS
+        sync: false
+      - key: RB2B_WEBHOOK_SECRET
+        sync: false
+      - key: RB2B_MONTHLY_COST_USD
+        value: "0"
       - key: FERNET_KEY
         sync: false
       - key: GOOGLE_MAPS_SERVER_API_KEY

@@ -76,16 +76,18 @@ async def csv_preview(
 
     scored = build_scored_customers(sync, vertical=vertical)
     summary = summarize(scored, monthly_revenue_series(sync))
-    capture_event(
-        "csv_previewed",
-        distinct_id=request_distinct_id(request),
-        properties={
-            "vertical": vertical,
-            "customer_count": len(scored),
-            "high_risk_count": sum(1 for c in scored if c.result.band == "high"),
-            "warning_count": len(sync.warnings),
-        },
-    )
+    distinct_id = request_distinct_id(request)
+    if distinct_id:
+        capture_event(
+            "csv_previewed",
+            distinct_id=distinct_id,
+            properties={
+                "vertical": vertical,
+                "customer_count": len(scored),
+                "high_risk_count": sum(1 for c in scored if c.result.band == "high"),
+                "warning_count": len(sync.warnings),
+            },
+        )
     return CSVPreviewOut(
         business_name=business_name,
         vertical=vertical,
@@ -341,14 +343,16 @@ async def demo(request: Request, count: int = Query(50, ge=1, le=2000)) -> CSVPr
     sync = generate_sync(n=count)
     scored = build_scored_customers(sync, vertical=DEMO_VERTICAL)
     summary = summarize(scored, monthly_revenue_series(sync))
-    capture_event(
-        "demo_viewed",
-        distinct_id=request_distinct_id(request),
-        properties={
-            "customer_count": count,
-            "high_risk_count": sum(1 for c in scored if c.result.band == "high"),
-        },
-    )
+    distinct_id = request_distinct_id(request)
+    if distinct_id:
+        capture_event(
+            "demo_viewed",
+            distinct_id=distinct_id,
+            properties={
+                "customer_count": count,
+                "high_risk_count": sum(1 for c in scored if c.result.band == "high"),
+            },
+        )
     return CSVPreviewOut(
         business_name=DEMO_BUSINESS_NAME,
         vertical=DEMO_VERTICAL,

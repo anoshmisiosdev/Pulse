@@ -91,7 +91,10 @@ def test_landing_view_accepts_bounded_attribution(monkeypatch):
 
     response = TestClient(app).post(
         "/api/analytics/landing",
-        headers={"x-forwarded-for": "198.51.100.203"},
+        headers={
+            POSTHOG_DISTINCT_ID_HEADER: "landing-browser-789",
+            "x-forwarded-for": "198.51.100.203",
+        },
         json={
             "event": "landing_viewed",
             "path": "/landing",
@@ -105,3 +108,21 @@ def test_landing_view_accepts_bounded_attribution(monkeypatch):
     assert response.status_code == 204
     assert calls[0][1]["properties"]["referrer_host"] == "search.example"
     assert calls[0][1]["properties"]["utm_campaign"] == "summer-launch"
+
+
+def test_landing_metric_without_consent_header_is_not_forwarded(monkeypatch):
+    calls: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(
+        analytics_api,
+        "capture_event",
+        lambda event, **kwargs: calls.append((event, kwargs)),
+    )
+
+    response = TestClient(app).post(
+        "/api/analytics/landing",
+        headers={"x-forwarded-for": "198.51.100.204"},
+        json={"event": "landing_waitlist_started"},
+    )
+
+    assert response.status_code == 204
+    assert calls == []

@@ -1,5 +1,33 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, formatCurrency, POSTHOG_DISTINCT_ID_HEADER } from "./api";
+import { PRIVACY_PREFERENCE_KEY } from "./privacyPreferences";
+
+function allowAnalytics() {
+  const local = new Map<string, string>([
+    [
+      PRIVACY_PREFERENCE_KEY,
+      JSON.stringify({
+        version: 1,
+        analytics: "granted",
+        source: "choice",
+        updated_at: new Date().toISOString(),
+      }),
+    ],
+  ]);
+  const session = new Map<string, string>();
+  vi.stubGlobal("window", {
+    localStorage: {
+      getItem: (key: string) => local.get(key) ?? null,
+      setItem: (key: string, value: string) => local.set(key, value),
+      removeItem: (key: string) => local.delete(key),
+    },
+    sessionStorage: {
+      getItem: (key: string) => session.get(key) ?? null,
+      setItem: (key: string, value: string) => session.set(key, value),
+      removeItem: (key: string) => session.delete(key),
+    },
+  });
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -21,6 +49,7 @@ describe("formatCurrency", () => {
 
 describe("analytics identity", () => {
   it("sends one stable anonymous ID with API requests", async () => {
+    allowAnalytics();
     const fetchMock = vi.fn().mockImplementation(() =>
       Promise.resolve(
         new Response(
@@ -54,5 +83,24 @@ describe("analytics identity", () => {
     expect(secondHeaders[POSTHOG_DISTINCT_ID_HEADER]).toBe(
       firstHeaders[POSTHOG_DISTINCT_ID_HEADER]
     );
+  });
+
+  it("omits optional identity headers before consent", async () => {
+    vi.stubGlobal("window", {
+      localStorage: { getItem: () => null },
+      sessionStorage: { getItem: () => null },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ status: "empty" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.demo(1);
+
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers[POSTHOG_DISTINCT_ID_HEADER]).toBeUndefined();
   });
 });

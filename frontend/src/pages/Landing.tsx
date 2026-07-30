@@ -7,6 +7,11 @@ import ChurnaryMark from "../components/ChurnaryMark";
 import WaitlistForm from "../components/WaitlistForm";
 import useMountProgress from "../hooks/useMountProgress";
 import { landingViewMetric, trackLandingEvent } from "../lib/landingAnalytics";
+import {
+  hasAnalyticsConsent,
+  onPrivacyPreferenceChange,
+  openPrivacyChoices,
+} from "../lib/privacyPreferences";
 
 /* ─────────────────────────────────────────────────────────────
    Public marketing landing page. Fully self-contained: no data
@@ -117,14 +122,21 @@ function useActiveSection(ids: string[]): string {
 /** Capture the acquisition page once, plus meaningful content reach milestones. */
 function useLandingMetrics() {
   const viewed = useRef(false);
+  const [enabled, setEnabled] = useState(hasAnalyticsConsent);
+
+  useEffect(
+    () => onPrivacyPreferenceChange(() => setEnabled(hasAnalyticsConsent())),
+    []
+  );
 
   useEffect(() => {
-    if (viewed.current) return;
+    if (!enabled || viewed.current) return;
     viewed.current = true;
     void trackLandingEvent(landingViewMetric());
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     const seen = new Set<string>();
     const io = new IntersectionObserver(
       (entries) => {
@@ -143,7 +155,7 @@ function useLandingMetrics() {
       if (section) io.observe(section);
     });
     return () => io.disconnect();
-  }, []);
+  }, [enabled]);
 }
 
 /* ── text splitting ──────────────────────────────────────────────────────── */
@@ -1355,6 +1367,10 @@ function Footer() {
           <a href="#demo">Live demo</a>
           <a href="#team">Team</a>
           <a href="#pricing">Pricing</a>
+          <Link to="/privacy">Privacy</Link>
+          <button type="button" onClick={openPrivacyChoices}>
+            Privacy choices
+          </button>
           <a
             href="#waitlist"
             onClick={() =>
@@ -2162,7 +2178,8 @@ const LP_CSS = `
   .lp-footer-tag { font-size: 13px; color: var(--muted-2); }
   .lp-footer-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 17px; font-size: 13px; color: var(--muted-2); }
   .lp-footer-links a { color: var(--muted-2); }
-  .lp-footer-links a:hover { color: var(--accent); text-decoration: underline; }
+  .lp-footer-links button { border: 0; padding: 0; background: none; color: var(--muted-2); font: inherit; cursor: pointer; }
+  .lp-footer-links a:hover, .lp-footer-links button:hover { color: var(--accent); text-decoration: underline; }
 
   /* Smooth anchor scrolling, but not for people who asked us not to. */
   @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }

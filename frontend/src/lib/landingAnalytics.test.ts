@@ -5,6 +5,35 @@ import {
   trackLandingEvent,
 } from "./landingAnalytics";
 import { waitlist } from "./waitlist";
+import { PRIVACY_PREFERENCE_KEY } from "./privacyPreferences";
+
+function allowAnalytics() {
+  const local = new Map<string, string>([
+    [
+      PRIVACY_PREFERENCE_KEY,
+      JSON.stringify({
+        version: 1,
+        analytics: "granted",
+        source: "choice",
+        updated_at: new Date().toISOString(),
+      }),
+    ],
+  ]);
+  const session = new Map<string, string>();
+  vi.stubGlobal("window", {
+    location: { pathname: "/", search: "" },
+    localStorage: {
+      getItem: (key: string) => local.get(key) ?? null,
+      setItem: (key: string, value: string) => local.set(key, value),
+      removeItem: (key: string) => local.delete(key),
+    },
+    sessionStorage: {
+      getItem: (key: string) => session.get(key) ?? null,
+      setItem: (key: string, value: string) => session.set(key, value),
+      removeItem: (key: string) => session.delete(key),
+    },
+  });
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -36,6 +65,7 @@ describe("landing analytics", () => {
   });
 
   it("sends a stable identity header and only the declared metric fields", async () => {
+    allowAnalytics();
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -63,6 +93,7 @@ describe("landing analytics", () => {
   });
 
   it("isolates network failures from visitor actions", async () => {
+    allowAnalytics();
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
 
     await expect(
@@ -79,6 +110,7 @@ describe("landing analytics", () => {
 
 describe("waitlist analytics identity", () => {
   it("uses the same anonymous ID on the conversion request", async () => {
+    allowAnalytics();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true, already_joined: false }), {
         status: 200,

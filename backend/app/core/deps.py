@@ -69,3 +69,24 @@ async def get_current_user(
 
 
 CurrentUserDep = Depends(get_current_user)
+
+
+def can_manage_visitors(user: CurrentUser) -> bool:
+    """Platform authorization for Churnary's own marketing visitor data."""
+    if not settings.is_production and not settings.auth_configured:
+        return True
+    if user.role in {"admin", "platform_admin"}:
+        return True
+    return bool(user.email and user.email.casefold() in settings.visitor_admin_email_set)
+
+
+async def get_visitor_admin(user: CurrentUser = CurrentUserDep) -> CurrentUser:
+    if not can_manage_visitors(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform administrator access required",
+        )
+    return user
+
+
+VisitorAdminDep = Depends(get_visitor_admin)
