@@ -15,6 +15,10 @@ export default defineConfig({
   build: {
     outDir: "../.preview-dist",
     emptyOutDir: true,
+    // The normal app emits imported photos as cacheable files. The standalone
+    // design-review export has no sibling asset directory, so fold them into
+    // its one HTML file with the JS and CSS.
+    assetsInlineLimit: 1_000_000,
     // One JS chunk and one CSS file, so inlining is a straight substitution.
     cssCodeSplit: false,
     modulePreload: { polyfill: false },

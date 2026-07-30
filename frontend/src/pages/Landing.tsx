@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import adityaPhoto from "../assets/team/aditya-kolekar.jpg";
+import pranjalPhoto from "../assets/team/pranjal-mishra.jpg";
+import sohamPhoto from "../assets/team/soham-dogra.jpg";
 import ChurnaryMark from "../components/ChurnaryMark";
 import WaitlistForm from "../components/WaitlistForm";
 import useMountProgress from "../hooks/useMountProgress";
@@ -338,6 +341,7 @@ const NAV_LINKS: [string, string][] = [
   ["flow", "How it works"],
   ["demo", "Live demo"],
   ["features", "Features"],
+  ["team", "Team"],
   ["pricing", "Pricing"],
 ];
 
@@ -365,6 +369,7 @@ export default function Landing() {
         <Features reduced={reduced} />
         <HowItWorks reduced={reduced} />
         <Guardrails reduced={reduced} />
+        <Team reduced={reduced} />
         <Pricing reduced={reduced} />
         <Waitlist reduced={reduced} />
       </main>
@@ -743,7 +748,7 @@ function Flow({ reduced }: { reduced: boolean }) {
 
   return (
     <section id="flow" className="lp-section lp-alt">
-      <SectionHead kicker="How it works" index={1} total={7}>
+      <SectionHead kicker="How it works" index={1} total={8}>
         <div className="lp-head-split">
           <ScrubWords
             className="font-display lp-h2"
@@ -829,7 +834,7 @@ const STANCE: [string, string, string][] = [
 function Stance({ reduced }: { reduced: boolean }) {
   return (
     <section className="lp-section">
-      <SectionHead kicker="Where the line sits" index={2} total={7}>
+      <SectionHead kicker="Where the line sits" index={2} total={8}>
         <ScrubWords
           className="font-display lp-h2 is-wide"
           text="Churnary proposes. *You* approve."
@@ -877,7 +882,7 @@ function RiskDemo({ reduced }: { reduced: boolean }) {
 
   return (
     <section id="demo" className="lp-section lp-alt">
-      <SectionHead kicker="Try it yourself" index={3} total={7} />
+      <SectionHead kicker="Try it yourself" index={3} total={8} />
       <div className="lp-demo">
         <div className="lp-demo-copy">
           <ScrubWords
@@ -1026,7 +1031,7 @@ function Features({ reduced }: { reduced: boolean }) {
   ];
   return (
     <section id="features" className="lp-section">
-      <SectionHead kicker="Why owners trust it" index={4} total={7}>
+      <SectionHead kicker="Why owners trust it" index={4} total={8}>
         <div className="lp-head-split">
           <ScrubWords
             className="font-display lp-h2"
@@ -1063,7 +1068,7 @@ function HowItWorks({ reduced }: { reduced: boolean }) {
   ];
   return (
     <section id="how" className="lp-section lp-alt">
-      <SectionHead kicker="Owner-simple, on purpose" index={5} total={7}>
+      <SectionHead kicker="Owner-simple, on purpose" index={5} total={8}>
         <ScrubWords
           className="font-display lp-h2 is-wide"
           text="Built for people who run a counter, *not a CRM*."
@@ -1095,7 +1100,7 @@ const GUARDRAILS: [string, string][] = [
 function Guardrails({ reduced }: { reduced: boolean }) {
   return (
     <section className="lp-section lp-dark-section">
-      <SectionHead kicker="Guardrails" index={6} total={7} dark>
+      <SectionHead kicker="Guardrails" index={6} total={8} dark>
         <div className="lp-head-split">
           <ScrubWords
             className="font-display lp-h2 is-dark"
@@ -1122,6 +1127,106 @@ function Guardrails({ reduced }: { reduced: boolean }) {
   );
 }
 
+/* ── Team ── */
+const TEAM_MEMBERS = [
+  {
+    name: "Soham Dogra",
+    education: "CS + Linguistics · San José State",
+    bio: "An AI product builder working across strategy, engineering and growth, with experience developing AI infrastructure at Inference.ai.",
+    linkedin: "https://www.linkedin.com/in/soham-dogra-b110ab2ab/",
+    image: sohamPhoto,
+    imagePosition: "center 28%",
+  },
+  {
+    name: "Riyan Anosh",
+    education: "Computer Engineering · UC Merced",
+    bio: "A hands-on builder with a soft spot for homelabs, hardware and turning ambitious AI ideas into working prototypes.",
+    linkedin: "https://www.linkedin.com/in/riyan-anosh-0aba9434b/",
+    image: null,
+    imagePosition: "center",
+  },
+  {
+    name: "Pranjal Mishra",
+    education: "Aerospace + Mechanical · RPI",
+    bio: "An engineer-in-training who pairs flight manufacturing experience with a background in software engineering and applied AI.",
+    linkedin: "https://www.linkedin.com/in/pranjal-mishra-b622252a6/",
+    image: pranjalPhoto,
+    imagePosition: "center 32%",
+  },
+  {
+    name: "Aditya Kolekar",
+    education: "Artificial Intelligence · UC San Diego",
+    bio: "An AI builder and three-time hackathon winner focused on making complex technology feel clear, practical and useful.",
+    linkedin: "https://www.linkedin.com/in/aditkolekar/",
+    image: adityaPhoto,
+    imagePosition: "center 28%",
+  },
+] as const;
+
+function Team({ reduced }: { reduced: boolean }) {
+  return (
+    <section id="team" className="lp-section lp-alt">
+      <SectionHead kicker="About the team" index={7} total={8}>
+        <div className="lp-head-split">
+          <ScrubWords
+            className="font-display lp-h2"
+            text="Four Fremont friends. One *shared obsession*: build the useful thing."
+            reduced={reduced}
+          />
+          <div className="lp-head-aside" data-reveal>
+            <p>
+              We met at American High School in Fremont, California, and kept building together.
+              Churnary brings our backgrounds in AI, product, computer engineering and aerospace
+              systems to one goal: help local businesses keep the customers they worked hard to earn.
+            </p>
+          </div>
+        </div>
+      </SectionHead>
+
+      <div className="lp-team-grid">
+        {TEAM_MEMBERS.map((member, i) => (
+          <article
+            className="lp-team-card"
+            key={member.name}
+            data-reveal
+            style={{ transitionDelay: `${i * 70}ms` }}
+          >
+            <div className="lp-team-photo">
+              {member.image ? (
+                <img
+                  src={member.image}
+                  alt={member.name}
+                  loading="lazy"
+                  decoding="async"
+                  style={{ objectPosition: member.imagePosition }}
+                />
+              ) : (
+                <div className="lp-team-placeholder" role="img" aria-label={`${member.name} initials`}>
+                  <span>RA</span>
+                </div>
+              )}
+            </div>
+            <div className="lp-team-meta">
+              <span className="lp-team-role">Co-founder</span>
+              <a
+                href={member.linkedin}
+                target="_blank"
+                rel="noreferrer noopener"
+                aria-label={`View ${member.name} on LinkedIn`}
+              >
+                LinkedIn <span aria-hidden>↗</span>
+              </a>
+            </div>
+            <h3 className="font-display lp-team-name">{member.name}</h3>
+            <p className="lp-team-education">{member.education}</p>
+            <p className="lp-team-bio">{member.bio}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /* ── Pricing ── */
 function Pricing({ reduced }: { reduced: boolean }) {
   const tiers = [
@@ -1131,7 +1236,7 @@ function Pricing({ reduced }: { reduced: boolean }) {
   ] as const;
   return (
     <section id="pricing" className="lp-section">
-      <SectionHead kicker="Pricing" index={7} total={7}>
+      <SectionHead kicker="Pricing" index={8} total={8}>
         <div className="lp-head-split">
           <ScrubWords
             className="font-display lp-h2"
@@ -1248,6 +1353,7 @@ function Footer() {
         <div className="lp-footer-links">
           <a href="#flow">How it works</a>
           <a href="#demo">Live demo</a>
+          <a href="#team">Team</a>
           <a href="#pricing">Pricing</a>
           <a
             href="#waitlist"
@@ -1839,6 +1945,89 @@ const LP_CSS = `
   .lp-step-foot {
     margin-top: 17px; font-size: var(--lp-label); font-weight: 700; letter-spacing: .1em;
     text-transform: uppercase; color: var(--muted-2);
+  }
+
+  /* ── team ── */
+  .lp-team-grid {
+    display: grid; grid-template-columns: 1fr;
+    margin-top: clamp(34px, 4vw, 64px); border-top: 1px solid var(--ink);
+  }
+  .lp-team-card {
+    display: flex; min-width: 0; flex-direction: column;
+    padding: clamp(22px, 2.2vw, 34px) 0 clamp(26px, 2.6vw, 40px);
+    border-bottom: 1px solid var(--lp-rule);
+    transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1);
+  }
+  @media (min-width: 640px) {
+    .lp-team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .lp-team-card:nth-child(odd) { padding-right: clamp(20px, 2.4vw, 38px); }
+    .lp-team-card:nth-child(even) {
+      padding-left: clamp(20px, 2.4vw, 38px);
+      border-left: 1px solid var(--lp-rule);
+    }
+  }
+  @media (min-width: 1080px) {
+    .lp-team-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .lp-team-card,
+    .lp-team-card:nth-child(odd),
+    .lp-team-card:nth-child(even) {
+      padding-left: clamp(18px, 1.7vw, 30px);
+      padding-right: clamp(18px, 1.7vw, 30px);
+      border-left: 1px solid var(--lp-rule);
+    }
+    .lp-team-card:first-child { padding-left: 0; border-left: none; }
+    .lp-team-card:last-child { padding-right: 0; }
+  }
+  .lp-team-photo {
+    position: relative; overflow: hidden; aspect-ratio: 4 / 3;
+    background: var(--surface-3);
+  }
+  .lp-team-photo img {
+    display: block; width: 100%; height: 100%; object-fit: cover;
+    filter: saturate(.88) contrast(1.02);
+    transition: transform .5s cubic-bezier(.2,.8,.2,1), filter .3s ease;
+  }
+  .lp-team-card:hover .lp-team-photo img { transform: scale(1.025); filter: saturate(1) contrast(1.02); }
+  .lp-team-placeholder {
+    position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden;
+    color: var(--cream-text);
+    background:
+      radial-gradient(220px 180px at 72% 18%, rgba(199,107,58,.48), transparent 70%),
+      linear-gradient(145deg, var(--lp-espresso-2), var(--lp-espresso));
+  }
+  .lp-team-placeholder::before {
+    content: ''; position: absolute; width: 68%; aspect-ratio: 1; border-radius: 50%;
+    border: 1px solid rgba(244,236,224,.18);
+    box-shadow: 0 0 0 24px rgba(244,236,224,.035), 0 0 0 48px rgba(244,236,224,.025);
+  }
+  .lp-team-placeholder span {
+    position: relative; font-family: var(--font-display); font-size: clamp(50px, 5vw, 76px);
+    font-weight: 500; letter-spacing: -.05em;
+  }
+  .lp-team-meta {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-top: 17px;
+  }
+  .lp-team-role {
+    font-size: var(--lp-label); font-weight: 700; letter-spacing: .13em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .lp-team-meta a {
+    font-size: 12.5px; font-weight: 700; color: var(--muted-2);
+    text-decoration: none;
+  }
+  .lp-team-meta a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+  .lp-team-name {
+    margin: 12px 0 0; font-size: clamp(23px, 2vw, 30px); font-weight: 600;
+    letter-spacing: -.025em; line-height: 1.08; color: var(--ink);
+  }
+  .lp-team-education {
+    margin: 7px 0 0; min-height: 2.8em; font-size: 13.5px; font-weight: 700;
+    line-height: 1.4; color: var(--ink-strong);
+  }
+  .lp-team-bio {
+    margin: 13px 0 0; font-size: var(--lp-body); line-height: 1.58;
+    color: var(--muted); max-width: 35ch;
   }
 
   /* ── pricing ── */
