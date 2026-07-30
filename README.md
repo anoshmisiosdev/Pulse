@@ -23,6 +23,7 @@ campaigns — before the owner notices a problem.
 | Price research | Google Places, Perplexity Search, direct evidence fetch, DeepSeek V4 Flash |
 | Email / SMS | Resend / Twilio |
 | Billing | Stripe Checkout + Customer Portal |
+| Product analytics | PostHog (server-side events with anonymous-to-user aliasing) |
 
 ## Quick start (Docker)
 

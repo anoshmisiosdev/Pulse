@@ -1,6 +1,8 @@
 // Typed client for the Pulse API. Mirrors backend/app/schemas/api.py.
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+export const POSTHOG_DISTINCT_ID_HEADER = "X-PostHog-Distinct-Id";
+const POSTHOG_DISTINCT_ID_STORAGE_KEY = "pulse_posthog_distinct_id";
 
 // localStorage flag: owner chose "skip setup" — lives here (not Setup.tsx) so the
 // route gate can read it without pulling the lazy-loaded Setup page into the main chunk.
@@ -303,13 +305,49 @@ export interface CompetitorPriceWatch {
 
 // The current Supabase access token, kept in sync by AuthContext.
 let accessToken: string | null = null;
+let analyticsDistinctId: string | null = null;
+
 export function setAccessToken(t: string | null): void {
   accessToken = t;
 }
 
-/** Exported so lib/social.ts can share one auth + error-handling convention. */
+export function getAnalyticsDistinctId(): string {
+  if (analyticsDistinctId) return analyticsDistinctId;
+
+  if (typeof window !== "undefined") {
+    try {
+      const stored = window.localStorage.getItem(POSTHOG_DISTINCT_ID_STORAGE_KEY);
+      if (stored) {
+        analyticsDistinctId = stored;
+        return stored;
+      }
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }
+
+  analyticsDistinctId =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `anon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(POSTHOG_DISTINCT_ID_STORAGE_KEY, analyticsDistinctId);
+    } catch {
+      // The in-memory ID still keeps this page load internally consistent.
+    }
+  }
+  return analyticsDistinctId;
+}
+
+/** Exported so lib/social.ts can share one auth + analytics-header convention. */
 export function authHeaders(): Record<string, string> {
-  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+  const headers: Record<string, string> = {
+    [POSTHOG_DISTINCT_ID_HEADER]: getAnalyticsDistinctId(),
+  };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  return headers;
 }
 
 export const API_BASE = BASE;

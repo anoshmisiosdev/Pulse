@@ -26,6 +26,10 @@ services:
         sync: false
       - key: EXTRA_CORS_ORIGINS # your Vercel domain, e.g. https://pulse.vercel.app
         sync: false
+      - key: POSTHOG_PROJECT_TOKEN
+        sync: false
+      - key: POSTHOG_HOST
+        value: https://us.i.posthog.com
       - key: FERNET_KEY
         sync: false
       - key: GOOGLE_MAPS_SERVER_API_KEY

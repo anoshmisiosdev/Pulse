@@ -1,4 +1,5 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { trackLandingEvent } from "../lib/landingAnalytics";
 import { EMAIL_RE, waitlist } from "../lib/waitlist";
 
 /**
@@ -31,13 +32,32 @@ export default function WaitlistForm() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [again, setAgain] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const started = useRef(false);
+
+  const markStarted = () => {
+    if (started.current) return;
+    started.current = true;
+    void trackLandingEvent({ event: "landing_waitlist_started" });
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (!name.trim()) return setError("Please add your name.");
-    if (!EMAIL_RE.test(email.trim())) return setError("Please add an email we can reach you at.");
+    if (!name.trim()) {
+      void trackLandingEvent({
+        event: "landing_waitlist_validation_failed",
+        reason: "missing_name",
+      });
+      return setError("Please add your name.");
+    }
+    if (!EMAIL_RE.test(email.trim())) {
+      void trackLandingEvent({
+        event: "landing_waitlist_validation_failed",
+        reason: "invalid_email",
+      });
+      return setError("Please add an email we can reach you at.");
+    }
     // A filled honeypot is a bot. Show the success state without sending —
     // there's nothing to record and nothing to explain.
     if (honey.trim()) return setPhase("done");
@@ -53,6 +73,10 @@ export default function WaitlistForm() {
       setAgain(result.already_joined);
       setPhase("done");
     } catch (err) {
+      void trackLandingEvent({
+        event: "landing_waitlist_submit_failed",
+        reason: "request_failed",
+      });
       setPhase("idle");
       setError(err instanceof Error ? err.message : "Network error — please try again.");
     }
@@ -79,7 +103,7 @@ export default function WaitlistForm() {
   }
 
   return (
-    <form onSubmit={submit} className="lp-wl-form" noValidate>
+    <form onSubmit={submit} onFocusCapture={markStarted} className="lp-wl-form" noValidate>
       <div className="lp-wl-grid">
         <label className="lp-wl-field" htmlFor={`${uid}-name`}>
           <span className="lp-wl-label">Your name</span>

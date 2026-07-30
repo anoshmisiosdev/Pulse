@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.campaigns.generator import CampaignContext, generate_campaign
 from app.core.database import get_db
 from app.core.deps import CurrentUser, CurrentUserDep
+from app.core.posthog_client import capture_event
 from app.schemas.api import GenerateCampaignIn, GeneratedCopyOut
 from app.services.rag.knowledge_store import search_knowledge
 
@@ -41,6 +42,18 @@ async def generate(
         knowledge_snippets=[row.content for row in knowledge],
     )
     copy = await generate_campaign(ctx)
+    capture_event(
+        "campaign_generated",
+        distinct_id=user.user_id,
+        properties={
+            "channel": payload.channel,
+            "tone": payload.tone,
+            "has_incentive": bool(payload.incentive),
+            "risk_reason_count": len(payload.risk_reasons),
+            "knowledge_snippet_count": len(ctx.knowledge_snippets),
+            "generated_by": copy.generated_by,
+        },
+    )
     return GeneratedCopyOut(
         channel=payload.channel,
         subject=copy.subject,

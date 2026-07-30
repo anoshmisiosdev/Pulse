@@ -1,7 +1,7 @@
 // Typed client for the public waitlist endpoint.
 // Mirrors backend/app/schemas/waitlist.py.
 
-import { API_BASE as BASE } from "./api";
+import { API_BASE as BASE, authHeaders } from "./api";
 
 export interface WaitlistInput {
   name: string;
@@ -40,7 +40,7 @@ export const waitlist = {
     // backend can treat a filled one as a bot without a visible captcha.
     const res = await fetch(`${BASE}/api/waitlist`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ website: "", ...input }),
     });
     if (!res.ok) {

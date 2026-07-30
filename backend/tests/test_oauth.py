@@ -5,6 +5,8 @@ No network calls — the exchange itself is exercised only through failure paths
 
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -72,6 +74,8 @@ def test_start_returns_authorize_url_when_configured(monkeypatch):
     assert "client_id=sq0idp-test" in url
     assert "CUSTOMERS_READ" in url
     assert "state=" in url
+    state = parse_qs(urlparse(url).query)["state"][0]
+    assert decrypt_state(state)["u"] == "demo-user"
 
 
 def test_authorize_url_stripe(monkeypatch):

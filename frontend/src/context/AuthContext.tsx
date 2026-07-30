@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { setAccessToken, type AuthUser } from "../lib/api";
+import { api, setAccessToken, type AuthUser } from "../lib/api";
 import { authConfigured, supabase } from "../lib/supabase";
 
 interface AuthCtx {
@@ -41,18 +41,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    let identifiedUserId: string | null = null;
+
+    const applySession = (session: Session | null) => {
+      setAccessToken(session?.access_token ?? null);
+      setUser(toAuthUser(session));
+
+      const userId = session?.user.id ?? null;
+      if (!userId) {
+        identifiedUserId = null;
+        return;
+      }
+      if (identifiedUserId === userId) return;
+
+      identifiedUserId = userId;
+      void api.me().catch(() => {
+        if (mounted && identifiedUserId === userId) identifiedUserId = null;
+      });
+    };
 
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
-      setAccessToken(data.session?.access_token ?? null);
-      setUser(toAuthUser(data.session));
+      applySession(data.session);
       setLoading(false);
     });
 
     // Keeps the API token fresh across login, logout, and silent refreshes.
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAccessToken(session?.access_token ?? null);
-      setUser(toAuthUser(session));
+      applySession(session);
     });
 
     return () => {

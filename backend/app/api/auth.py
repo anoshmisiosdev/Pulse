@@ -4,16 +4,26 @@ Multi-tenant: the token's claims carry business_id, which scopes all tenant data
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.core.deps import CurrentUser, CurrentUserDep
+from app.core.posthog_client import identify_user, request_distinct_id
 from app.schemas.api import AuthUser
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.get("/me", response_model=AuthUser)
-async def me(user: CurrentUser = CurrentUserDep) -> AuthUser:
+async def me(request: Request, user: CurrentUser = CurrentUserDep) -> AuthUser:
+    identify_user(
+        user.user_id,
+        anonymous_id=request_distinct_id(request),
+        properties={
+            "business_id": user.business_id,
+            "business_name": user.business_name,
+            "role": user.role,
+        },
+    )
     return AuthUser(
         user_id=user.user_id,
         email=user.email,

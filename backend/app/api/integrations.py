@@ -5,13 +5,14 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser, CurrentUserDep
+from app.core.posthog_client import capture_event, request_distinct_id
 from app.core.security import decrypt_state, decrypt_token, encrypt_state, encrypt_token
 from app.integrations.base import IntegrationError
 from app.integrations.csv_adapter import parse_csv, template_csv
@@ -56,6 +57,7 @@ async def csv_template() -> str:
 
 @router.post("/csv/preview", response_model=CSVPreviewOut)
 async def csv_preview(
+    request: Request,
     file: UploadFile = File(...),
     vertical: str = Query("other"),
     business_name: str = Query("Your Business"),
@@ -74,6 +76,16 @@ async def csv_preview(
 
     scored = build_scored_customers(sync, vertical=vertical)
     summary = summarize(scored, monthly_revenue_series(sync))
+    capture_event(
+        "csv_previewed",
+        distinct_id=request_distinct_id(request),
+        properties={
+            "vertical": vertical,
+            "customer_count": len(scored),
+            "high_risk_count": sum(1 for c in scored if c.result.band == "high"),
+            "warning_count": len(sync.warnings),
+        },
+    )
     return CSVPreviewOut(
         business_name=business_name,
         vertical=vertical,
@@ -112,11 +124,17 @@ async def oauth_start(
     state = encrypt_state(
         {
             "b": user.business_id,
+            "u": user.user_id,
             "n": business_name or user.business_name,
             "v": vertical,
             "r": return_to or settings.frontend_origin,
             "p": provider,
         }
+    )
+    capture_event(
+        "oauth_flow_started",
+        distinct_id=user.user_id,
+        properties={"provider": provider, "vertical": vertical},
     )
     return {"url": oauth.authorize_url(provider, state)}
 
@@ -175,6 +193,16 @@ async def oauth_callback(
         refresh_enc=encrypt_token(tokens["refresh_token"]) if tokens.get("refresh_token") else None,
     )
     await ingest.persist_sync(db, claims["b"], provider, sync)
+    capture_event(
+        "oauth_connected",
+        distinct_id=claims.get("u") or claims["b"],
+        properties={
+            "provider": provider,
+            "vertical": claims.get("v", "other"),
+            "customer_count": len(sync.customers),
+            "transaction_count": len(sync.transactions),
+        },
+    )
     return bounce(target, ok=True)
 
 
@@ -215,6 +243,16 @@ async def connect(
     await ingest.upsert_connection(
         db, user.business_id, provider, encrypt_token(payload.credential.strip())
     )
+    capture_event(
+        "integration_connected",
+        distinct_id=user.user_id,
+        properties={
+            "provider": provider,
+            "vertical": payload.vertical,
+            "customer_count": len(sync.customers),
+            "transaction_count": len(sync.transactions),
+        },
+    )
     return await _persist_and_respond(db, user, provider, sync)
 
 
@@ -241,6 +279,16 @@ async def csv_import(
         db, user.business_id, business_name or user.business_name, vertical
     )
     await ingest.upsert_connection(db, user.business_id, "csv", None)
+    capture_event(
+        "csv_imported",
+        distinct_id=user.user_id,
+        properties={
+            "vertical": vertical,
+            "customer_count": len(sync.customers),
+            "transaction_count": len(sync.transactions),
+            "warning_count": len(sync.warnings),
+        },
+    )
     return await _persist_and_respond(db, user, "csv", sync)
 
 
@@ -263,6 +311,11 @@ async def resync(
             raise HTTPException(422, detail=f"{conn.source}: {exc}") from exc
         await ingest.persist_sync(db, user.business_id, conn.source, sync)
         await ingest.upsert_connection(db, user.business_id, conn.source, None)
+    capture_event(
+        "data_synced",
+        distinct_id=user.user_id,
+        properties={"provider_count": len(live)},
+    )
     return await build_portfolio(db, user)
 
 
@@ -281,13 +334,21 @@ async def status(
 
 
 @router.post("/demo", response_model=CSVPreviewOut)
-async def demo(count: int = Query(50, ge=1, le=2000)) -> CSVPreviewOut:
+async def demo(request: Request, count: int = Query(50, ge=1, le=2000)) -> CSVPreviewOut:
     """Instant demo: the seeded "Hayward Coffee Co." cafe, scored — no upload needed."""
     from app.scripts.demo_data import DEMO_BUSINESS_NAME, DEMO_VERTICAL, generate_sync
 
     sync = generate_sync(n=count)
     scored = build_scored_customers(sync, vertical=DEMO_VERTICAL)
     summary = summarize(scored, monthly_revenue_series(sync))
+    capture_event(
+        "demo_viewed",
+        distinct_id=request_distinct_id(request),
+        properties={
+            "customer_count": count,
+            "high_risk_count": sum(1 for c in scored if c.result.band == "high"),
+        },
+    )
     return CSVPreviewOut(
         business_name=DEMO_BUSINESS_NAME,
         vertical=DEMO_VERTICAL,

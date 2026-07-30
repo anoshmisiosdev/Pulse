@@ -46,7 +46,8 @@ Each business is a tenant; a user's `business_id` defaults to their Supabase use
 `render.yaml` defines the API (web), the Celery worker, and Redis. In the Render
 dashboard: **New → Blueprint**, point at this repo. Then set the `sync: false`
 secrets: `DATABASE_URL` (pooler url), `SUPABASE_URL`, `SUPABASE_JWT_SECRET` (if HS256),
-`EXTRA_CORS_ORIGINS` (your Vercel domain), `FERNET_KEY`, `TOKEN_ROUTER_*`.
+`EXTRA_CORS_ORIGINS` (your Vercel domain), `FERNET_KEY`, `TOKEN_ROUTER_*`, and
+`POSTHOG_PROJECT_TOKEN`. `POSTHOG_HOST` defaults to `https://us.i.posthog.com`.
 
 > Railway/Fly work too — both build `backend/Dockerfile`. Start command:
 > `uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Add a Redis addon and

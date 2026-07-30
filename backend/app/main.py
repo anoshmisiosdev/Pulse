@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import (
+    analytics,
     auth,
     automations,
     campaigns,
@@ -23,6 +24,11 @@ from app.api import (
 )
 from app.core.config import settings
 from app.core.logging_setup import setup_logging
+from app.core.posthog_client import (
+    POSTHOG_DISTINCT_ID_HEADER,
+    init_posthog,
+    shutdown_posthog,
+)
 from app.core.ratelimit import RateLimitMiddleware
 
 setup_logging()
@@ -31,6 +37,20 @@ logger = logging.getLogger("pulse")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # PostHog analytics — optional; app continues without it if unconfigured.
+    if not settings.posthog_disabled and settings.posthog_project_token:
+        init_posthog(
+            project_api_key=settings.posthog_project_token,
+            host=settings.posthog_host,
+            debug=(settings.environment == "development"),
+        )
+    elif not settings.posthog_disabled and settings.environment == "development":
+        logger.warning(
+            "POSTHOG_PROJECT_TOKEN variable required by PostHog is missing or un-configured, "
+            "this causes events to be silently missed. This error stops appearing once "
+            "POSTHOG_PROJECT_TOKEN is configured"
+        )
+
     # Ensure tables exist (idempotent) for brand-new databases. Schema *changes*
     # to existing tables live in Alembic (`alembic upgrade head` runs in the
     # container entrypoint) — create_all never ALTERs.
@@ -43,7 +63,11 @@ async def lifespan(app: FastAPI):
         logger.info("DB schema ensured")
     except Exception as exc:  # offline / no DB — API still serves CSV preview
         logger.warning("Skipping DB init (%s)", exc)
+
     yield
+
+    # Flush queued events and stop the SDK's worker threads.
+    shutdown_posthog()
 
 
 # The FastAPI instance itself — kept under its own name so tests can still
@@ -76,6 +100,8 @@ fastapi_app.include_router(competitor_prices.router, prefix=API_PREFIX)
 fastapi_app.include_router(knowledge.router, prefix=API_PREFIX)
 fastapi_app.include_router(automations.router, prefix=API_PREFIX)
 fastapi_app.include_router(social.router, prefix=API_PREFIX)
+# Public, strictly allow-listed landing-page interaction metrics.
+fastapi_app.include_router(analytics.router, prefix=API_PREFIX)
 # Public: the marketing page posts here before anyone has an account.
 fastapi_app.include_router(waitlist.router, prefix=API_PREFIX)
 
@@ -86,6 +112,7 @@ fastapi_app.add_middleware(
     rules={
         "/api/auth": (5, 60),               # 5 per 60s — brute-force protection
         "/api/competitor-prices": (3, 60),  # 3 per 60s — expensive LLM calls
+        "/api/analytics": (60, 60),         # bounded public landing-page metrics
         "/api/waitlist": (5, 60),           # 5 per 60s — unauthenticated public write
     },
 )
@@ -108,5 +135,10 @@ app = CORSMiddleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+        POSTHOG_DISTINCT_ID_HEADER,
+    ],
 )

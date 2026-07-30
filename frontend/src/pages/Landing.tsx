@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import ChurnaryMark from "../components/ChurnaryMark";
 import WaitlistForm from "../components/WaitlistForm";
 import useMountProgress from "../hooks/useMountProgress";
+import { landingViewMetric, trackLandingEvent } from "../lib/landingAnalytics";
 
 /* ─────────────────────────────────────────────────────────────
    Public marketing landing page. Fully self-contained: no data
@@ -108,6 +109,38 @@ function useActiveSection(ids: string[]): string {
     return () => io.disconnect();
   }, [ids]);
   return active;
+}
+
+/** Capture the acquisition page once, plus meaningful content reach milestones. */
+function useLandingMetrics() {
+  const viewed = useRef(false);
+
+  useEffect(() => {
+    if (viewed.current) return;
+    viewed.current = true;
+    void trackLandingEvent(landingViewMetric());
+  }, []);
+
+  useEffect(() => {
+    const seen = new Set<string>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting || seen.has(entry.target.id)) return;
+          const section = entry.target.id as "demo" | "pricing" | "waitlist";
+          seen.add(section);
+          void trackLandingEvent({ event: "landing_section_viewed", section });
+          io.unobserve(entry.target);
+        });
+      },
+      { threshold: 0.25, rootMargin: "0px 0px -10% 0px" }
+    );
+    (["demo", "pricing", "waitlist"] as const).forEach((id) => {
+      const section = document.getElementById(id);
+      if (section) io.observe(section);
+    });
+    return () => io.disconnect();
+  }, []);
 }
 
 /* ── text splitting ──────────────────────────────────────────────────────── */
@@ -311,6 +344,7 @@ const NAV_LINKS: [string, string][] = [
 export default function Landing() {
   const reduced = useReducedMotion();
   useRevealOnScroll(reduced);
+  useLandingMetrics();
   // The shared hook has no enabled flag, so gate its output rather than the
   // call — a hook can't be called conditionally. Under reduced motion the
   // counters jump straight to their final value.
@@ -368,10 +402,32 @@ function Nav() {
           ))}
         </nav>
         <div className="lp-nav-cta">
-          <Link to="/login" className="lp-nav-signin">
+          <Link
+            to="/login"
+            className="lp-nav-signin"
+            onClick={() =>
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "sign_in",
+                location: "navbar",
+                destination: "login",
+              })
+            }
+          >
             Sign in
           </Link>
-          <a href="#waitlist" className="lp-btn lp-btn-primary lp-btn-sm">
+          <a
+            href="#waitlist"
+            className="lp-btn lp-btn-primary lp-btn-sm"
+            onClick={() =>
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "join_waitlist",
+                location: "navbar",
+                destination: "waitlist",
+              })
+            }
+          >
             Join the waitlist
           </a>
         </div>
@@ -446,10 +502,32 @@ function Hero({ p, reduced }: { p: number; reduced: boolean }) {
           </p>
 
           <div className="lp-hero-actions">
-            <a href="#waitlist" className="lp-btn lp-btn-primary lp-btn-lg">
+            <a
+              href="#waitlist"
+              className="lp-btn lp-btn-primary lp-btn-lg"
+              onClick={() =>
+                void trackLandingEvent({
+                  event: "landing_cta_clicked",
+                  cta: "join_waitlist",
+                  location: "hero",
+                  destination: "waitlist",
+                })
+              }
+            >
               Join the waitlist <span aria-hidden>→</span>
             </a>
-            <a href="#demo" className="lp-btn lp-btn-ghost lp-btn-lg">
+            <a
+              href="#demo"
+              className="lp-btn lp-btn-ghost lp-btn-lg"
+              onClick={() =>
+                void trackLandingEvent({
+                  event: "landing_cta_clicked",
+                  cta: "live_demo",
+                  location: "hero",
+                  destination: "demo",
+                })
+              }
+            >
               Try the live demo
             </a>
           </div>
@@ -776,14 +854,18 @@ const DEMO_VERTICALS = [
   { id: "cafe", label: "Café", interval: 4, unit: "days" },
   { id: "fitness", label: "Gym", interval: 5, unit: "days" },
   { id: "salon", label: "Salon", interval: 35, unit: "days" },
-];
+] as const;
+
+type DemoVertical = (typeof DEMO_VERTICALS)[number];
 
 function RiskDemo({ reduced }: { reduced: boolean }) {
-  const [vertical, setVertical] = useState(DEMO_VERTICALS[0]);
+  const [vertical, setVertical] = useState<DemoVertical>(DEMO_VERTICALS[0]);
   const [days, setDays] = useState(12);
 
   const ratio = days / vertical.interval;
   const score = Math.min(97, Math.max(3, Math.round(ratio * 27)));
+  const riskBand =
+    ratio >= 2.5 ? "needs_attention" : ratio >= 1.5 ? "watch" : "healthy";
   const band =
     ratio >= 2.5
       ? { label: "Needs Attention", color: "#A23B1E", bg: "#F7E3DC", action: "Churnary drafts a win-back email — you tap approve." }
@@ -832,7 +914,16 @@ function RiskDemo({ reduced }: { reduced: boolean }) {
             {DEMO_VERTICALS.map((v) => (
               <button
                 key={v.id}
-                onClick={() => { setVertical(v); setDays(Math.min(3 * v.interval, v.interval * 12)); }}
+                onClick={() => {
+                  setVertical(v);
+                  setDays(Math.min(3 * v.interval, v.interval * 12));
+                  void trackLandingEvent({
+                    event: "landing_demo_interacted",
+                    control: "vertical",
+                    vertical: v.id,
+                    risk_band: "needs_attention",
+                  });
+                }}
                 className={`lp-chip${vertical.id === v.id ? " is-on" : ""}`}
               >
                 {v.label}
@@ -857,6 +948,22 @@ function RiskDemo({ reduced }: { reduced: boolean }) {
               max={maxDays}
               value={Math.min(days, maxDays)}
               onChange={(e) => setDays(Number(e.target.value))}
+              onPointerUp={() =>
+                void trackLandingEvent({
+                  event: "landing_demo_interacted",
+                  control: "days",
+                  vertical: vertical.id,
+                  risk_band: riskBand,
+                })
+              }
+              onKeyUp={() =>
+                void trackLandingEvent({
+                  event: "landing_demo_interacted",
+                  control: "days",
+                  vertical: vertical.id,
+                  risk_band: riskBand,
+                })
+              }
               className="lp-slider"
               style={{ accentColor: band.color, color: band.color }}
             />
@@ -1018,10 +1125,10 @@ function Guardrails({ reduced }: { reduced: boolean }) {
 /* ── Pricing ── */
 function Pricing({ reduced }: { reduced: boolean }) {
   const tiers = [
-    { name: "Starter", price: 199, hot: false, lines: ["1 integration", "1,000 customers", "Email win-backs", "Transparent risk scores"] },
-    { name: "Growth", price: 299, hot: true, lines: ["All integrations", "2,500 customers", "Email + SMS", "Automation rules", "Recovery attribution"] },
-    { name: "Pro", price: 499, hot: false, lines: ["Unlimited customers", "Multi-location ready", "Everything in Growth", "Priority support"] },
-  ];
+    { name: "Starter", plan: "starter", price: 199, hot: false, lines: ["1 integration", "1,000 customers", "Email win-backs", "Transparent risk scores"] },
+    { name: "Growth", plan: "growth", price: 299, hot: true, lines: ["All integrations", "2,500 customers", "Email + SMS", "Automation rules", "Recovery attribution"] },
+    { name: "Pro", plan: "pro", price: 499, hot: false, lines: ["Unlimited customers", "Multi-location ready", "Everything in Growth", "Priority support"] },
+  ] as const;
   return (
     <section id="pricing" className="lp-section">
       <SectionHead kicker="Pricing" index={7} total={7}>
@@ -1060,7 +1167,19 @@ function Pricing({ reduced }: { reduced: boolean }) {
                 <li key={l}>{l}</li>
               ))}
             </ul>
-            <a href="#waitlist" className={`lp-btn lp-tier-cta${t.hot ? " lp-btn-primary" : ""}`}>
+            <a
+              href="#waitlist"
+              className={`lp-btn lp-tier-cta${t.hot ? " lp-btn-primary" : ""}`}
+              onClick={() =>
+                void trackLandingEvent({
+                  event: "landing_cta_clicked",
+                  cta: "join_waitlist",
+                  location: "pricing",
+                  destination: "waitlist",
+                  plan: t.plan,
+                })
+              }
+            >
               Join the waitlist
             </a>
           </div>
@@ -1097,7 +1216,20 @@ function Waitlist({ reduced }: { reduced: boolean }) {
         </div>
       </div>
       <p className="lp-waitlist-alt">
-        Already have an account? <Link to="/login">Sign in</Link>
+        Already have an account?{" "}
+        <Link
+          to="/login"
+          onClick={() =>
+            void trackLandingEvent({
+              event: "landing_cta_clicked",
+              cta: "sign_in",
+              location: "waitlist",
+              destination: "login",
+            })
+          }
+        >
+          Sign in
+        </Link>
       </p>
     </section>
   );
@@ -1117,8 +1249,32 @@ function Footer() {
           <a href="#flow">How it works</a>
           <a href="#demo">Live demo</a>
           <a href="#pricing">Pricing</a>
-          <a href="#waitlist">Waitlist</a>
-          <Link to="/login">Sign in</Link>
+          <a
+            href="#waitlist"
+            onClick={() =>
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "join_waitlist",
+                location: "footer",
+                destination: "waitlist",
+              })
+            }
+          >
+            Waitlist
+          </a>
+          <Link
+            to="/login"
+            onClick={() =>
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "sign_in",
+                location: "footer",
+                destination: "login",
+              })
+            }
+          >
+            Sign in
+          </Link>
           <span>© 2026 Churnary</span>
         </div>
       </div>

@@ -255,6 +255,11 @@ class Settings(BaseSettings):
             )
         return self
 
+    # PostHog
+    posthog_project_token: str = ""
+    posthog_host: str = "https://us.i.posthog.com"
+    posthog_disabled: bool = False
+
     @property
     def cors_origins(self) -> list[str]:
         """Allowed browser origins: the frontend origin plus any extras from env."""
