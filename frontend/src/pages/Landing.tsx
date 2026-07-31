@@ -1145,6 +1145,7 @@ const TEAM_MEMBERS = [
     name: "Soham Dogra",
     education: "CS + Linguistics · San José State",
     bio: "An AI product builder working across strategy, engineering and growth, with experience developing AI infrastructure at Inference.ai.",
+    email: "soham@churnary.ai",
     linkedin: "https://www.linkedin.com/in/soham-dogra-b110ab2ab/",
     image: sohamPhoto,
     imagePosition: "center 28%",
@@ -1153,6 +1154,7 @@ const TEAM_MEMBERS = [
     name: "Riyan Anosh",
     education: "Computer Engineering · UC Merced",
     bio: "A hands-on builder with a soft spot for homelabs, hardware and turning ambitious AI ideas into working prototypes.",
+    email: "riyan@churnary.ai",
     linkedin: "https://www.linkedin.com/in/riyan-anosh-0aba9434b/",
     image: null,
     imagePosition: "center",
@@ -1161,6 +1163,7 @@ const TEAM_MEMBERS = [
     name: "Pranjal Mishra",
     education: "Aerospace + Mechanical · RPI",
     bio: "An engineer-in-training who pairs flight manufacturing experience with a background in software engineering and applied AI.",
+    email: "pranjal@churnary.ai",
     linkedin: "https://www.linkedin.com/in/pranjal-mishra-b622252a6/",
     image: pranjalPhoto,
     imagePosition: "center 32%",
@@ -1169,6 +1172,7 @@ const TEAM_MEMBERS = [
     name: "Aditya Kolekar",
     education: "Artificial Intelligence · UC San Diego",
     bio: "An AI builder and three-time hackathon winner focused on making complex technology feel clear, practical and useful.",
+    email: "aditya@churnary.ai",
     linkedin: "https://www.linkedin.com/in/aditkolekar/",
     image: adityaPhoto,
     imagePosition: "center 28%",
@@ -1232,6 +1236,13 @@ function Team({ reduced }: { reduced: boolean }) {
             <h3 className="font-display lp-team-name">{member.name}</h3>
             <p className="lp-team-education">{member.education}</p>
             <p className="lp-team-bio">{member.bio}</p>
+            <a
+              className="lp-team-email"
+              href={`mailto:${member.email}`}
+              aria-label={`Email ${member.name} at ${member.email}`}
+            >
+              {member.email} <span aria-hidden>↗</span>
+            </a>
           </article>
         ))}
       </div>
@@ -2044,6 +2055,14 @@ const LP_CSS = `
   .lp-team-bio {
     margin: 13px 0 0; font-size: var(--lp-body); line-height: 1.58;
     color: var(--muted); max-width: 35ch;
+  }
+  .lp-team-email {
+    align-self: flex-start; margin-top: auto; padding-top: 17px;
+    color: var(--muted-2); font-size: 12.5px; font-weight: 700;
+    text-decoration: none;
+  }
+  .lp-team-email:hover {
+    color: var(--accent); text-decoration: underline; text-underline-offset: 3px;
   }
 
   /* ── pricing ── */
