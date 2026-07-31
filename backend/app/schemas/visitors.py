@@ -109,3 +109,19 @@ class Rb2bWebhookOut(BaseModel):
     ok: bool = True
     duplicate: bool = False
     visitor_id: uuid.UUID | None = None
+
+
+class VisitorIntegrationStatusOut(BaseModel):
+    rb2b_webhook_configured: bool
+    rb2b_webhook_endpoint: str
+    discord_alerts_configured: bool
+    discord_commands_configured: bool
+    discord_interactions_endpoint: str
+    discord_guild_configured: bool
+    discord_alert_min_intent_score: int
+    discord_includes_email: bool
+
+
+class DiscordTestOut(BaseModel):
+    delivered: bool
+    transport: str

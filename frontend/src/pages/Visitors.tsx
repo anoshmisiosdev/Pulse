@@ -3,6 +3,7 @@ import {
   api,
   type VisitorDetail,
   type VisitorIdentityLevel,
+  type VisitorIntegrationStatus,
   type VisitorList,
   type VisitorListItem,
   type VisitorPilotMetrics,
@@ -63,9 +64,12 @@ export default function Visitors() {
   const [sourceFilter, setSourceFilter] = useState("");
   const [data, setData] = useState<VisitorList | null>(null);
   const [pilot, setPilot] = useState<VisitorPilotMetrics | null>(null);
+  const [integration, setIntegration] = useState<VisitorIntegrationStatus | null>(null);
   const [selected, setSelected] = useState<VisitorDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [testingDiscord, setTestingDiscord] = useState(false);
+  const [discordTestMessage, setDiscordTestMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const rb2bKeyConfigured = Boolean(String(import.meta.env.VITE_RB2B_KEY ?? "").trim());
 
@@ -85,12 +89,14 @@ export default function Visitors() {
     setLoading(true);
     setError(null);
     try {
-      const [visitors, pilotMetrics] = await Promise.all([
+      const [visitors, pilotMetrics, integrationStatus] = await Promise.all([
         api.listVisitors(filters),
         api.visitorPilot(days),
+        api.visitorIntegrationStatus(),
       ]);
       setData(visitors);
       setPilot(pilotMetrics);
+      setIntegration(integrationStatus);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not load recent visitors");
     } finally {
@@ -171,6 +177,21 @@ export default function Visitors() {
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not delete visitor");
+    }
+  };
+
+  const testDiscord = async () => {
+    setTestingDiscord(true);
+    setDiscordTestMessage(null);
+    try {
+      const result = await api.testDiscordIntegration();
+      setDiscordTestMessage(`Test delivered through ${result.transport}.`);
+    } catch (caught) {
+      setDiscordTestMessage(
+        caught instanceof Error ? caught.message : "Discord test delivery failed"
+      );
+    } finally {
+      setTestingDiscord(false);
     }
   };
 
@@ -402,7 +423,16 @@ export default function Visitors() {
               note={rb2bKeyConfigured ? "Key configured" : "Needs VITE_RB2B_KEY"}
             />
             <ReadinessRow
-              label="Webhook feed"
+              label="RB2B webhook"
+              ready={Boolean(integration?.rb2b_webhook_configured)}
+              note={
+                integration?.rb2b_webhook_configured
+                  ? "Secret configured"
+                  : "Needs RB2B_WEBHOOK_SECRET"
+              }
+            />
+            <ReadinessRow
+              label="Verified deliveries"
               ready={Boolean(pilot?.deliveries)}
               note={
                 pilot?.deliveries
@@ -411,9 +441,22 @@ export default function Visitors() {
               }
             />
             <ReadinessRow
-              label="Privacy controls"
-              ready
-              note="Consent, GPC, suppression"
+              label="Discord alerts"
+              ready={Boolean(integration?.discord_alerts_configured)}
+              note={
+                integration?.discord_alerts_configured
+                  ? `Intent threshold ${integration.discord_alert_min_intent_score}`
+                  : "Needs a webhook or bot channel"
+              }
+            />
+            <ReadinessRow
+              label="Discord commands"
+              ready={Boolean(integration?.discord_commands_configured)}
+              note={
+                integration?.discord_commands_configured
+                  ? "Signed command endpoint configured"
+                  : "Needs app, public key, and server"
+              }
             />
           </div>
 
@@ -446,14 +489,37 @@ export default function Visitors() {
               Add <code>RB2B_MONTHLY_COST_USD</code> to track cost per match.
             </p>
           )}
-          <a
-            href="https://app.rb2b.com/script"
-            target="_blank"
-            rel="noreferrer"
-            className="visitor-provider-link"
-          >
-            Open RB2B setup <span aria-hidden="true">↗</span>
-          </a>
+          <div className="visitor-integration-endpoints">
+            <span>RB2B endpoint</span>
+            <code>{integration?.rb2b_webhook_endpoint || "Loading…"}</code>
+            <span>Discord interactions</span>
+            <code>{integration?.discord_interactions_endpoint || "Loading…"}</code>
+          </div>
+          <div className="visitor-integration-actions">
+            <button
+              type="button"
+              disabled={!integration?.discord_alerts_configured || testingDiscord}
+              onClick={() => void testDiscord()}
+            >
+              {testingDiscord ? "Sending…" : "Send Discord test"}
+            </button>
+            <a
+              href="https://app.rb2b.com/script"
+              target="_blank"
+              rel="noreferrer"
+              className="visitor-provider-link"
+            >
+              Open RB2B setup <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+          {discordTestMessage && (
+            <p className="visitor-discord-result" role="status">
+              {discordTestMessage}
+            </p>
+          )}
+          <p className="visitor-discord-privacy">
+            Discord email: {integration?.discord_includes_email ? "included" : "hidden"}
+          </p>
         </aside>
       </div>
 
@@ -726,7 +792,16 @@ const VISITORS_CSS = `
   .visitor-cost small { grid-column: 1 / -1; margin-top: 2px; }
   .visitor-cost-empty { border-top: 1px solid rgba(244,236,224,.12); padding-top: 12px; color: rgba(244,236,224,.48); font-size: 9px; line-height: 1.5; }
   .visitor-cost-empty code { color: var(--on-espresso-accent); }
+  .visitor-integration-endpoints { display: grid; gap: 5px; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(244,236,224,.12); }
+  .visitor-integration-endpoints span { color: rgba(244,236,224,.48); font-size: 8px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+  .visitor-integration-endpoints code { overflow: hidden; color: rgba(244,236,224,.72); font-size: 8px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+  .visitor-integration-actions { display: grid; gap: 7px; margin-top: 12px; }
+  .visitor-integration-actions button { border: 1px solid rgba(115,226,197,.35); border-radius: 9px; background: rgba(115,226,197,.09); color: var(--signal); padding: 9px 11px; font: 800 10px var(--font-body); cursor: pointer; }
+  .visitor-integration-actions button:disabled { opacity: .42; cursor: not-allowed; }
   .visitor-provider-link { display: flex; justify-content: space-between; margin-top: 14px; border-radius: 9px; background: var(--accent); color: white !important; padding: 10px 11px; font-size: 10px; font-weight: 800; text-decoration: none; }
+  .visitor-integration-actions .visitor-provider-link { margin-top: 0; }
+  .visitor-discord-result, .visitor-discord-privacy { margin: 8px 0 0; color: var(--signal); font-size: 9px; line-height: 1.4; }
+  .visitor-discord-privacy { color: rgba(244,236,224,.48); }
   .visitor-drawer-backdrop { position: fixed; z-index: 70; inset: 0; display: flex; justify-content: flex-end; background: rgba(42,33,28,.36); backdrop-filter: blur(3px); }
   .visitor-drawer { width: min(540px, 100%); height: 100%; overflow-y: auto; background: var(--surface); box-shadow: -20px 0 60px rgba(42,33,28,.2); padding: 24px; animation: drawerIn .3s ease both; }
   .visitor-drawer-loading { display: grid; place-items: center; color: var(--muted); }

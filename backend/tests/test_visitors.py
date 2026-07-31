@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import itertools
 import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import func, select
@@ -17,6 +19,7 @@ from app.core.deps import CurrentUser, get_current_user
 from app.core.posthog_client import POSTHOG_DISTINCT_ID_HEADER
 from app.main import app, fastapi_app
 from app.models.visitor import VisitorEvent, VisitorIdentifier, VisitorProfile
+from app.visitor_intelligence.providers.rb2b import Rb2bAdapter
 from app.visitor_intelligence.service import VISITOR_SESSION_ID_HEADER
 
 _ips = itertools.count(20)
@@ -28,6 +31,9 @@ async def visitor_client(monkeypatch):
     monkeypatch.setattr(settings, "supabase_url", "")
     monkeypatch.setattr(settings, "environment", "development")
     monkeypatch.setattr(settings, "rb2b_webhook_secret", "test-rb2b-secret")
+    monkeypatch.setattr(settings, "discord_webhook_url", "")
+    monkeypatch.setattr(settings, "discord_bot_token", "")
+    monkeypatch.setattr(settings, "discord_alert_channel_id", "")
 
     engine = create_async_engine("sqlite+aiosqlite://")
     async with engine.begin() as conn:
@@ -106,9 +112,11 @@ async def test_waitlist_stitches_consented_history_without_plain_browser_id(
 
 
 async def test_rb2b_webhook_is_authenticated_idempotent_and_reported(
-    visitor_client,
+    visitor_client, monkeypatch
 ):
     client, _ = visitor_client
+    alert = AsyncMock(return_value=True)
+    monkeypatch.setattr("app.api.visitors.send_visitor_alert", alert)
     payload = {
         "LinkedIn URL": "https://www.linkedin.com/in/dana-okafor/",
         "First Name": "Dana",
@@ -160,6 +168,22 @@ async def test_rb2b_webhook_is_authenticated_idempotent_and_reported(
     assert pilot.status_code == 200
     assert pilot.json()["deliveries"] == 1
     assert pilot.json()["repeat_visitors"] == 1
+    alert.assert_awaited_once()
+
+
+def test_rb2b_adapter_accepts_published_repeat_and_timestamp_variants():
+    signal = Rb2bAdapter().normalize(
+        {
+            "LinkedIn URL": "https://www.linkedin.com/in/rb2b-test/",
+            "First Name": "RB2B",
+            "Captured URL": "https://churnary.example/pricing",
+            "Seen At": "2026-07-30T12:34:56:00.00+00.00",
+            "is_repeat_visit": True,
+        }
+    )
+
+    assert signal.repeat_visitor is True
+    assert signal.seen_at == datetime(2026, 7, 30, 12, 34, 56, tzinfo=UTC)
 
 
 async def test_rb2b_webhook_rejects_non_object_or_oversized_payload(visitor_client):
@@ -254,6 +278,34 @@ async def test_tenant_owner_cannot_read_platform_visitor_data(
     finally:
         fastapi_app.dependency_overrides.pop(get_current_user, None)
     assert response.status_code == 403
+
+
+async def test_integration_status_and_discord_test_are_admin_only(
+    visitor_client, monkeypatch
+):
+    client, _ = visitor_client
+    monkeypatch.setattr(settings, "api_base_url", "https://api.churnary.example")
+    monkeypatch.setattr(settings, "discord_application_id", "123")
+    monkeypatch.setattr(settings, "discord_public_key", "a" * 64)
+    monkeypatch.setattr(settings, "discord_guild_id", "456")
+    monkeypatch.setattr(settings, "discord_webhook_url", "https://discord.com/api/webhooks/1/x")
+    delivery = AsyncMock(return_value="channel webhook")
+    monkeypatch.setattr("app.api.visitors.send_discord_test_alert", delivery)
+
+    status_response = client.get("/api/visitors/integrations/status")
+    test_response = client.post("/api/visitors/integrations/discord/test")
+
+    assert status_response.status_code == 200
+    body = status_response.json()
+    assert body["rb2b_webhook_configured"] is True
+    assert body["discord_alerts_configured"] is True
+    assert body["discord_commands_configured"] is True
+    assert "test-rb2b-secret" not in body["rb2b_webhook_endpoint"]
+    assert test_response.json() == {
+        "delivered": True,
+        "transport": "channel webhook",
+    }
+    delivery.assert_awaited_once()
 
 
 def test_cors_allows_visitor_session_header():

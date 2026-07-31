@@ -15,6 +15,7 @@ from app.api import (
     automations,
     campaigns,
     competitor_prices,
+    discord_bot,
     health,
     integrations,
     knowledge,
@@ -108,6 +109,8 @@ fastapi_app.include_router(analytics.router, prefix=API_PREFIX)
 fastapi_app.include_router(waitlist.router, prefix=API_PREFIX)
 # Public provider webhook plus platform-admin reporting endpoints.
 fastapi_app.include_router(visitors.router, prefix=API_PREFIX)
+# Signed Discord HTTP interactions for private /churnary commands.
+fastapi_app.include_router(discord_bot.router, prefix=API_PREFIX)
 
 # Rate limiting: protect auth (brute-force) and competitor research (expensive LLM).
 # Applied to the inner app so CORS-wrapped 429s still get Access-Control-Allow-Origin.
@@ -119,6 +122,7 @@ fastapi_app.add_middleware(
         "/api/analytics": (60, 60),         # bounded public landing-page metrics
         "/api/waitlist": (5, 60),           # 5 per 60s — unauthenticated public write
         "/api/visitors/webhooks": (120, 60), # bounded third-party identity deliveries
+        "/api/discord/interactions": (120, 60), # signed Discord command deliveries
     },
 )
 

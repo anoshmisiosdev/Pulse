@@ -83,6 +83,12 @@ aws apprunner start-deployment --service-arn <service-arn>   # restart to pick u
 **Change a non-secret env var:** App Runner console → pulse-api →
 Configuration → Environment variables (or `aws apprunner update-service`).
 
+**RB2B + Discord visitor alerts:** follow
+[`docs/rb2b-discord-setup.md`](../../docs/rb2b-discord-setup.md). Secrets and
+Discord IDs can be synced through `push-env-to-ssm.sh`; set
+`DISCORD_ALERT_MIN_INTENT_SCORE` and `DISCORD_INCLUDE_EMAIL` as App Runner
+environment variables when overriding their safe defaults.
+
 **Logs:** CloudWatch log groups `/aws/apprunner/pulse-api/*` — `application`
 for the app, `service` for App Runner lifecycle events.
 

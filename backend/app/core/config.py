@@ -268,6 +268,20 @@ class Settings(BaseSettings):
     rb2b_webhook_secret: str = ""
     rb2b_monthly_cost_usd: float = 0.0
 
+    # Discord companion for RB2B/visitor intelligence. Alerts can be delivered
+    # either by a channel webhook (least privilege) or by the bot user. Slash
+    # commands use Discord's signed HTTP interactions endpoint, so the API does
+    # not need a long-running Gateway/WebSocket worker.
+    discord_application_id: str = ""
+    discord_public_key: str = ""
+    discord_bot_token: str = ""
+    discord_guild_id: str = ""
+    discord_alert_channel_id: str = ""
+    discord_webhook_url: str = ""
+    discord_allowed_role_ids: str = ""
+    discord_alert_min_intent_score: int = 25
+    discord_include_email: bool = False
+
     @property
     def visitor_admin_email_set(self) -> set[str]:
         return {
@@ -275,6 +289,29 @@ class Settings(BaseSettings):
             for email in self.visitor_admin_emails.split(",")
             if email.strip()
         }
+
+    @property
+    def discord_allowed_role_id_set(self) -> set[str]:
+        return {
+            role_id.strip()
+            for role_id in self.discord_allowed_role_ids.split(",")
+            if role_id.strip()
+        }
+
+    @property
+    def discord_alerts_configured(self) -> bool:
+        return bool(
+            self.discord_webhook_url
+            or (self.discord_bot_token and self.discord_alert_channel_id)
+        )
+
+    @property
+    def discord_commands_configured(self) -> bool:
+        return bool(
+            self.discord_application_id
+            and self.discord_public_key
+            and self.discord_guild_id
+        )
 
     @property
     def cors_origins(self) -> list[str]:

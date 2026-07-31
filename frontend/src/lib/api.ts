@@ -250,6 +250,22 @@ export interface VisitorPilotMetrics {
   recommendation: string;
 }
 
+export interface VisitorIntegrationStatus {
+  rb2b_webhook_configured: boolean;
+  rb2b_webhook_endpoint: string;
+  discord_alerts_configured: boolean;
+  discord_commands_configured: boolean;
+  discord_interactions_endpoint: string;
+  discord_guild_configured: boolean;
+  discord_alert_min_intent_score: number;
+  discord_includes_email: boolean;
+}
+
+export interface DiscordTestResult {
+  delivered: boolean;
+  transport: string;
+}
+
 export interface CompetitorPriceResearchInput {
   businessName?: string;
   businessWebsite?: string;
@@ -593,6 +609,18 @@ export const api = {
   async visitorPilot(days = 30, provider = "rb2b"): Promise<VisitorPilotMetrics> {
     const params = new URLSearchParams({ days: String(days), provider });
     return getJson<VisitorPilotMetrics>(`/api/visitors/pilot?${params}`);
+  },
+
+  async visitorIntegrationStatus(): Promise<VisitorIntegrationStatus> {
+    return getJson<VisitorIntegrationStatus>("/api/visitors/integrations/status");
+  },
+
+  async testDiscordIntegration(): Promise<DiscordTestResult> {
+    const res = await fetch(`${BASE}/api/visitors/integrations/discord/test`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<DiscordTestResult>(res);
   },
 
   /** The tenant's persisted dashboard data. status:"empty" → route to /setup. */

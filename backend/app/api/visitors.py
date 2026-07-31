@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     HTTPException,
     Query,
@@ -24,12 +25,21 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser, VisitorAdminDep
 from app.core.posthog_client import capture_event
+from app.discord_bot.service import (
+    DiscordDeliveryError,
+    DiscordNotConfiguredError,
+    VisitorAlert,
+    send_discord_test_alert,
+    send_visitor_alert,
+)
 from app.models.visitor import VisitorEvent, VisitorIdentifier, VisitorProfile
 from app.schemas.visitors import (
+    DiscordTestOut,
     IdentityLevel,
     Rb2bWebhookOut,
     VisitorDetailOut,
     VisitorEventOut,
+    VisitorIntegrationStatusOut,
     VisitorListItem,
     VisitorListOut,
     VisitorPilotMetricsOut,
@@ -234,6 +244,7 @@ async def visitor_pilot(
 @router.post("/webhooks/rb2b", response_model=Rb2bWebhookOut)
 async def rb2b_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     key: str = Query(default="", max_length=256),
     db: AsyncSession = Depends(get_db),
 ) -> Rb2bWebhookOut:
@@ -276,6 +287,11 @@ async def rb2b_webhook(
                 "intent_score": profile.intent_score,
             },
         )
+        background_tasks.add_task(
+            send_visitor_alert,
+            VisitorAlert.from_profile(profile),
+            signal.repeat_visitor,
+        )
     logger.info(
         "visitor provider payload processed (provider=%s duplicate=%s suppressed=%s)",
         signal.provider,
@@ -286,6 +302,40 @@ async def rb2b_webhook(
         duplicate=duplicate,
         visitor_id=None if profile.suppressed else profile.id,
     )
+
+
+@router.get("/integrations/status", response_model=VisitorIntegrationStatusOut)
+async def visitor_integration_status(
+    _admin: CurrentUser = VisitorAdminDep,
+) -> VisitorIntegrationStatusOut:
+    api_base = settings.api_base_url.rstrip("/")
+    return VisitorIntegrationStatusOut(
+        rb2b_webhook_configured=bool(settings.rb2b_webhook_secret),
+        rb2b_webhook_endpoint=(
+            f"{api_base}/api/visitors/webhooks/rb2b?key=<RB2B_WEBHOOK_SECRET>"
+        ),
+        discord_alerts_configured=settings.discord_alerts_configured,
+        discord_commands_configured=settings.discord_commands_configured,
+        discord_interactions_endpoint=f"{api_base}/api/discord/interactions",
+        discord_guild_configured=bool(settings.discord_guild_id),
+        discord_alert_min_intent_score=min(
+            100, max(0, settings.discord_alert_min_intent_score)
+        ),
+        discord_includes_email=settings.discord_include_email,
+    )
+
+
+@router.post("/integrations/discord/test", response_model=DiscordTestOut)
+async def test_discord_integration(
+    _admin: CurrentUser = VisitorAdminDep,
+) -> DiscordTestOut:
+    try:
+        transport = await send_discord_test_alert()
+    except DiscordNotConfiguredError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    except DiscordDeliveryError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    return DiscordTestOut(delivered=True, transport=transport)
 
 
 @router.get("/{visitor_id}", response_model=VisitorDetailOut)

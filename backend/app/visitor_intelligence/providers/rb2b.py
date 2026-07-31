@@ -8,6 +8,7 @@ depending on a single provider's contract.
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -26,9 +27,25 @@ def _parse_seen_at(value: Any) -> datetime:
     text = _clean(value, 80)
     if not text:
         return datetime.now(UTC)
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
+    candidates = [text.replace("Z", "+00:00")]
+    # RB2B's published test payload has historically used
+    # ``12:34:56:00.00+00.00``. Accept it as fractional seconds plus a normal
+    # UTC offset without weakening validation of the rest of the timestamp.
+    legacy = re.sub(
+        r":(\d{2})\.(\d+)([+-]\d{2})\.(\d{2})$",
+        r".\1\2\3:\4",
+        candidates[0],
+    )
+    if legacy != candidates[0]:
+        candidates.append(legacy)
+    parsed = None
+    for candidate in candidates:
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            break
+        except ValueError:
+            continue
+    if parsed is None:
         return datetime.now(UTC)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
@@ -95,5 +112,7 @@ class Rb2bAdapter:
             state=_clean(payload.get("State"), 120),
             zipcode=_clean(payload.get("Zipcode"), 24),
             tags=tags,
-            repeat_visitor=_truthy(payload.get("is_repeat_visitor")),
+            repeat_visitor=_truthy(
+                payload.get("is_repeat_visitor", payload.get("is_repeat_visit"))
+            ),
         )

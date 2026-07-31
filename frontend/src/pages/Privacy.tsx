@@ -341,7 +341,7 @@ export default function Privacy() {
                   identification, and support providers process information for us. Depending on
                   the features enabled, examples include Supabase, Vercel, Render, PostHog,
                   RB2B/Retention.com, AI/model-routing providers, AWS, Perplexity, Google, Resend,
-                  Twilio, Stripe, Square, and Buffer.
+                  Twilio, Stripe, Square, Buffer, and Discord.
                 </li>
                 <li>
                   <strong>Services you connect.</strong> We exchange information with a platform
@@ -431,6 +431,15 @@ export default function Privacy() {
                 described above; not every visitor is identified.
               </p>
               <p>
+                If our private Discord integration is enabled, a new provider match that meets our
+                interest threshold may be delivered to an access-controlled Churnary team channel
+                for review. The alert may contain a professional name, role, company, location,
+                LinkedIn URL, recent page, and interest score. Business email is excluded by
+                default and is included only if an administrator explicitly enables it. Discord
+                commands return visitor summaries privately to authorized server managers or
+                configured roles.
+              </p>
+              <p>
                 Select{" "}
                 <button
                   type="button"
@@ -488,6 +497,15 @@ export default function Privacy() {
                     request, then deleted, de-identified, or suppressed. A one-way identifier hash
                     may remain after suppression so later provider data does not recreate the
                     erased profile.
+                  </dd>
+                </div>
+                <div>
+                  <dt>Internal visitor alerts</dt>
+                  <dd>
+                    According to the retention settings of our access-controlled team workspace
+                    and Discord server. Administrators can remove messages and restrict channel
+                    membership, and Churnary can disable future alerts without affecting a
+                    suppression or deletion request in our own database.
                   </dd>
                 </div>
                 <div>
