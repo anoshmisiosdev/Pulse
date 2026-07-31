@@ -133,7 +133,7 @@ async def test_rb2b_webhook_is_authenticated_idempotent_and_reported(
         "Zipcode": "94538",
         "Seen At": "2026-07-30T12:34:56+00:00",
         "Referrer": "https://www.google.com/search?q=retention",
-        "Captured URL": "https://churnary.com/pricing",
+        "Captured URL": "https://churnary.ai/pricing",
         "Tags": "Pricing, ICP",
         "is_repeat_visitor": True,
     }
@@ -202,7 +202,7 @@ async def test_rb2b_webhook_rejects_non_object_or_oversized_payload(visitor_clie
     )
     missing_identity = client.post(
         endpoint,
-        json={"Captured URL": "https://churnary.com/pricing"},
+        json={"Captured URL": "https://churnary.ai/pricing"},
     )
 
     assert not_an_object.status_code == 422
@@ -220,7 +220,7 @@ async def test_suppression_erases_identity_history_and_blocks_rehydration(
         "Business Email": "dana@example.com",
         "Company Name": "Bluebird",
         "Seen At": "2026-07-30T12:34:56+00:00",
-        "Captured URL": "https://churnary.com/",
+        "Captured URL": "https://churnary.ai/",
         "City": "Fremont",
         "State": "California",
         "Zipcode": "94538",

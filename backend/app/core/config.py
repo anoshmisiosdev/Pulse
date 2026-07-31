@@ -211,7 +211,7 @@ class Settings(BaseSettings):
     # This replaces Splay's Convex blob store.
     s3_media_bucket: str = ""
     s3_media_prefix: str = "social/"
-    media_public_base_url: str = ""  # e.g. https://media.churnary.com
+    media_public_base_url: str = ""  # e.g. https://media.churnary.ai
 
     @property
     def media_host_configured(self) -> bool:

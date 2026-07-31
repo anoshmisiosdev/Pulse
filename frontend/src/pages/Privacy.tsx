@@ -4,7 +4,7 @@ import ChurnaryMark from "../components/ChurnaryMark";
 import { openPrivacyChoices } from "../lib/privacyPreferences";
 
 const EFFECTIVE_DATE = "July 30, 2026";
-const PRIVACY_EMAIL = "privacy@churnary.com";
+const PRIVACY_EMAIL = "aditya@churnary.ai";
 
 const SECTIONS = [
   ["scope", "Scope and our role"],
