@@ -42,6 +42,32 @@ services:
         sync: false
       - key: PERPLEXITY_API_KEY
         sync: false
+      - key: FOURSQUARE_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: EXA_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: PRICING_PIPELINE_V2_ENABLED
+        value: "true"
+      - key: PRICING_MONITORING_ENABLED
+        value: "false"
+      - key: PRICING_DAILY_FRESH_RUN_LIMIT
+        value: "10"
+      - key: PRICING_MAX_PROVIDER_COST_USD
+        value: "0.10"
+      - key: PRICING_MAX_COMPETITORS_PER_RUN
+        value: "4"
+      - key: PRICING_MAX_AI_FALLBACKS_PER_RUN
+        value: "2"
+      - key: PRICING_MAX_CONTENT_FALLBACKS_PER_RUN
+        value: "1"
+      - key: PRICING_MAX_GEOCODING_REQUESTS_PER_RUN
+        value: "1"
+      - key: PRICING_GOOGLE_PLACE_DETAILS_ENABLED
+        value: "false"
       - key: TOKEN_ROUTER_API_KEY
         sync: false
       - key: TOKEN_ROUTER_BASE_URL

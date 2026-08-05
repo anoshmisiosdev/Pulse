@@ -73,11 +73,31 @@ class Settings(BaseSettings):
 
     # Competitor research uses Google Places for authoritative local-business
     # discovery and Perplexity Sonar for grounded research and structured output.
-    strict_free_tier: bool = True
+    # Pricing pipeline v2. ``strict_free_tier`` remains accepted for legacy
+    # deployments, but quota, cache, and provider budgets are now independent.
+    pricing_pipeline_v2_enabled: bool = True
+    pricing_monitoring_enabled: bool = False
+    pricing_daily_fresh_run_limit: int = 10
+    pricing_complete_cache_minutes: int = 120
+    pricing_no_evidence_cache_minutes: int = 30
+    pricing_max_provider_cost_usd: float = 0.10
+    pricing_max_competitors_per_run: int = 4
+    pricing_max_ai_fallbacks_per_run: int = 2
+    pricing_max_content_fallbacks_per_run: int = 1
+    pricing_max_geocoding_requests_per_run: int = 1
+    pricing_place_provider: Literal["google_places", "foursquare"] = "google_places"
+    pricing_search_provider: Literal["perplexity", "tavily", "exa"] = "perplexity"
+    pricing_content_fallback: Literal["none", "tavily", "exa", "firecrawl"] = "none"
+    pricing_extraction_provider: Literal["deterministic", "sonar", "deepseek"] = "sonar"
+    strict_free_tier: bool = False
     google_maps_server_api_key: str = ""
     google_maps_api_key: str = ""
     enable_google_places_discovery: bool = True
+    pricing_google_place_details_enabled: bool = False
     google_places_base_url: str = "https://places.googleapis.com/v1"
+    foursquare_api_key: str = ""
+    foursquare_base_url: str = "https://places-api.foursquare.com"
+    foursquare_api_version: str = "2025-06-17"
     enable_direct_source_fetch: bool = True
     source_fetch_timeout_seconds: float = 10.0
     source_fetch_max_bytes: int = 2_000_000
@@ -99,6 +119,12 @@ class Settings(BaseSettings):
     perplexity_max_results: int = 5
     perplexity_max_queries_per_competitor: int = 3
     perplexity_max_tokens_per_page: int = 2048
+    tavily_api_key: str = ""
+    tavily_base_url: str = "https://api.tavily.com"
+    exa_api_key: str = ""
+    exa_base_url: str = "https://api.exa.ai"
+    firecrawl_api_key: str = ""
+    firecrawl_base_url: str = "https://api.firecrawl.dev/v2"
     # Legacy settings remain accepted while old deployments roll forward.
     # The pricing workflow no longer calls these providers.
     tokenmart_api_key: str = ""
@@ -128,7 +154,9 @@ class Settings(BaseSettings):
 
     @property
     def effective_google_maps_api_key(self) -> str:
-        """Prefer the dedicated server key while preserving legacy deployments."""
+        """Never let a browser/referrer key become a production server credential."""
+        if self.environment == "production":
+            return self.google_maps_server_api_key
         return self.google_maps_server_api_key or self.google_maps_api_key
 
     @property
@@ -249,7 +277,31 @@ class Settings(BaseSettings):
             missing.append("SUPABASE_URL")
         if self.supabase_jwt_secret and len(self.supabase_jwt_secret) < 32:
             missing.append("SUPABASE_JWT_SECRET (must be >=32 chars or blank for JWKS)")
+        if self.pricing_pipeline_v2_enabled:
+            if not self.google_maps_server_api_key:
+                missing.append("GOOGLE_MAPS_SERVER_API_KEY")
+            if self.pricing_place_provider == "foursquare" and not self.foursquare_api_key:
+                missing.append("FOURSQUARE_API_KEY")
+            if self.pricing_search_provider == "perplexity" and not self.perplexity_api_key:
+                missing.append("PERPLEXITY_API_KEY")
+            if self.pricing_search_provider == "tavily" and not self.tavily_api_key:
+                missing.append("TAVILY_API_KEY")
+            if self.pricing_search_provider == "exa" and not self.exa_api_key:
+                missing.append("EXA_API_KEY")
+            if self.pricing_content_fallback == "tavily" and not self.tavily_api_key:
+                missing.append("TAVILY_API_KEY")
+            if self.pricing_content_fallback == "exa" and not self.exa_api_key:
+                missing.append("EXA_API_KEY")
+            if self.pricing_content_fallback == "firecrawl" and not self.firecrawl_api_key:
+                missing.append("FIRECRAWL_API_KEY")
+            if self.pricing_extraction_provider == "sonar" and not self.perplexity_api_key:
+                missing.append("PERPLEXITY_API_KEY")
+            if self.pricing_extraction_provider == "deepseek" and not (
+                self.tokenmart_api_key or self.deepseek_api_key
+            ):
+                missing.append("TOKENMART_API_KEY or DEEPSEEK_API_KEY")
         if missing:
+            missing = list(dict.fromkeys(missing))
             raise ValueError(
                 f"Production requires these settings: {', '.join(missing)}"
             )

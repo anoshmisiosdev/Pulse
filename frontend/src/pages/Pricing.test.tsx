@@ -2,14 +2,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { CompetitorPriceResearchResponse } from "../lib/api";
 import { createSamplePricingPortfolio } from "../lib/pricingSample";
+import MarketSummary from "../components/pricing/MarketSummary";
+import PricingTable from "../components/pricing/PricingTable";
+import { buildCompetitorRows } from "../hooks/useCompetitorPricing";
 import {
   Badge,
   DeliveryPrices,
+  ProductPricingCard,
   PricingHistory,
   ResearchStats,
   buildPricingCsv,
   deriveTenantPricingDefaults,
   formatPrice,
+  getOfferMatchCoverage,
   getMarketPosition,
   mergeTenantBusinessName,
   parseMenuItems,
@@ -54,6 +59,7 @@ describe("pricing research audit UI", () => {
     const html = renderToStaticMarkup(
       <DeliveryPrices
         summary={summary}
+        requestedOffer="Cappuccino"
         rows={[
           {
             competitor: {
@@ -100,6 +106,8 @@ describe("pricing research audit UI", () => {
     expect(html).toContain("Directly retrieved");
     expect(html).toContain("Structured data");
     expect(html).toContain("2026-06-01");
+    expect(html).toContain("Matched item");
+    expect(html).toContain("Requested: Cappuccino");
     expect(formatPrice({
       offerName: "Cappuccino",
       normalizedOfferName: "cappuccino",
@@ -175,6 +183,7 @@ describe("pricing research audit UI", () => {
 
   it("exports source-backed observations as CSV", () => {
     const csv = buildPricingCsv({
+      status: "complete",
       query: {
         businessCategory: "Coffee Shop",
         targetOffer: "Cappuccino",
@@ -215,7 +224,10 @@ describe("pricing research audit UI", () => {
         },
       ],
       marketSummary: summary,
+      estimateSummary: null,
       channelSummaries: null,
+      issues: [],
+      quota: null,
       warnings: [],
       metadata: {
         modelsUsed: [],
@@ -231,9 +243,15 @@ describe("pricing research audit UI", () => {
           sourcesAccepted: 1,
           corroboratedCompetitors: 1,
         },
+        stages: [],
+        providerCostUsd: 0,
+        pipelineVersion: "v2-test",
       },
     });
     expect(csv).toContain('"Hops & Beans"');
+    expect(csv).toContain('"requested_offer"');
+    expect(csv).toContain('"matched_offer"');
+    expect(csv).toContain('"match_reason"');
     expect(csv).toContain('"4.75"');
     expect(csv).toContain('"https://example.com/menu"');
   });
@@ -285,5 +303,81 @@ describe("pricing research audit UI", () => {
     expect(sample.results.every((item) => item.competitors.length === 4)).toBe(true);
     expect(sample.results.every((item) => item.query.currentPrice !== null)).toBe(true);
     expect(sample.history).toHaveLength(32);
+  });
+
+  it("makes the requested and actual close-match item explicit without mixing benchmarks", () => {
+    const sample = createSamplePricingPortfolio(new Date("2026-07-15T18:00:00Z"));
+    const blueberry = sample.results.find(
+      (item) => item.query.targetOffer === "Blueberry Muffin"
+    );
+    expect(blueberry).toBeDefined();
+    if (!blueberry) return;
+
+    const coverage = getOfferMatchCoverage(blueberry);
+    expect(coverage).toMatchObject({ exactBusinesses: 3, closeBusinesses: 1 });
+    expect(coverage.closeMatches.map((match) => match.offerName)).toEqual([
+      "Mixed Berry Muffin",
+    ]);
+    expect(blueberry.marketSummary).toMatchObject({ sampleSize: 3, priceMedian: 3.95 });
+
+    const card = renderToStaticMarkup(
+      <ProductPricingCard
+        result={blueberry}
+        history={[]}
+        expanded={false}
+        loading={false}
+        sample
+        onToggle={() => undefined}
+        onRefresh={() => undefined}
+        onExport={() => undefined}
+      />
+    );
+    expect(card).toContain("Close matches shown separately");
+    expect(card).toContain("Mixed Berry Muffin");
+    expect(card).toContain("never included in the exact market median");
+
+    const table = renderToStaticMarkup(
+      <PricingTable result={blueberry} rows={buildCompetitorRows(blueberry)} />
+    );
+    expect(table).toContain("Matched item");
+    expect(table).toContain("Mixed Berry Muffin");
+    expect(table).toContain("Requested: Blueberry Muffin");
+    expect(table).toContain("Close equivalent");
+    expect(table).toContain("55% name match");
+    expect(table).toContain("excluded from exact benchmark");
+  });
+
+  it("keeps verified-peer estimates visibly separate from exact observations", () => {
+    const base = createSamplePricingPortfolio(new Date("2026-07-15T18:00:00Z")).results[0];
+    const estimated: CompetitorPriceResearchResponse = {
+      ...base,
+      status: "partial",
+      marketSummary: {
+        ...base.marketSummary,
+        sampleSize: 1,
+        priceLow: null,
+        priceMedian: null,
+        priceHigh: null,
+        priceAverage: null,
+        priceIqr: null,
+        confidence: 0,
+      },
+      estimateSummary: {
+        method: "verified_peer_distribution",
+        sampleSize: 3,
+        priceLow: 3.9,
+        priceMedian: 4.1,
+        priceHigh: 4.3,
+        currency: "USD",
+        maxAgeDays: 180,
+        basis: "close_equivalent",
+      },
+    };
+
+    const html = renderToStaticMarkup(<MarketSummary result={estimated} />);
+    expect(html).toContain("Exact observed benchmark");
+    expect(html).toContain("Not established");
+    expect(html).toContain("Verified-peer estimate · not an observed price");
+    expect(html).toContain("never mixed into the exact market summary");
   });
 });

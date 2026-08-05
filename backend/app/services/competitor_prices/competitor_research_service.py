@@ -10,9 +10,9 @@ import uuid
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from difflib import SequenceMatcher
 from typing import Any
-from urllib.parse import urlparse
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +41,7 @@ from app.services.competitor_prices.deepseek_client import (
     DeepSeekError,
     DeepSeekJSONResult,
 )
+from app.services.competitor_prices.foursquare_places import FoursquarePlacesError
 from app.services.competitor_prices.geocoding import (
     Coordinates,
     GeocodingConfigurationError,
@@ -48,20 +49,25 @@ from app.services.competitor_prices.geocoding import (
     GoogleGeocodingClient,
     distance_miles,
 )
-from app.services.competitor_prices.google_places import (
-    GooglePlacesClient,
-    GooglePlacesError,
-)
+from app.services.competitor_prices.google_places import GooglePlacesError
 from app.services.competitor_prices.page_fetcher import SafePageFetcher
 from app.services.competitor_prices.perplexity_client import (
     PerplexityConfigurationError,
     PerplexityError,
     PerplexitySearchClient,
     PerplexitySearchResult,
-    discover_sources_with_perplexity,
+    discover_sources_with_search,
     infer_source_type,
 )
 from app.services.competitor_prices.pricing_extraction_service import PricingExtractionService
+from app.services.competitor_prices.provider_registry import (
+    ContentProvider,
+    PlaceProvider,
+    SearchProvider,
+    build_content_fallback,
+    build_place_provider,
+    build_search_provider,
+)
 from app.services.competitor_prices.schemas import (
     ChannelSummariesOut,
     CompetitorDiscoveryResult,
@@ -70,21 +76,29 @@ from app.services.competitor_prices.schemas import (
     CompetitorPriceResearchResponse,
     DiscoveredCompetitor,
     DiscoveredSource,
+    EstimateSummaryOut,
     ExtractedPrice,
     GroundingUsedOut,
+    MarketSummaryOut,
     MetadataOut,
     PriceExtractionResult,
     PriceObservationOut,
+    PricingIssueOut,
+    PricingQuotaOut,
     ProviderStatsOut,
     QueryOut,
     ResearchCallMetadata,
     ResearchStatsOut,
+    StageResultOut,
 )
+from app.services.competitor_prices.url_utils import canonical_domain, canonicalize_url
+from app.services.competitor_prices.web_providers import WebProviderError
 
-FRESH_RUNS_PER_DAY = 5
-CACHE_TTL = timedelta(hours=2)
 STRICT_FREE_TIER_MAX_COMPETITORS = 3
 STRICT_FREE_TIER_MAX_SOURCES_PER_COMPETITOR = 3
+# Public compatibility constant used by older tests/callers. Runtime TTLs are
+# status-aware and read from settings.
+CACHE_TTL = timedelta(hours=2)
 
 
 @dataclass
@@ -124,6 +138,23 @@ class ResearchConfigurationError(Exception):
     """The grounded research pipeline is not fully configured."""
 
 
+class ResearchUnavailableError(Exception):
+    """A required stage failed, so an empty result would be misleading."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        stage: str,
+        retryable: bool = True,
+    ):
+        super().__init__(message)
+        self.code = code
+        self.stage = stage
+        self.retryable = retryable
+
+
 class CompetitorResearchService:
     def __init__(
         self,
@@ -131,19 +162,30 @@ class CompetitorResearchService:
         deepseek_client: DeepSeekClient | None = None,
         perplexity_client: PerplexitySearchClient | None = None,
         geocoding_client: GoogleGeocodingClient | None = None,
-        places_client: GooglePlacesClient | None = None,
+        places_client: PlaceProvider | None = None,
         page_fetcher: SafePageFetcher | None = None,
+        search_client: SearchProvider | None = None,
+        content_fallback: ContentProvider | None = None,
     ):
         self.db = db
         self.perplexity = perplexity_client or PerplexitySearchClient()
-        # Production uses Sonar for every structured AI step. The optional
-        # DeepSeek client is retained only as a legacy test/migration seam.
-        self.deepseek = deepseek_client
-        self.structured_ai = deepseek_client or self.perplexity
+        self.deepseek = deepseek_client or (
+            DeepSeekClient() if settings.pricing_extraction_provider == "deepseek" else None
+        )
+        self.structured_ai = self.deepseek or self.perplexity
         self.geocoder = geocoding_client or GoogleGeocodingClient()
-        self.places = places_client or GooglePlacesClient()
+        self.places = places_client or build_place_provider()
+        self.search = search_client or perplexity_client or build_search_provider()
         self.page_fetcher = page_fetcher or SafePageFetcher()
-        self.extractor = PricingExtractionService(self.structured_ai)
+        self.content_fallback = content_fallback or build_content_fallback()
+        self.extractor = PricingExtractionService(
+            self.structured_ai,
+            allow_structured_ai=settings.pricing_extraction_provider != "deterministic",
+        )
+        self._fallback_budget_lock = asyncio.Lock()
+        self._ai_fallbacks_claimed = 0
+        self._content_fallbacks_claimed = 0
+        self._geocoding_requests_claimed = 0
 
     async def research(
         self,
@@ -153,29 +195,45 @@ class CompetitorResearchService:
         business_id = _stable_business_uuid(current_user.business_id)
         warnings: list[str] = []
         payload = _canonical_payload(payload, warnings)
+        if (
+            settings.pricing_pipeline_v2_enabled
+            and payload.max_competitors > settings.pricing_max_competitors_per_run
+        ):
+            warnings.append(
+                "Competitor count was capped to keep this run within its provider budget."
+            )
+            payload = payload.model_copy(
+                update={
+                    "max_competitors": max(1, settings.pricing_max_competitors_per_run)
+                }
+            )
         if settings.strict_free_tier:
             payload = _strict_free_tier_payload(payload, warnings)
 
         metadata = ResearchCallMetadata()
+        pipeline_started = time.perf_counter()
+        origin_was_supplied = payload.location.has_geo
         payload = await self._resolve_origin(payload, warnings, metadata)
         cache_key = build_cache_key(payload)
 
         cached = await self._cached_response(business_id, cache_key)
         if cached:
             cached.warnings = _merge_warnings(warnings, cached.warnings)
+            cached.quota = await self.quota(business_id)
             return cached
-        if settings.strict_free_tier:
-            await self._enforce_rate_limit(business_id)
+        used_before = await self._enforce_rate_limit(business_id)
 
-        pipeline_started = time.perf_counter()
         try:
             discovered = await asyncio.wait_for(
                 self.discover_competitors(payload, warnings, metadata),
                 timeout=_remaining_deadline(pipeline_started),
             )
         except TimeoutError:
-            warnings.append("Competitor discovery reached the research deadline.")
-            discovered = CompetitorDiscoveryResult(competitors=[])
+            raise ResearchUnavailableError(
+                "Nearby competitor discovery reached the research deadline.",
+                code="PRICING_DISCOVERY_TIMEOUT",
+                stage="place_discovery",
+            ) from None
 
         without_self = [
             competitor
@@ -224,10 +282,11 @@ class CompetitorResearchService:
         delivery = _representatives_for_channel(
             representatives, "delivery", all_candidates, warnings
         )
-        market_summary = build_market_summary(
+        raw_market_summary = build_market_summary(
             [(candidate.price, candidate.confidence) for candidate in in_store],
             current_price=payload.current_price,
         )
+        market_summary = _require_benchmark_sample(raw_market_summary)
         delivery_summary = build_market_summary(
             [(candidate.price, candidate.confidence) for candidate in delivery],
             current_price=None,
@@ -242,7 +301,7 @@ class CompetitorResearchService:
             sourcesChecked=sum(1 for item in work for attempt in item.attempts if attempt.checked),
             sourcesAccepted=len(
                 {
-                    candidate.source.url.rstrip("/")
+                    canonicalize_url(candidate.source.url)
                     for candidate in all_candidates
                     if candidate.price.match_quality != "weak"
                 }
@@ -265,7 +324,45 @@ class CompetitorResearchService:
                 1 for candidate in all_candidates if candidate.price.needs_review
             ),
         )
+        estimate_summary = None
+        if market_summary.sample_size < 2:
+            estimate_summary = await self._verified_peer_estimate(
+                business_id=business_id,
+                payload=payload,
+                current_candidates=all_candidates,
+            )
+        issues = _issues_from_warnings(warnings)
+        status = _research_status(
+            exact_businesses=market_summary.sample_size,
+            estimate=estimate_summary,
+            issues=issues,
+        )
+        duration_ms = round((time.perf_counter() - pipeline_started) * 1000)
+        provider_cost_usd = _estimated_provider_cost(
+            metadata=metadata,
+            places=self.places,
+            search=self.search,
+            content_fallback=self.content_fallback,
+        )
+        if provider_cost_usd > settings.pricing_max_provider_cost_usd:
+            issue = PricingIssueOut(
+                code="PRICING_COST_BUDGET_EXCEEDED",
+                stage="aggregation",
+                severity="warning",
+                retryable=False,
+                message=(
+                    f"Provider cost ${provider_cost_usd:.3f} exceeded the configured "
+                    f"${settings.pricing_max_provider_cost_usd:.2f} item budget."
+                ),
+            )
+            issues.append(issue)
+            warnings.append(issue.message)
+            if status == "complete":
+                status = "partial"
+        quota = _quota_from_used(used_before + 1)
+
         response = CompetitorPriceResearchResponse(
+            status=status,
             query=QueryOut(
                 businessCategory=payload.business_category,
                 targetOffer=payload.target_offer,
@@ -275,10 +372,13 @@ class CompetitorResearchService:
             ),
             competitors=competitors,
             marketSummary=market_summary,
+            estimateSummary=estimate_summary,
             channelSummaries=ChannelSummariesOut(
                 inStore=market_summary,
                 delivery=delivery_summary,
             ),
+            issues=issues,
+            quota=quota,
             warnings=warnings,
             metadata=MetadataOut(
                 modelsUsed=sorted(metadata.models_used),
@@ -297,6 +397,7 @@ class CompetitorResearchService:
                 ),
                 generatedAt=datetime.now(UTC),
                 cached=False,
+                durationMs=duration_ms,
                 researchStats=stats,
                 providerStats=ProviderStatsOut(
                     googlePlacesRequests=getattr(self.places, "requests_made", 0),
@@ -324,6 +425,20 @@ class CompetitorResearchService:
                     ),
                     tokenmartUsage=getattr(self.deepseek, "usage_totals", {}),
                 ),
+                stages=_stage_results(
+                    origin_was_supplied=origin_was_supplied,
+                    metadata=metadata,
+                    stats=stats,
+                    warnings=warnings,
+                    place_provider=getattr(
+                        self.places, "provider_name", settings.pricing_place_provider
+                    ),
+                    search_provider=getattr(
+                        self.search, "provider_name", settings.pricing_search_provider
+                    ),
+                ),
+                providerCostUsd=provider_cost_usd,
+                pipelineVersion="v2.1",
             ),
         )
 
@@ -340,6 +455,30 @@ class CompetitorResearchService:
         )
         return response
 
+    async def _claim_fallback_budget(self, kind: str) -> bool:
+        """Atomically reserve one bounded provider fallback for this research run."""
+        async with self._fallback_budget_lock:
+            if kind == "ai":
+                limit = max(0, settings.pricing_max_ai_fallbacks_per_run)
+                if self._ai_fallbacks_claimed >= limit:
+                    return False
+                self._ai_fallbacks_claimed += 1
+                return True
+            limit = max(0, settings.pricing_max_content_fallbacks_per_run)
+            if self._content_fallbacks_claimed >= limit:
+                return False
+            self._content_fallbacks_claimed += 1
+            return True
+
+    async def _claim_geocoding_budget(self) -> bool:
+        """Reserve a geocode call so missing place coordinates cannot burst cost."""
+        async with self._fallback_budget_lock:
+            limit = max(0, settings.pricing_max_geocoding_requests_per_run)
+            if self._geocoding_requests_claimed >= limit:
+                return False
+            self._geocoding_requests_claimed += 1
+            return True
+
     async def _resolve_origin(
         self,
         payload: CompetitorPriceResearchRequest,
@@ -348,16 +487,49 @@ class CompetitorResearchService:
     ) -> CompetitorPriceResearchRequest:
         if payload.location.has_geo:
             return payload
+        if not await self._claim_geocoding_budget():
+            raise ResearchUnavailableError(
+                "The pricing run has no geocoding request available for its origin.",
+                code="PRICING_GEOCODE_BUDGET_EXHAUSTED",
+                stage="geocode",
+                retryable=False,
+            )
         metadata.google_geocoding_requests += 1
+        geocode_started = time.perf_counter()
         try:
             coordinates = await self.geocoder.geocode(payload.location.search_label)
         except GeocodingConfigurationError as exc:
+            if settings.pricing_pipeline_v2_enabled:
+                raise ResearchUnavailableError(
+                    str(exc),
+                    code="PRICING_GEOCODE_UNAVAILABLE",
+                    stage="geocode",
+                    retryable=False,
+                ) from exc
             warnings.append(str(exc))
             return payload
         except GeocodingError as exc:
+            if settings.pricing_pipeline_v2_enabled:
+                raise ResearchUnavailableError(
+                    f"Business address could not be geocoded: {exc}",
+                    code="PRICING_GEOCODE_UNAVAILABLE",
+                    stage="geocode",
+                ) from exc
             warnings.append(f"Business address could not be geocoded: {exc}")
             return payload
+        finally:
+            metadata.duration_ms_by_provider["google_geocoding"] = (
+                metadata.duration_ms_by_provider.get("google_geocoding", 0)
+                + round((time.perf_counter() - geocode_started) * 1000)
+            )
         if not coordinates:
+            if settings.pricing_pipeline_v2_enabled:
+                raise ResearchUnavailableError(
+                    "Business address could not be geocoded.",
+                    code="PRICING_GEOCODE_NOT_FOUND",
+                    stage="geocode",
+                    retryable=False,
+                )
             warnings.append("Business address could not be geocoded; radius is unverified.")
             return payload
         metadata.google_geocoding_used = True
@@ -380,13 +552,6 @@ class CompetitorResearchService:
         if "Outside requested radius" in competitor.exclusion_reasons:
             return _CompetitorWork(competitor, [], [], [])
 
-        if self.structured_ai is self.perplexity and settings.enable_perplexity_sonar:
-            sonar_work = await self._research_competitor_with_sonar(
-                competitor, payload, warnings, metadata
-            )
-            if sonar_work.candidates:
-                return sonar_work
-
         sources = await self.discover_sources(competitor, payload, warnings, metadata)
         selected = _select_source_attempts(sources, payload.max_sources_per_competitor)
         attempts = [_SourceAttempt(source=source) for source in selected]
@@ -397,6 +562,7 @@ class CompetitorResearchService:
             page = None
             if settings.enable_direct_source_fetch:
                 fetch_started = time.perf_counter()
+                metadata.page_fetch_requests += 1
                 page = await self.page_fetcher.fetch(attempt.source.url)
                 metadata.duration_ms_by_provider["page_fetch"] = (
                     metadata.duration_ms_by_provider.get("page_fetch", 0)
@@ -407,6 +573,39 @@ class CompetitorResearchService:
                     metadata.pages_parsed += 1
                 elif page.error:
                     attempt.failure_reason = page.error
+            use_content_fallback = (
+                (not page or not page.succeeded)
+                and self.content_fallback is not None
+                and await self._claim_fallback_budget("content")
+            )
+            if use_content_fallback:
+                fallback_started = time.perf_counter()
+                fallback_requests_before = _provider_request_count(self.content_fallback)
+                try:
+                    fallback_page = await self.content_fallback.fetch(attempt.source.url)
+                except WebProviderError as exc:
+                    fallback_page = None
+                    attempt.failure_reason = str(exc)
+                finally:
+                    metadata.content_fallback_requests += max(
+                        0,
+                        _provider_request_count(self.content_fallback)
+                        - fallback_requests_before,
+                    )
+                metadata.duration_ms_by_provider[
+                    f"{settings.pricing_content_fallback}_content"
+                ] = metadata.duration_ms_by_provider.get(
+                    f"{settings.pricing_content_fallback}_content", 0
+                ) + round((time.perf_counter() - fallback_started) * 1000)
+                if fallback_page and fallback_page.succeeded:
+                    page = fallback_page
+                    attempt.source.retrieval_method = {
+                        "tavily": "tavily_extract",
+                        "exa": "exa_contents",
+                        "firecrawl": "firecrawl_scrape",
+                    }.get(settings.pricing_content_fallback, "direct_fetch")
+                    metadata.pages_fetched += 1
+                    metadata.pages_parsed += 1
             source_content = (
                 page.content
                 if page and page.succeeded and page.content
@@ -428,14 +627,40 @@ class CompetitorResearchService:
                 attempt.status = "checked_wrong_business"
                 attempt.failure_reason = "Source content does not identify this competitor."
                 continue
+            extraction_started = time.perf_counter()
+            metadata.price_extraction_attempts += 1
             try:
+                # Deterministic evidence gets the first chance. A second pass may
+                # claim one of the run's globally bounded structured-AI fallbacks.
                 extraction = await self.extractor.extract_prices(
                     competitor=competitor,
                     source=attempt.source,
                     target_offer=payload.target_offer,
                     page=page,
-                    allow_ai=not ai_fallback_used,
+                    allow_ai=False,
                 )
+                if (
+                    not extraction.data.prices
+                    and not ai_fallback_used
+                    and settings.pricing_extraction_provider != "deterministic"
+                    and await self._claim_fallback_budget("ai")
+                ):
+                    ai_fallback_used = True
+                    ai_requests_before = _provider_request_count(self.structured_ai)
+                    try:
+                        extraction = await self.extractor.extract_prices(
+                            competitor=competitor,
+                            source=attempt.source,
+                            target_offer=payload.target_offer,
+                            page=page,
+                            allow_ai=True,
+                        )
+                    finally:
+                        metadata.ai_extraction_requests += max(
+                            0,
+                            _provider_request_count(self.structured_ai)
+                            - ai_requests_before,
+                        )
             except (DeepSeekError, PerplexityError) as exc:
                 attempt.status = "failed"
                 attempt.failure_reason = str(exc)
@@ -443,13 +668,18 @@ class CompetitorResearchService:
                     f"Price extraction failed for {attempt.source.url}; tried the next source."
                 )
                 continue
+            finally:
+                metadata.duration_ms_by_provider["price_extraction"] = (
+                    metadata.duration_ms_by_provider.get("price_extraction", 0)
+                    + round((time.perf_counter() - extraction_started) * 1000)
+                )
 
             self._record_call(extraction, metadata, warnings)
-            if "deepseek_extraction" in extraction.tools_used:
+            if {"deepseek_extraction", "sonar_extraction"} & extraction.tools_used:
                 ai_fallback_used = True
             snippet_only = not bool(page and page.succeeded)
             if extraction.data.prices:
-                if "deepseek_extraction" in extraction.tools_used:
+                if {"deepseek_extraction", "sonar_extraction"} & extraction.tools_used:
                     metadata.ai_extractions += len(extraction.data.prices)
                 else:
                     metadata.deterministic_extractions += len(extraction.data.prices)
@@ -532,19 +762,19 @@ Return an empty prices array when no source explicitly publishes the target pric
         ) + round((time.perf_counter() - started) * 1000)
 
         search_by_url = {
-            str(item.get("url") or "").rstrip("/"): item
+            canonicalize_url(str(item.get("url") or "")): item
             for item in result.search_results
             if item.get("url")
         }
         grounded_urls = {
-            *{url.rstrip("/") for url in result.citations},
+            *{canonicalize_url(url) for url in result.citations},
             *search_by_url.keys(),
         }
         sources: list[DiscoveredSource] = []
         attempts: list[_SourceAttempt] = []
         candidates: list[_CandidatePrice] = []
         for price in result.data.prices:
-            source_url = price.source_url.rstrip("/")
+            source_url = canonicalize_url(price.source_url)
             if (
                 source_url not in grounded_urls
                 or price.match_quality == "weak"
@@ -624,6 +854,13 @@ Return an empty prices array when no source explicitly publishes the target pric
             if competitor.distance_miles > payload.radius_miles:
                 competitor.exclusion_reasons.append("Outside requested radius")
             return
+        if not await self._claim_geocoding_budget():
+            competitor.exclusion_reasons.append("Distance could not be verified")
+            warnings.append(
+                f"Excluded {competitor.name} because its place record omitted coordinates; "
+                "the run-wide geocoding budget was already used."
+            )
+            return
         metadata.google_geocoding_requests += 1
         try:
             lookup_address = competitor.address or (
@@ -657,6 +894,44 @@ Return an empty prices array when no source explicitly publishes the target pric
         warnings: list[str],
         metadata: ResearchCallMetadata,
     ) -> CompetitorDiscoveryResult:
+        if settings.pricing_pipeline_v2_enabled:
+            if not payload.location.has_geo:
+                raise ResearchUnavailableError(
+                    "Nearby discovery requires a verified origin.",
+                    code="PRICING_GEOCODE_UNAVAILABLE",
+                    stage="geocode",
+                    retryable=False,
+                )
+            provider_name = getattr(
+                self.places, "provider_name", settings.pricing_place_provider
+            )
+            started = time.perf_counter()
+            requests_before = _provider_request_count(self.places)
+            try:
+                competitors = await self.places.discover(
+                    latitude=payload.location.latitude,
+                    longitude=payload.location.longitude,
+                    radius_miles=payload.radius_miles,
+                    business_category=payload.business_category,
+                    max_results=payload.max_competitors,
+                )
+            except (GooglePlacesError, FoursquarePlacesError) as exc:
+                raise ResearchUnavailableError(
+                    f"{provider_name} nearby-business discovery failed: {exc}",
+                    code="PRICING_DISCOVERY_UNAVAILABLE",
+                    stage="place_discovery",
+                ) from exc
+            finally:
+                metadata.place_discovery_requests += max(
+                    0, _provider_request_count(self.places) - requests_before
+                )
+                metadata.duration_ms_by_provider[provider_name] = round(
+                    (time.perf_counter() - started) * 1000
+                )
+            if provider_name == "google_places":
+                metadata.google_places_used = True
+            return CompetitorDiscoveryResult(competitors=competitors)
+
         if settings.enable_google_places_discovery and payload.location.has_geo:
             started = time.perf_counter()
             try:
@@ -743,11 +1018,11 @@ Evidence JSON:
             {"sonar_research"} if self.structured_ai is self.perplexity else {"deepseek_research"}
         )
         self._record_call(result, metadata, warnings)
-        allowed_urls = {item.url.rstrip("/") for item in evidence}
+        allowed_urls = {canonicalize_url(item.url) for item in evidence}
         result.data.competitors = [
             competitor
             for competitor in result.data.competitors
-            if any(url.rstrip("/") in allowed_urls for url in competitor.source_urls)
+            if any(canonicalize_url(url) in allowed_urls for url in competitor.source_urls)
         ]
         if not result.data.competitors:
             warnings.append("Sonar found no competitors fully supported by search evidence.")
@@ -761,34 +1036,43 @@ Evidence JSON:
         metadata: ResearchCallMetadata,
     ) -> list[DiscoveredSource]:
         known_sources = _known_competitor_sources(competitor)
-        if settings.enable_perplexity_search:
+        if settings.pricing_pipeline_v2_enabled or settings.enable_perplexity_search:
+            provider_name = getattr(
+                self.search, "provider_name", settings.pricing_search_provider
+            )
             started = time.perf_counter()
+            requests_before = _provider_request_count(self.search)
             try:
-                sources = await discover_sources_with_perplexity(
-                    client=self.perplexity,
+                sources = await discover_sources_with_search(
+                    client=self.search,
                     competitor=competitor,
                     payload=payload,
                 )
                 if sources:
-                    metadata.perplexity_search_used = True
-                    metadata.models_used.add("perplexity-search")
-                    metadata.duration_ms_by_provider["perplexity"] = (
-                        metadata.duration_ms_by_provider.get("perplexity", 0)
-                        + round((time.perf_counter() - started) * 1000)
-                    )
+                    if provider_name == "perplexity":
+                        metadata.perplexity_search_used = True
+                    metadata.models_used.add(f"{provider_name}-search")
                     return _dedupe_and_rank_sources(
                         [*sources, *known_sources],
                         payload.target_offer,
                     )
-            except PerplexityConfigurationError:
+            except (PerplexityConfigurationError, WebProviderError):
                 warnings.append(
-                    "Perplexity Search is enabled but PERPLEXITY_API_KEY is not configured; "
+                    f"{provider_name} source search is unavailable; "
                     "source discovery used known first-party URLs only."
                 )
             except PerplexityError:
                 warnings.append(
-                    "Perplexity Search source discovery failed; "
+                    f"{provider_name} source search failed; "
                     "source discovery used known first-party URLs only."
+                )
+            finally:
+                metadata.source_search_requests += max(
+                    0, _provider_request_count(self.search) - requests_before
+                )
+                metadata.duration_ms_by_provider[provider_name] = (
+                    metadata.duration_ms_by_provider.get(provider_name, 0)
+                    + round((time.perf_counter() - started) * 1000)
                 )
         if not known_sources:
             warnings.append(f"No source-backed pricing pages were found for {competitor.name}.")
@@ -845,9 +1129,13 @@ Evidence JSON:
         response.metadata.cached = True
         return response
 
-    async def _enforce_rate_limit(self, business_id: uuid.UUID) -> None:
+    async def quota(self, business_id: uuid.UUID) -> PricingQuotaOut:
+        used = await self._fresh_runs_used(business_id)
+        return _quota_from_used(used)
+
+    async def _fresh_runs_used(self, business_id: uuid.UUID) -> int:
         if self.db is None:
-            return
+            return 0
         start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         count = await self.db.scalar(
             select(func.count())
@@ -857,10 +1145,108 @@ Evidence JSON:
                 CompetitorPriceResearchRun.created_at >= start,
             )
         )
-        if int(count or 0) >= FRESH_RUNS_PER_DAY:
+        return int(count or 0)
+
+    async def _enforce_rate_limit(self, business_id: uuid.UUID) -> int:
+        used = await self._fresh_runs_used(business_id)
+        if (
+            settings.pricing_daily_fresh_run_limit > 0
+            and used >= settings.pricing_daily_fresh_run_limit
+        ):
             raise FreeTierRateLimitError(
-                "Strict free-tier limit reached: 5 fresh competitor research runs per day."
+                "Daily pricing research limit reached. Cached reports remain available."
             )
+        return used
+
+    async def _verified_peer_estimate(
+        self,
+        *,
+        business_id: uuid.UUID,
+        payload: CompetitorPriceResearchRequest,
+        current_candidates: list[_CandidatePrice],
+    ) -> EstimateSummaryOut | None:
+        """Build a fallback range from verified observations, never model guesses."""
+        values_by_business: dict[str, float] = {}
+        for candidate in sorted(
+            current_candidates, key=lambda item: item.confidence, reverse=True
+        ):
+            if (
+                candidate.channel != "in_store"
+                or candidate.price.match_quality not in {"exact", "close"}
+                or candidate.price.freshness_status in {"stale", "expired"}
+                or candidate.price.needs_review
+                or candidate.price.currency.upper() != "USD"
+            ):
+                continue
+            midpoint = _price_midpoint(candidate.price)
+            if midpoint is not None:
+                values_by_business.setdefault(candidate.competitor.name.casefold(), midpoint)
+
+        if self.db is not None:
+            cutoff = datetime.now(UTC) - timedelta(days=180)
+            stmt = (
+                select(
+                    CompetitorPriceCompetitor.name,
+                    CompetitorPriceObservation.price_min,
+                    CompetitorPriceObservation.price_max,
+                )
+                .join(
+                    CompetitorPriceSource,
+                    CompetitorPriceObservation.source_id == CompetitorPriceSource.id,
+                )
+                .join(
+                    CompetitorPriceCompetitor,
+                    CompetitorPriceSource.competitor_id == CompetitorPriceCompetitor.id,
+                )
+                .join(
+                    CompetitorPriceResearchRun,
+                    CompetitorPriceCompetitor.run_id == CompetitorPriceResearchRun.id,
+                )
+                .where(
+                    CompetitorPriceResearchRun.business_id == business_id,
+                    func.lower(CompetitorPriceResearchRun.business_category)
+                    == payload.business_category.casefold(),
+                    func.lower(CompetitorPriceResearchRun.target_offer)
+                    == payload.target_offer.casefold(),
+                    CompetitorPriceObservation.observed_at >= cutoff,
+                    CompetitorPriceObservation.price_channel == "in_store",
+                    CompetitorPriceObservation.match_quality.in_(["exact", "close"]),
+                    CompetitorPriceObservation.currency == "USD",
+                    CompetitorPriceObservation.needs_review.is_(False),
+                    CompetitorPriceCompetitor.distance_miles.is_not(None),
+                    CompetitorPriceCompetitor.distance_miles <= payload.radius_miles,
+                )
+                .order_by(CompetitorPriceObservation.observed_at.desc())
+                .limit(200)
+            )
+            rows = (await self.db.execute(stmt)).all()
+            for name, low, high in rows:
+                numeric = [float(value) for value in (low, high) if value is not None]
+                if numeric:
+                    values_by_business.setdefault(str(name).casefold(), statistics.mean(numeric))
+
+        values = sorted(values_by_business.values())
+        if len(values) < 3:
+            return None
+        q1 = _percentile(values, 0.25)
+        q3 = _percentile(values, 0.75)
+        iqr = q3 - q1
+        filtered = [
+            value
+            for value in values
+            if q1 - 1.5 * iqr <= value <= q3 + 1.5 * iqr
+        ]
+        if len(filtered) < 3:
+            return None
+        return EstimateSummaryOut(
+            sampleSize=len(filtered),
+            priceLow=round(_percentile(filtered, 0.25), 2),
+            priceMedian=round(_percentile(filtered, 0.5), 2),
+            priceHigh=round(_percentile(filtered, 0.75), 2),
+            currency="USD",
+            maxAgeDays=180,
+            basis="close_equivalent",
+        )
 
     async def _persist_response(
         self,
@@ -877,6 +1263,11 @@ Evidence JSON:
     ) -> None:
         if self.db is None:
             return
+        cache_minutes = (
+            settings.pricing_no_evidence_cache_minutes
+            if response.status == "no_evidence"
+            else settings.pricing_complete_cache_minutes
+        )
         run = CompetitorPriceResearchRun(
             business_id=business_id,
             user_id=user_id,
@@ -888,7 +1279,12 @@ Evidence JSON:
             models_used_json=response.metadata.models_used,
             warnings_json=response.warnings,
             response_json=response.model_dump(by_alias=True, mode="json"),
-            expires_at=datetime.now(UTC) + CACHE_TTL if settings.strict_free_tier else None,
+            status=response.status,
+            pipeline_version=response.metadata.pipeline_version,
+            provider_cost_usd=Decimal(str(response.metadata.provider_cost_usd)),
+            duration_ms=response.metadata.duration_ms,
+            failure_code=None,
+            expires_at=datetime.now(UTC) + timedelta(minutes=max(1, cache_minutes)),
         )
         self.db.add(run)
         await self.db.flush()
@@ -896,7 +1292,7 @@ Evidence JSON:
         candidates_by_source_url: dict[tuple[str, str], list[_CandidatePrice]] = {}
         for candidate in candidates:
             candidates_by_source_url.setdefault(
-                (candidate.competitor.name, candidate.source.url.rstrip("/")), []
+                (candidate.competitor.name, canonicalize_url(candidate.source.url)), []
             ).append(candidate)
         for competitor in discovered:
             output = next((c for c in response.competitors if c.name == competitor.name), None)
@@ -922,7 +1318,7 @@ Evidence JSON:
                     (
                         item
                         for item in attempts_by_competitor.get(competitor.name, [])
-                        if item.source.url.rstrip("/") == source.url.rstrip("/")
+                        if canonicalize_url(item.source.url) == canonicalize_url(source.url)
                     ),
                     None,
                 )
@@ -947,7 +1343,7 @@ Evidence JSON:
                 self.db.add(source_row)
                 await self.db.flush()
                 source_candidates = candidates_by_source_url.get(
-                    (competitor.name, source.url.rstrip("/"))
+                    (competitor.name, canonicalize_url(source.url))
                 )
                 if not source_candidates:
                     continue
@@ -969,6 +1365,8 @@ Evidence JSON:
                             confidence_reasons_json=candidate.reasons,
                             price_channel=candidate.channel,
                             match_quality=candidate.price.match_quality,
+                            match_score=candidate.price.match_score,
+                            match_reason=candidate.price.match_reason,
                             corroborated=candidate.corroborated,
                             included_in_summary=candidate.included_in_summary,
                             source_published_at=candidate.price.source_published_at,
@@ -984,7 +1382,7 @@ Evidence JSON:
 
 def build_cache_key(payload: CompetitorPriceResearchRequest) -> str:
     parts = [
-        "v5",
+        "v6",
         "places" if settings.enable_google_places_discovery else "web",
         f"fresh-{settings.third_party_freshness_months}",
         normalize_offer(payload.business_name or ""),
@@ -1152,7 +1550,7 @@ def _dedupe_and_rank_sources(
 ) -> list[DiscoveredSource]:
     by_url: dict[str, DiscoveredSource] = {}
     for source in sources:
-        key = source.url.rstrip("/")
+        key = canonicalize_url(source.url)
         existing = by_url.get(key)
         if existing is None or _source_rank(source, target_offer) > _source_rank(
             existing, target_offer
@@ -1246,8 +1644,7 @@ def _select_source_attempts(
 
 
 def _source_domain(url: str) -> str:
-    value = url if "://" in url else f"//{url}"
-    return urlparse(value).netloc.lower().removeprefix("www.")
+    return canonical_domain(url)
 
 
 def _price_channel(source: DiscoveredSource) -> str:
@@ -1510,6 +1907,8 @@ def _build_competitor_outputs(
                 confidence=c.confidence,
                 confidenceReasons=c.reasons,
                 matchQuality=c.price.match_quality,
+                matchScore=c.price.match_score,
+                matchReason=c.price.match_reason,
                 priceChannel=c.channel,
                 corroborated=c.corroborated,
                 includedInMarketSummary=c.included_in_summary,
@@ -1541,6 +1940,224 @@ def _build_competitor_outputs(
             )
         )
     return outputs
+
+
+def _require_benchmark_sample(summary: MarketSummaryOut) -> MarketSummaryOut:
+    if summary.sample_size >= 2:
+        return summary
+    return summary.model_copy(
+        update={
+            "price_low": None,
+            "price_median": None,
+            "price_high": None,
+            "price_average": None,
+            "price_iqr": None,
+            "recommended_positioning": (
+                "At least two unique verified businesses are required for market positioning."
+            ),
+            "confidence": 0.0,
+        }
+    )
+
+
+def _issues_from_warnings(warnings: list[str]) -> list[PricingIssueOut]:
+    issues: list[PricingIssueOut] = []
+    seen: set[tuple[str, str]] = set()
+    for warning in warnings:
+        lowered = warning.casefold()
+        code = "PRICING_INFORMATION"
+        stage = "aggregation"
+        severity = "info"
+        retryable = False
+        if "source search" in lowered:
+            code = "PRICING_SOURCE_SEARCH_UNAVAILABLE"
+            stage = "source_search"
+            severity = "warning"
+            retryable = True
+        elif "source validation reached" in lowered or "deadline" in lowered:
+            code = "PRICING_DEADLINE_EXCEEDED"
+            stage = "content_fetch"
+            severity = "warning"
+            retryable = True
+        elif "price extraction failed" in lowered:
+            code = "PRICING_EXTRACTION_DEGRADED"
+            stage = "price_extraction"
+            severity = "warning"
+            retryable = True
+        elif "retrieval failed" in lowered:
+            code = "PRICING_CONTENT_FETCH_DEGRADED"
+            stage = "content_fetch"
+            severity = "warning"
+            retryable = True
+        key = (code, warning)
+        if key in seen:
+            continue
+        seen.add(key)
+        issues.append(
+            PricingIssueOut(
+                code=code,
+                stage=stage,
+                severity=severity,
+                retryable=retryable,
+                message=warning,
+            )
+        )
+    return issues
+
+
+def _research_status(
+    *,
+    exact_businesses: int,
+    estimate: EstimateSummaryOut | None,
+    issues: list[PricingIssueOut],
+) -> str:
+    degraded = any(issue.severity in {"warning", "error"} for issue in issues)
+    if exact_businesses >= 2 and not degraded:
+        return "complete"
+    if exact_businesses > 0 or estimate is not None or degraded:
+        return "partial"
+    return "no_evidence"
+
+
+def _stage_results(
+    *,
+    origin_was_supplied: bool,
+    metadata: ResearchCallMetadata,
+    stats: ResearchStatsOut,
+    warnings: list[str],
+    place_provider: str,
+    search_provider: str,
+) -> list[StageResultOut]:
+    source_degraded = any("source search" in value.casefold() for value in warnings)
+    content_degraded = any(
+        "source validation reached" in value.casefold()
+        or "retrieval failed" in value.casefold()
+        for value in warnings
+    )
+    extraction_degraded = any("price extraction failed" in value.casefold() for value in warnings)
+    return [
+        StageResultOut(
+            stage="geocode",
+            status="skipped" if origin_was_supplied else "ok",
+            provider=None if origin_was_supplied else "google_geocoding",
+            attempts=metadata.google_geocoding_requests,
+            durationMs=metadata.duration_ms_by_provider.get("google_geocoding", 0),
+        ),
+        StageResultOut(
+            stage="place_discovery",
+            status="ok",
+            provider=place_provider,
+            attempts=metadata.place_discovery_requests,
+            durationMs=metadata.duration_ms_by_provider.get(place_provider, 0),
+        ),
+        StageResultOut(
+            stage="source_search",
+            status=(
+                "degraded"
+                if source_degraded
+                else ("ok" if metadata.source_search_requests else "skipped")
+            ),
+            provider=search_provider,
+            attempts=metadata.source_search_requests,
+            durationMs=metadata.duration_ms_by_provider.get(search_provider, 0),
+            code="PRICING_SOURCE_SEARCH_UNAVAILABLE" if source_degraded else None,
+        ),
+        StageResultOut(
+            stage="content_fetch",
+            status=(
+                "degraded"
+                if content_degraded
+                else "ok"
+                if metadata.page_fetch_requests + metadata.content_fallback_requests
+                else "skipped"
+            ),
+            provider=(
+                f"safe_fetch+{settings.pricing_content_fallback}"
+                if settings.pricing_content_fallback != "none"
+                else "safe_fetch"
+            ),
+            attempts=metadata.page_fetch_requests + metadata.content_fallback_requests,
+            durationMs=sum(
+                duration
+                for provider, duration in metadata.duration_ms_by_provider.items()
+                if "fetch" in provider or "content" in provider
+            ),
+        ),
+        StageResultOut(
+            stage="price_extraction",
+            status=(
+                "degraded"
+                if extraction_degraded
+                else "ok"
+                if metadata.price_extraction_attempts
+                else "skipped"
+            ),
+            provider=(
+                f"deterministic+{settings.pricing_extraction_provider}"
+                if metadata.ai_extraction_requests
+                else "deterministic"
+            ),
+            attempts=metadata.price_extraction_attempts,
+            durationMs=metadata.duration_ms_by_provider.get("price_extraction", 0),
+        ),
+        StageResultOut(stage="aggregation", status="ok", provider="pulseq"),
+    ]
+
+
+def _estimated_provider_cost(
+    *,
+    metadata: ResearchCallMetadata,
+    places: Any,
+    search: Any,
+    content_fallback: Any,
+) -> float:
+    place_name = getattr(places, "provider_name", settings.pricing_place_provider)
+    place_rate = 0.035 if place_name == "google_places" else 0.015
+    search_name = getattr(search, "provider_name", settings.pricing_search_provider)
+    search_rate = {"perplexity": 0.005, "tavily": 0.008, "exa": 0.007}.get(
+        search_name, 0.0
+    )
+    content_name = getattr(content_fallback, "provider_name", "none")
+    content_rate = {"tavily": 0.0032, "exa": 0.001, "firecrawl": 0.001}.get(
+        content_name, 0.0
+    )
+    total = metadata.google_geocoding_requests * 0.005
+    total += metadata.place_discovery_requests * place_rate
+    total += metadata.source_search_requests * search_rate
+    total += metadata.content_fallback_requests * content_rate
+    total += metadata.ai_extraction_requests * 0.012
+    return round(total, 4)
+
+
+def _provider_request_count(provider: Any) -> int:
+    try:
+        return int(getattr(provider, "requests_made", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _quota_from_used(used: int) -> PricingQuotaOut:
+    limit = max(0, settings.pricing_daily_fresh_run_limit)
+    now = datetime.now(UTC)
+    reset = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return PricingQuotaOut(
+        dailyLimit=limit,
+        used=max(0, used),
+        remaining=max(0, limit - used) if limit else 2_147_483_647,
+        resetsAt=reset,
+    )
+
+
+def _percentile(values: list[float], fraction: float) -> float:
+    if not values:
+        raise ValueError("percentile requires values")
+    if len(values) == 1:
+        return values[0]
+    position = (len(values) - 1) * min(1.0, max(0.0, fraction))
+    lower = int(position)
+    upper = min(len(values) - 1, lower + 1)
+    weight = position - lower
+    return values[lower] * (1 - weight) + values[upper] * weight
 
 
 def _remaining_deadline(started: float) -> float:

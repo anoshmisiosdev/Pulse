@@ -12,6 +12,7 @@ type SampleProduct = {
   competitorPrices: [number, number, number, number];
   trend: [number, number, number, number];
   confidence: number;
+  closeMatches?: Partial<Record<number, string>>;
 };
 
 const SAMPLE_PRODUCTS: SampleProduct[] = [
@@ -70,6 +71,7 @@ const SAMPLE_PRODUCTS: SampleProduct[] = [
     competitorPrices: [3.75, 3.95, 4.15, 4.4],
     trend: [3.85, 3.9, 4, 4.05],
     confidence: 0.87,
+    closeMatches: { 3: "Mixed Berry Muffin" },
   },
 ];
 
@@ -99,9 +101,11 @@ function buildProductResult(
   now: Date
 ): CompetitorPriceResearchResponse {
   const prices = [...product.competitorPrices];
-  const summary = buildSummary(product, prices);
+  const exactPrices = prices.filter((_price, index) => !product.closeMatches?.[index]);
+  const summary = buildSummary(product, exactPrices);
   const generatedAt = new Date(now.getTime() - productIndex * 90_000).toISOString();
   return {
+    status: "complete",
     query: {
       businessCategory: "Coffee Shop",
       targetOffer: product.name,
@@ -113,9 +117,17 @@ function buildProductResult(
       buildCompetitor(product, productIndex, competitorIndex, competitor, generatedAt)
     ),
     marketSummary: summary,
+    estimateSummary: null,
     channelSummaries: {
       inStore: summary,
       delivery: emptySummary("No delivery marketplace prices were included in this preview."),
+    },
+    issues: [],
+    quota: {
+      dailyLimit: 10,
+      used: 0,
+      remaining: 10,
+      resetsAt: null,
     },
     warnings: [],
     metadata: {
@@ -154,6 +166,16 @@ function buildProductResult(
         tokenmartRequests: 0,
         durationMsByProvider: {},
       },
+      stages: [
+        { stage: "geocode", status: "ok", provider: "google_geocoding", attempts: 1, durationMs: 180, code: null },
+        { stage: "place_discovery", status: "ok", provider: "google_places", attempts: 1, durationMs: 410, code: null },
+        { stage: "source_search", status: "ok", provider: "perplexity", attempts: 4, durationMs: 2100, code: null },
+        { stage: "content_fetch", status: "ok", provider: "direct_fetch", attempts: 8, durationMs: 8700, code: null },
+        { stage: "price_extraction", status: "ok", provider: "deterministic+bounded_ai", attempts: 7, durationMs: 5400, code: null },
+        { stage: "aggregation", status: "ok", provider: "pulseq", attempts: 1, durationMs: 50, code: null },
+      ],
+      providerCostUsd: 0.036,
+      pipelineVersion: "v2.1-sample",
     },
   };
 }
@@ -191,26 +213,34 @@ function buildObservation(
   competitorSlug: string,
   observedAt: string
 ): CompetitorPrice {
+  const matchedOffer = product.closeMatches?.[competitorIndex] ?? product.name;
+  const isCloseMatch = matchedOffer !== product.name;
   const sourceDate = new Date(new Date(observedAt).getTime() - (competitorIndex + 1) * 86_400_000)
     .toISOString()
     .slice(0, 10);
   return {
-    offerName: product.name,
-    normalizedOfferName: product.name.toLowerCase(),
+    offerName: matchedOffer,
+    normalizedOfferName: matchedOffer.toLowerCase(),
     priceMin: price,
     priceMax: price,
     currency: "USD",
     priceType: "fixed",
     sourceUrl: `https://example.com/${competitorSlug}/menu#item-${productIndex + 1}`,
     sourceTitle: `${SAMPLE_COMPETITORS[competitorIndex].name} · Current menu`,
-    evidenceText: `${product.name} — $${price.toFixed(2)}`,
+    evidenceText: `${matchedOffer} — $${price.toFixed(2)}`,
     observedAt,
-    confidence: 0.84 + (competitorIndex % 3) * 0.04,
-    confidenceReasons: ["Exact menu item match", "Current first-party menu", "Price shown explicitly"],
-    matchQuality: "exact",
+    confidence: isCloseMatch ? 0.72 : 0.84 + (competitorIndex % 3) * 0.04,
+    confidenceReasons: isCloseMatch
+      ? ["Close product-name match", "Current first-party menu", "Price shown explicitly"]
+      : ["Exact menu item match", "Current first-party menu", "Price shown explicitly"],
+    matchQuality: isCloseMatch ? "close" : "exact",
+    matchScore: isCloseMatch ? 0.55 : 1,
+    matchReason: isCloseMatch
+      ? "Close equivalent sharing muffin; modifiers differ from the requested item."
+      : "The competitor item has the same normalized product name.",
     priceChannel: "in_store",
     corroborated: competitorIndex !== 3,
-    includedInMarketSummary: true,
+    includedInMarketSummary: !isCloseMatch,
     sourceUpdatedAt: sourceDate,
     verifiedAt: observedAt,
     retrievalMethod: "direct_fetch",
@@ -225,7 +255,9 @@ function buildSummary(
   prices: number[]
 ): CompetitorPriceMarketSummary {
   const ordered = [...prices].sort((a, b) => a - b);
-  const median = (ordered[1] + ordered[2]) / 2;
+  const middle = Math.floor(ordered.length / 2);
+  const median =
+    ordered.length % 2 === 0 ? (ordered[middle - 1] + ordered[middle]) / 2 : ordered[middle];
   const delta = (product.currentPrice - median) / median;
   const positioning =
     delta < -0.05
@@ -239,7 +271,10 @@ function buildSummary(
     priceMedian: Number(median.toFixed(2)),
     priceHigh: ordered[ordered.length - 1],
     priceAverage: Number((prices.reduce((total, value) => total + value, 0) / prices.length).toFixed(2)),
-    priceIqr: Number((ordered[2] - ordered[1]).toFixed(2)),
+    priceIqr:
+      ordered.length >= 4
+        ? Number((ordered[ordered.length - 2] - ordered[1]).toFixed(2))
+        : null,
     currency: "USD",
     recommendedPositioning: positioning,
     confidence: product.confidence,
@@ -276,7 +311,7 @@ function buildProductHistory(
       businessCategory: "Coffee Shop",
       generatedAt,
       priceMedian: median,
-      sampleSize: 4,
+      sampleSize: product.closeMatches ? 3 : 4,
       confidence: Math.max(0.68, product.confidence - (product.trend.length - 1 - trendIndex) * 0.04),
       changePercent: previous === null ? null : Number((((median - previous) / previous) * 100).toFixed(1)),
     };

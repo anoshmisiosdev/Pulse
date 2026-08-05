@@ -83,6 +83,54 @@ aws apprunner start-deployment --service-arn <service-arn>   # restart to pick u
 **Change a non-secret env var:** App Runner console → pulse-api →
 Configuration → Environment variables (or `aws apprunner update-service`).
 
+### Pricing pipeline v2
+
+Use these non-secret App Runner values for the budgeted production path:
+
+```text
+PRICING_PIPELINE_V2_ENABLED=true
+PRICING_MONITORING_ENABLED=false
+PRICING_DAILY_FRESH_RUN_LIMIT=10
+PRICING_COMPLETE_CACHE_MINUTES=120
+PRICING_NO_EVIDENCE_CACHE_MINUTES=30
+PRICING_MAX_PROVIDER_COST_USD=0.10
+PRICING_MAX_COMPETITORS_PER_RUN=4
+PRICING_MAX_AI_FALLBACKS_PER_RUN=2
+PRICING_MAX_CONTENT_FALLBACKS_PER_RUN=1
+PRICING_MAX_GEOCODING_REQUESTS_PER_RUN=1
+PRICING_GOOGLE_PLACE_DETAILS_ENABLED=false
+PRICING_PLACE_PROVIDER=google_places
+PRICING_SEARCH_PROVIDER=perplexity
+PRICING_CONTENT_FALLBACK=none
+PRICING_EXTRACTION_PROVIDER=sonar
+```
+
+`GOOGLE_MAPS_SERVER_API_KEY` must be a dedicated server/IP-restricted key; do
+not reuse the browser/referrer key. `push-env-to-ssm.sh` now syncs all supported
+pricing provider secrets. Before rollout, run:
+
+```bash
+cd backend
+uv run python -m scripts.pricing_preflight
+uv run python -m scripts.pricing_canary --mode extraction
+```
+
+The provider comparison harness is non-persisting and reserves the approved
+$100 evaluation budget and $0.10/item ceiling:
+
+```bash
+uv run python -m scripts.pricing_bakeoff \
+  --places google_places,foursquare \
+  --search perplexity,tavily,exa \
+  --content none,tavily,exa,firecrawl \
+  --extraction deterministic,sonar \
+  --confirm-matrix --output /tmp/pricing-bakeoff.json
+```
+
+Product price monitoring remains unavailable until a real worker/scheduler is
+deployed. The weekly GitHub canary checks the public extraction path only; it
+does not turn on tenant monitoring.
+
 **RB2B + Discord visitor alerts:** follow
 [`docs/rb2b-discord-setup.md`](../../docs/rb2b-discord-setup.md). Secrets and
 Discord IDs can be synced through `push-env-to-ssm.sh`; set

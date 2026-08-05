@@ -118,7 +118,7 @@ fastapi_app.add_middleware(
     RateLimitMiddleware,
     rules={
         "/api/auth": (5, 60),               # 5 per 60s — brute-force protection
-        "/api/competitor-prices": (3, 60),  # 3 per 60s — expensive LLM calls
+        "/api/competitor-prices": (10, 60), # v2 batch queue; tenant quota is authoritative
         "/api/analytics": (60, 60),         # bounded public landing-page metrics
         "/api/waitlist": (5, 60),           # 5 per 60s — unauthenticated public write
         "/api/visitors/webhooks": (120, 60), # bounded third-party identity deliveries

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.competitor_prices import (
@@ -81,7 +84,8 @@ def _response(median: float = 5.25) -> CompetitorPriceResearchResponse:
     )
 
 
-async def test_latest_history_and_watch_round_trip(db):
+async def test_latest_history_and_watch_round_trip(db, monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.pricing_monitoring_enabled", True)
     response = _response()
     db.add(
         CompetitorPriceResearchRun(
@@ -94,7 +98,8 @@ async def test_latest_history_and_watch_round_trip(db):
             radius_miles=5,
             models_used_json="[]",
             warnings_json="[]",
-            response_json=response.model_dump_json(by_alias=True),
+            # Postgres JSONB returns a mapping, not a serialized JSON string.
+            response_json=response.model_dump(by_alias=True, mode="json"),
             expires_at=datetime.now(UTC) + CACHE_TTL,
         )
     )
@@ -122,6 +127,14 @@ async def test_latest_history_and_watch_round_trip(db):
     assert history[0].sample_size == 2
     assert watch.enabled and watch.interval_hours == 2
     assert saved_watch and saved_watch.request.target_offer == "Cappuccino"
+
+
+async def test_monitoring_is_unavailable_without_a_scheduler(db, monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.pricing_monitoring_enabled", False)
+    with pytest.raises(HTTPException) as exc_info:
+        await get_price_watch(db, USER)
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail["errorCode"] == "PRICING_MONITORING_NOT_AVAILABLE"
 
 
 async def test_portfolio_returns_only_latest_report_per_offer(db):
@@ -160,3 +173,46 @@ async def test_portfolio_returns_only_latest_report_per_offer(db):
 
 def test_pricing_cache_contract_is_two_hours():
     assert CACHE_TTL == timedelta(hours=2)
+
+
+@pytest.mark.skipif(
+    not os.environ.get("PRICING_TEST_POSTGRES_URL"),
+    reason="Set PRICING_TEST_POSTGRES_URL to run the real JSONB round trip.",
+)
+async def test_postgres_jsonb_response_round_trip_returns_a_mapping():
+    engine = create_async_engine(os.environ["PRICING_TEST_POSTGRES_URL"])
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            lambda sync_connection: CompetitorPriceResearchRun.__table__.create(
+                sync_connection, checkfirst=True
+            )
+        )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    response = _response()
+    async with session_factory() as session:
+        session.add(
+            CompetitorPriceResearchRun(
+                business_id=BUSINESS_ID,
+                user_id=USER.user_id,
+                cache_key="postgres-jsonb",
+                business_category="Coffee Shop",
+                target_offer="Cappuccino",
+                location_json={"city": "Fremont", "state": "CA"},
+                radius_miles=5,
+                models_used_json=[],
+                warnings_json=[],
+                response_json=response.model_dump(by_alias=True, mode="json"),
+                expires_at=datetime.now(UTC) + CACHE_TTL,
+            )
+        )
+        await session.commit()
+        saved = await latest_competitor_prices(None, session, USER)
+        raw = await session.scalar(
+            select(CompetitorPriceResearchRun.response_json).where(
+                CompetitorPriceResearchRun.cache_key == "postgres-jsonb"
+            )
+        )
+
+    await engine.dispose()
+    assert isinstance(raw, dict)
+    assert saved and saved.market_summary.price_median == 5.25

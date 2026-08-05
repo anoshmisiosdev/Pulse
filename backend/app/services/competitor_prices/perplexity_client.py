@@ -80,6 +80,8 @@ class PerplexitySearchResult:
 
 
 class PerplexitySearchClient:
+    provider_name = "perplexity"
+
     def __init__(
         self,
         api_key: str | None = None,
@@ -261,56 +263,58 @@ class PerplexitySearchClient:
         return data
 
 
+async def discover_sources_with_search(
+    *,
+    client,
+    competitor: DiscoveredCompetitor,
+    payload: CompetitorPriceResearchRequest,
+) -> list[DiscoveredSource]:
+    # Keep the provider budget deterministic across adapters. Perplexity accepts
+    # query arrays in one request, while Tavily and Exa bill each array entry as
+    # a separate request. One high-signal query per verified competitor makes
+    # the per-item ceiling provider-independent; known first-party URLs are
+    # merged separately by the caller.
+    queries = [
+        query
+        for query in _pricing_queries(competitor, payload)
+        if not query.startswith("site:")
+    ]
+    if not queries:
+        return []
+    cutoff = datetime.now(UTC) - timedelta(
+        days=max(1, settings.third_party_freshness_months) * 30
+    )
+    results = await client.search(
+        queries[0],
+        max_results=settings.perplexity_max_results,
+        search_after_date_filter=cutoff.strftime("%m/%d/%Y"),
+    )
+    return [
+        source
+        for result in results
+        if (
+            source := _source_from_result(
+                result=result,
+                competitor=competitor,
+                target_offer=payload.target_offer,
+                query_index=0,
+            )
+        )
+    ]
+
+
 async def discover_sources_with_perplexity(
     *,
     client: PerplexitySearchClient,
     competitor: DiscoveredCompetitor,
     payload: CompetitorPriceResearchRequest,
 ) -> list[DiscoveredSource]:
-    sources: list[DiscoveredSource] = []
-    queries = _pricing_queries(competitor, payload)
-    domain = _domain(competitor.website or "")
-    if domain:
-        official_results = await client.search(
-            f'site:{domain} "{canonicalize_offer_label(payload.target_offer)}" price menu',
-            max_results=settings.perplexity_max_results,
-            search_domain_filter=[domain],
-        )
-        sources.extend(
-            source
-            for result in official_results
-            if (
-                source := _source_from_result(
-                    result=result,
-                    competitor=competitor,
-                    target_offer=payload.target_offer,
-                    query_index=0,
-                )
-            )
-        )
-    general_queries = [query for query in queries if not query.startswith("site:")]
-    if general_queries:
-        cutoff = datetime.now(UTC) - timedelta(
-            days=max(1, settings.third_party_freshness_months) * 30
-        )
-        results = await client.search(
-            general_queries[:5],
-            max_results=settings.perplexity_max_results,
-            search_after_date_filter=cutoff.strftime("%m/%d/%Y"),
-        )
-        sources.extend(
-            source
-            for result in results
-            if (
-                source := _source_from_result(
-                    result=result,
-                    competitor=competitor,
-                    target_offer=payload.target_offer,
-                    query_index=1,
-                )
-            )
-        )
-    return sources
+    """Backward-compatible wrapper for older imports and tests."""
+    return await discover_sources_with_search(
+        client=client,
+        competitor=competitor,
+        payload=payload,
+    )
 
 
 def _pricing_queries(
@@ -357,7 +361,7 @@ def _source_from_result(
             relevance=relevance,
             publishedAt=result.date,
             updatedAt=result.last_updated,
-            retrievalMethod="perplexity_content",
+            retrievalMethod="search_snippet",
         )
     except ValueError:
         logger.debug("Ignoring invalid Perplexity URL: %s", result.url)
