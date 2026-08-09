@@ -42,7 +42,8 @@ jobs:
       - name: Validate Alembic migration chain
         run: uv run alembic upgrade head --sql > /dev/null
       - name: Bootstrap base schema (mirrors app startup create_all)
-        run: uv run python -c "
+        run: |
+          uv run python - <<'PY'
           import asyncio
           from app import models  # noqa: F401 - register tables on metadata
           from app.core.database import Base, engine
@@ -52,7 +53,7 @@ jobs:
                   await conn.run_sync(Base.metadata.create_all)
 
           asyncio.run(main())
-          "
+          PY
       - name: Apply migrations to PostgreSQL
         run: uv run alembic upgrade head
       - name: Tests (with coverage gate on scoring + adapters)
