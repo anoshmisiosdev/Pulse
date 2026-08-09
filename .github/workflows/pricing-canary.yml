@@ -1,0 +1,39 @@
+name: Pricing extraction canary
+
+on:
+  schedule:
+    - cron: "17 16 * * 1"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Extraction is free; full uses configured provider secrets."
+        required: true
+        default: extraction
+        type: choice
+        options:
+          - extraction
+          - full
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      GOOGLE_MAPS_SERVER_API_KEY: ${{ secrets.GOOGLE_MAPS_SERVER_API_KEY }}
+      PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+      PRICING_MAX_PROVIDER_COST_USD: "0.10"
+      PRICING_MONITORING_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --no-dev
+      - name: Run non-persisting pricing canary
+        run: >-
+          uv run python -m scripts.pricing_canary
+          --mode "${{ github.event.inputs.mode || 'extraction' }}"
+          --max-cost-usd 0.10
+          --json

@@ -301,14 +301,30 @@ export interface CompetitorPrice {
   confidence: number;
   confidenceReasons: string[];
   matchQuality: "exact" | "close" | "weak";
+  matchScore?: number | null;
+  matchReason?: string | null;
   priceChannel: "in_store" | "delivery" | "unknown";
   corroborated: boolean;
   includedInMarketSummary: boolean;
   sourcePublishedAt?: string | null;
   sourceUpdatedAt?: string | null;
   verifiedAt?: string | null;
-  retrievalMethod?: "direct_fetch" | "perplexity_content" | "search_snippet" | "none";
-  extractionMethod?: "json_ld" | "visible_text" | "search_snippet" | "sonar" | "tokenmart" | "method_consensus";
+  retrievalMethod?:
+    | "direct_fetch"
+    | "perplexity_content"
+    | "tavily_extract"
+    | "exa_contents"
+    | "firecrawl_scrape"
+    | "search_snippet"
+    | "none";
+  extractionMethod?:
+    | "json_ld"
+    | "visible_text"
+    | "search_snippet"
+    | "sonar"
+    | "tokenmart"
+    | "bounded_ai"
+    | "method_consensus";
   freshnessStatus?: "current" | "stale" | "unknown" | "expired";
   needsReview?: boolean;
 }
@@ -325,7 +341,51 @@ export interface CompetitorPriceCompetitor {
   radiusVerified: boolean;
   exclusionReasons: string[];
   placeId?: string | null;
-  discoveryProvider?: "google_places" | "perplexity";
+  discoveryProvider?: "google_places" | "foursquare" | "perplexity";
+}
+
+export type CompetitorPriceResearchStatus = "complete" | "partial" | "no_evidence";
+export type CompetitorPriceStageName =
+  | "geocode"
+  | "place_discovery"
+  | "source_search"
+  | "content_fetch"
+  | "price_extraction"
+  | "aggregation";
+
+export interface CompetitorPriceEstimateSummary {
+  method: "verified_peer_distribution";
+  sampleSize: number;
+  priceLow: number;
+  priceMedian: number;
+  priceHigh: number;
+  currency: string;
+  maxAgeDays: number;
+  basis: "close_equivalent";
+}
+
+export interface CompetitorPriceIssue {
+  code: string;
+  stage: CompetitorPriceStageName;
+  severity: "info" | "warning" | "error";
+  retryable: boolean;
+  message: string;
+}
+
+export interface CompetitorPriceStageResult {
+  stage: CompetitorPriceStageName;
+  status: "ok" | "degraded" | "failed" | "skipped";
+  provider: string | null;
+  attempts: number;
+  durationMs: number;
+  code: string | null;
+}
+
+export interface CompetitorPriceQuota {
+  dailyLimit: number;
+  used: number;
+  remaining: number;
+  resetsAt: string | null;
 }
 
 export interface CompetitorPriceMarketSummary {
@@ -341,6 +401,7 @@ export interface CompetitorPriceMarketSummary {
 }
 
 export interface CompetitorPriceResearchResponse {
+  status: CompetitorPriceResearchStatus;
   query: {
     businessCategory: string;
     targetOffer: string;
@@ -350,10 +411,13 @@ export interface CompetitorPriceResearchResponse {
   };
   competitors: CompetitorPriceCompetitor[];
   marketSummary: CompetitorPriceMarketSummary;
+  estimateSummary: CompetitorPriceEstimateSummary | null;
   channelSummaries: {
     inStore: CompetitorPriceMarketSummary;
     delivery: CompetitorPriceMarketSummary;
   } | null;
+  issues: CompetitorPriceIssue[];
+  quota: CompetitorPriceQuota | null;
   warnings: string[];
   metadata: {
     modelsUsed: string[];
@@ -401,6 +465,9 @@ export interface CompetitorPriceResearchResponse {
       tokenmartReturnedModels?: string[];
       tokenmartUsage?: Record<string, number>;
     };
+    stages: CompetitorPriceStageResult[];
+    providerCostUsd: number;
+    pipelineVersion: string;
   };
 }
 
@@ -514,16 +581,55 @@ export function authHeaders(): Record<string, string> {
 
 export const API_BASE = BASE;
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly stage: string | null;
+  readonly retryable: boolean | null;
+
+  constructor(input: {
+    message: string;
+    status: number;
+    code?: string | null;
+    stage?: string | null;
+    retryable?: boolean | null;
+  }) {
+    super(input.message);
+    this.name = "ApiError";
+    this.status = input.status;
+    this.code = input.code ?? null;
+    this.stage = input.stage ?? null;
+    this.retryable = input.retryable ?? null;
+  }
+}
+
 export async function asJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = `Request failed (${res.status})`;
+    let code: string | null = null;
+    let stage: string | null = null;
+    let retryable: boolean | null = null;
     try {
-      const body = await res.json();
-      detail = body.detail ?? detail;
+      const body = (await res.json()) as {
+        detail?: string | {
+          errorCode?: string;
+          stage?: string;
+          retryable?: boolean;
+          message?: string;
+        };
+      };
+      if (typeof body.detail === "string") {
+        detail = body.detail;
+      } else if (body.detail && typeof body.detail === "object") {
+        detail = body.detail.message ?? detail;
+        code = body.detail.errorCode ?? null;
+        stage = body.detail.stage ?? null;
+        retryable = body.detail.retryable ?? null;
+      }
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(detail);
+    throw new ApiError({ message: detail, status: res.status, code, stage, retryable });
   }
   return res.json() as Promise<T>;
 }
@@ -755,6 +861,13 @@ export const api = {
       headers: authHeaders(),
     });
     return asJson<CompetitorPriceHistoryItem[]>(res);
+  },
+
+  async competitorPriceQuota(): Promise<CompetitorPriceQuota> {
+    const res = await fetch(`${BASE}/api/competitor-prices/quota`, {
+      headers: authHeaders(),
+    });
+    return asJson<CompetitorPriceQuota>(res);
   },
 
   async competitorPriceWatch(): Promise<CompetitorPriceWatch | null> {

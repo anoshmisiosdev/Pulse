@@ -1,0 +1,190 @@
+{
+  "schema_version": "splay-brain-import/v1",
+  "brand_kit": {
+    "name": "Churnary",
+    "tagline": "AI retention for local business",
+    "audience": "Owners and operators of small local businesses, especially cafés, gyms and fitness studios, salons, and similar service businesses that need a simple way to retain regular customers without operating a complex CRM.",
+    "tone": "Warm, plainspoken, concise, and action-oriented. Explain customer risk in everyday language, keep the owner in control, and favor practical next steps over AI jargon or hype.",
+    "positioning": "Churnary is an AI-powered customer retention product for small local businesses. It identifies customers at risk of leaving, explains the signals behind each score, and drafts personalized win-back outreach. Square, Stripe, and CSV connections make it accessible, while approval and automation controls distinguish it from opaque, enterprise-style CRM tools.",
+    "avoid": [
+      "Unsupported revenue, ROI, speed, or performance claims",
+      "Guarantees that a customer will return or revenue will be recovered",
+      "Black-box AI framing",
+      "Enterprise CRM jargon and unnecessary technical complexity",
+      "Alarmist or impersonal language about customers"
+    ],
+    "colors": {
+      "primary": "#B4532A",
+      "secondary": "#3B2A20",
+      "accent": "#73E2C5",
+      "background": "#F0E7D8",
+      "text": "#2A211C"
+    },
+    "typography": {
+      "heading_family": "Spectral",
+      "body_family": "Hanken Grotesk",
+      "heading_weight": 700,
+      "body_weight": 400,
+      "scale": "balanced"
+    },
+    "logo_url": null
+  },
+  "context": [
+    {
+      "title": "Public brand and internal naming distinction",
+      "kind": "company",
+      "summary": "Churnary is the user-facing product brand. Pulse is an internal codebase name used for the repository, packages, service identifiers, and environment prefixes; user-facing content should say Churnary.",
+      "source": "README.md",
+      "date": "2026-07-15",
+      "tags": [
+        "brand-name",
+        "naming",
+        "voice"
+      ],
+      "public_safe": false
+    },
+    {
+      "title": "Core customer-retention promise",
+      "kind": "product",
+      "summary": "Churnary is presented as AI retention for local businesses: it watches connected customer activity, flags regulars who may be slipping away, explains the reason in plain English, and drafts win-back outreach for the owner to approve.",
+      "source": "frontend/src/pages/Landing.tsx",
+      "date": "2026-07-14",
+      "tags": [
+        "retention",
+        "churn-risk",
+        "win-back",
+        "local-business"
+      ],
+      "public_safe": true
+    },
+    {
+      "title": "Small local business audience",
+      "kind": "customer",
+      "summary": "The public product experience is designed for owners of local businesses rather than dedicated CRM teams. The interactive examples explicitly cover cafés, gyms, and salons, and the setup flow also supports fitness studios, med spas, and other local business types.",
+      "source": "frontend/src/pages/Landing.tsx",
+      "date": "2026-07-14",
+      "tags": [
+        "audience",
+        "small-business",
+        "cafe",
+        "fitness",
+        "salon"
+      ],
+      "public_safe": true
+    },
+    {
+      "title": "Transparent customer-specific risk scoring",
+      "kind": "product",
+      "summary": "Churnary describes its churn scoring as transparent and based on each customer's own visit rhythm. Scores surface understandable reasons such as visit gaps, spend changes, or favorite items, so owners can see why a customer was flagged instead of taking a black-box prediction on faith.",
+      "source": "frontend/src/pages/Landing.tsx",
+      "date": "2026-07-14",
+      "tags": [
+        "transparent-ai",
+        "risk-scoring",
+        "explainability",
+        "customer-signals"
+      ],
+      "public_safe": true
+    },
+    {
+      "title": "Owner-simple three-step workflow",
+      "kind": "product",
+      "summary": "The public workflow has three steps: connect Square or Stripe or upload a customer CSV; review who may be slipping away and why; then approve a personalized win-back message. The positioning emphasizes a short, approachable setup for operators who do not run a CRM.",
+      "source": "frontend/src/pages/Landing.tsx",
+      "date": "2026-07-14",
+      "tags": [
+        "workflow",
+        "onboarding",
+        "square",
+        "stripe",
+        "csv"
+      ],
+      "public_safe": true
+    },
+    {
+      "title": "Human control and outreach automation",
+      "kind": "product",
+      "summary": "Churnary supports Suggest, Approve, and Autopilot outreach modes. Public copy makes approve-to-send the default: AI drafts personalized email or SMS copy, while the owner decides how much control to retain and automated sending operates within guardrails.",
+      "source": "frontend/src/pages/Landing.tsx",
+      "date": "2026-07-14",
+      "tags": [
+        "automation",
+        "human-in-the-loop",
+        "email",
+        "sms",
+        "approvals"
+      ],
+      "public_safe": true
+    },
+    {
+      "title": "Outreach compliance guardrails",
+      "kind": "product",
+      "summary": "Public feature copy says Churnary includes an unsubscribe option on every email, observes SMS quiet hours, and does not handle medical data. Compliance is positioned as a built-in product guardrail rather than an afterthought.",
+      "source": "frontend/src/pages/Landing.tsx",
+      "date": "2026-07-14",
+      "tags": [
+        "compliance",
+        "email",
+        "sms",
+        "guardrails"
+      ],
+      "public_safe": true
+    },
+    {
+      "title": "Public subscription tiers",
+      "kind": "product",
+      "summary": "The public landing page lists monthly plans: Starter at $199 with one integration, up to 1,000 customers, and email win-backs; Growth at $299 with all integrations, up to 2,500 customers, email, SMS, and automations; and Pro at $499 with unlimited customers and multi-location readiness. It also advertises a 14-day trial, two months free with annual billing, and cancellation at any time.",
+      "source": "frontend/src/pages/Landing.tsx",
+      "date": "2026-07-14",
+      "tags": [
+        "pricing",
+        "plans",
+        "trial",
+        "subscriptions"
+      ],
+      "public_safe": true
+    },
+    {
+      "title": "Coffeehouse Editorial visual system",
+      "kind": "other",
+      "summary": "The shared design system is named Coffeehouse Editorial. It combines warm cream surfaces and deep brown text with a terracotta primary color, using Spectral for display typography and Hanken Grotesk for body copy. The visual direction is warm, tactile, and editorial rather than conventionally corporate SaaS.",
+      "source": "frontend/src/index.css",
+      "date": "2026-07-15",
+      "tags": [
+        "visual-identity",
+        "colors",
+        "typography",
+        "editorial"
+      ],
+      "public_safe": true
+    },
+    {
+      "title": "Source-backed local competitor price research",
+      "kind": "product",
+      "summary": "Churnary includes local competitor price research that presents source-backed evidence. The pricing workspace can restore the latest report, show recent median history, export CSV data, save a two-hour monitor, and surface pricing trends or material changes.",
+      "source": "README.md",
+      "date": "2026-07-15",
+      "tags": [
+        "competitor-pricing",
+        "market-research",
+        "evidence",
+        "monitoring"
+      ],
+      "public_safe": false
+    },
+    {
+      "title": "Daily retention briefing",
+      "kind": "product",
+      "summary": "The application includes a daily briefing that summarizes high-risk customers, estimated annual revenue at risk, the top outreach priority, recent win-back sends, and tracked recovered revenue for the current business.",
+      "source": "frontend/src/components/AppShell.tsx",
+      "date": "2026-07-15",
+      "tags": [
+        "daily-briefing",
+        "prioritization",
+        "retention",
+        "dashboard"
+      ],
+      "public_safe": false
+    }
+  ]
+}

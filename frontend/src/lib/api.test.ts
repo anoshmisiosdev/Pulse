@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, formatCurrency, POSTHOG_DISTINCT_ID_HEADER } from "./api";
+import { ApiError, api, formatCurrency, POSTHOG_DISTINCT_ID_HEADER } from "./api";
 import { PRIVACY_PREFERENCE_KEY } from "./privacyPreferences";
 
 function allowAnalytics() {
@@ -102,5 +102,37 @@ describe("analytics identity", () => {
 
     const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
     expect(headers[POSTHOG_DISTINCT_ID_HEADER]).toBeUndefined();
+  });
+});
+
+describe("pricing API failures", () => {
+  it("preserves the failed stage and retryability from a structured 503", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: {
+            message: "Business address could not be geocoded.",
+            errorCode: "PRICING_GEOCODE_NOT_FOUND",
+            stage: "geocode",
+            retryable: false,
+          },
+        }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      )
+    ));
+
+    const failure = api.researchCompetitorPrices({
+      businessCategory: "Coffee Shop",
+      targetOffer: "Cappuccino",
+      location: { city: "Fremont", state: "CA" },
+    });
+
+    await expect(failure).rejects.toBeInstanceOf(ApiError);
+    await expect(failure).rejects.toMatchObject({
+      status: 503,
+      code: "PRICING_GEOCODE_NOT_FOUND",
+      stage: "geocode",
+      retryable: false,
+    });
   });
 });

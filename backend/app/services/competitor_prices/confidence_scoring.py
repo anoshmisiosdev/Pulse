@@ -6,6 +6,7 @@ import re
 import statistics
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from difflib import SequenceMatcher
 from urllib.parse import urlparse
 
 from app.services.competitor_prices.schemas import ExtractedPrice, MarketSummaryOut
@@ -21,6 +22,30 @@ _MENU_DECIMAL_RE = re.compile(r"(?<![\d.])\d{1,4}\.\d{2}(?![\d.])")
 _TIER_RE = re.compile(r"(?:^|\b)(?:price\s*:?\s*)?\${2,4}(?:\b|$)", re.IGNORECASE)
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _CAPUCCINO_RE = re.compile(r"\bcapuccino\b", re.IGNORECASE)
+_MATCH_STOP_TOKENS = {"a", "an", "and", "for", "of", "the", "with"}
+_SIZE_TOKENS = {
+    "small",
+    "medium",
+    "large",
+    "regular",
+    "single",
+    "double",
+    "triple",
+    "oz",
+    "ounce",
+    "ounces",
+    "lb",
+    "lbs",
+    "ml",
+    "liter",
+    "liters",
+    "gram",
+    "grams",
+    "kg",
+}
+_COMPACT_SIZE_RE = re.compile(
+    r"^\d+(?:\.\d+)?(?:oz|ounce|ounces|ml|l|liter|liters|g|gram|grams|kg|lb|lbs)$"
+)
 
 
 @dataclass(frozen=True)
@@ -40,6 +65,13 @@ class ConfidenceResult:
     reasons: list[str]
 
 
+@dataclass(frozen=True)
+class OfferMatchResult:
+    quality: str
+    score: float
+    reason: str
+
+
 def normalize_offer(value: str) -> str:
     return " ".join(_WORD_RE.findall(value.lower()))
 
@@ -52,6 +84,86 @@ def canonicalize_offer_label(value: str) -> str:
         return "Cappuccino" if original[:1].isupper() else "cappuccino"
 
     return _CAPUCCINO_RE.sub(replace_capuccino, cleaned)
+
+
+def assess_offer_match(requested_offer: str, matched_offer: str) -> OfferMatchResult:
+    """Classify an extracted menu label without trusting a model's self-rating."""
+    requested_exact = _exact_match_tokens(requested_offer)
+    matched_exact = _exact_match_tokens(matched_offer)
+    if not requested_exact or not matched_exact:
+        return OfferMatchResult(
+            quality="weak",
+            score=0.0,
+            reason="The requested or matched item did not contain comparable product words.",
+        )
+    if requested_exact == matched_exact:
+        return OfferMatchResult(
+            quality="exact",
+            score=1.0,
+            reason="The competitor item has the same normalized product name.",
+        )
+
+    requested = _match_tokens(requested_offer)
+    matched = _match_tokens(matched_offer)
+    if not requested or not matched:
+        return OfferMatchResult(
+            quality="weak",
+            score=0.0,
+            reason="The requested or matched item did not contain comparable product words.",
+        )
+    if requested == matched:
+        return OfferMatchResult(
+            quality="close",
+            score=0.95,
+            reason=(
+                "The core product matches, but the competitor label includes a different "
+                "size or modifier."
+            ),
+        )
+
+    requested_set = set(requested)
+    matched_set = set(matched)
+    shared = requested_set & matched_set
+    coverage = len(shared) / len(requested_set)
+    token_f1 = 2 * len(shared) / (len(requested_set) + len(matched_set))
+    sequence = SequenceMatcher(None, " ".join(requested), " ".join(matched)).ratio()
+    score = round(0.50 * coverage + 0.30 * token_f1 + 0.20 * sequence, 2)
+    meaningful_shared = sorted(token for token in shared if len(token) >= 3)
+    if meaningful_shared and (score >= 0.48 or coverage >= 0.5):
+        return OfferMatchResult(
+            quality="close",
+            score=score,
+            reason=(
+                "Close equivalent sharing "
+                f"{', '.join(meaningful_shared)}; modifiers differ from the requested item."
+            ),
+        )
+    return OfferMatchResult(
+        quality="weak",
+        score=score,
+        reason="Too little deterministic name overlap to treat this as a close equivalent.",
+    )
+
+
+def _match_tokens(value: str) -> list[str]:
+    tokens: list[str] = []
+    for singular in _exact_match_tokens(value):
+        if (
+            singular.isdigit()
+            or singular in _MATCH_STOP_TOKENS
+            or singular in _SIZE_TOKENS
+            or _COMPACT_SIZE_RE.fullmatch(singular)
+        ):
+            continue
+        tokens.append(singular)
+    return tokens
+
+
+def _exact_match_tokens(value: str) -> list[str]:
+    return [
+        token.removesuffix("s") if len(token) > 3 else token
+        for token in normalize_offer(canonicalize_offer_label(value)).split()
+    ]
 
 
 def evidence_price_amounts(evidence: str, target_offer: str | None = None) -> list[float]:
@@ -87,11 +199,13 @@ def evidence_price_amounts(evidence: str, target_offer: str | None = None) -> li
 
 
 def _offer_token_spans(evidence: str, target_offer: str | None) -> list[tuple[int, int]]:
-    tokens = {
+    normalized_tokens = {
         token.removesuffix("s")
         for token in normalize_offer(canonicalize_offer_label(target_offer or "")).split()
-        if len(token.removesuffix("s")) >= 4
+        if len(token.removesuffix("s")) >= 2
     }
+    preferred = {token for token in normalized_tokens if len(token) >= 4}
+    tokens = preferred or normalized_tokens
     spans: list[tuple[int, int]] = []
     for token in tokens:
         spans.extend(

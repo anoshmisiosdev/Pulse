@@ -1,0 +1,27 @@
+{
+  "description": "Public, non-customer pricing canaries. Add cases only after a human verifies the source and amount.",
+  "cases": [
+    {
+      "id": "fremont-coffee-breakfast-burrito",
+      "request": {
+        "businessName": "PulseQ Pricing Eval",
+        "businessCategory": "Coffee Shop",
+        "targetOffer": "Big Breakfast Burrito",
+        "location": {
+          "city": "Fremont",
+          "state": "CA",
+          "latitude": 37.5483,
+          "longitude": -121.9886
+        },
+        "radiusMiles": 3,
+        "maxCompetitors": 4,
+        "maxSourcesPerCompetitor": 3
+      },
+      "expected": {
+        "price": 12.95,
+        "tolerance": 0.01,
+        "sourceDomain": "fremontcoffeeco.com"
+      }
+    }
+  ]
+}

@@ -30,8 +30,8 @@ COPY --from=builder /app /app
 ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8000
-# Shell form so $PORT (set by Render/Railway/Fly) is honored; falls back to 8000.
-# Migrations run first; a failure (e.g. no DB in offline dev) doesn't block the
-# API, which still serves the CSV-preview path without a database.
-CMD (alembic upgrade head || echo "alembic skipped — no database?") && \
+# Shell form so $PORT (set by Render/Railway/Fly) is honored. Production never
+# starts on a stale schema; local/offline containers keep the previous soft-fail.
+CMD if [ "$ENVIRONMENT" = "production" ]; then alembic upgrade head; \
+    else alembic upgrade head || echo "alembic skipped — no database?"; fi && \
     uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

@@ -8,6 +8,24 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+          POSTGRES_DB: pulse_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pulse -d pulse_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql+asyncpg://pulse:pulse@localhost:5432/pulse_test
+      DATABASE_MIGRATION_URL: postgresql+asyncpg://pulse:pulse@localhost:5432/pulse_test
+      PRICING_TEST_POSTGRES_URL: postgresql+asyncpg://pulse:pulse@localhost:5432/pulse_test
     defaults:
       run:
         working-directory: backend
@@ -23,6 +41,28 @@ jobs:
         run: uv run ruff check .
       - name: Validate Alembic migration chain
         run: uv run alembic upgrade head --sql > /dev/null
+      - name: Bootstrap base schema (mirrors app startup create_all)
+        # Alembic migrations here only ALTER tables create_all already made
+        # (see CLAUDE.md) — they were never meant to build a schema from a
+        # truly empty DB. Mirror production: enable pgvector, then create_all
+        # against real Postgres to catch dialect issues (JSONB, vector, UUID)
+        # that SQLite hides.
+        run: |
+          uv run python - <<'PY'
+          import asyncio
+          from sqlalchemy import text
+          from app import models  # noqa: F401 - register tables on metadata
+          from app.core.database import Base, engine
+
+          async def main():
+              async with engine.begin() as conn:
+                  await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                  await conn.run_sync(Base.metadata.create_all)
+
+          asyncio.run(main())
+          PY
+      - name: Stamp Alembic head (schema already bootstrapped via create_all)
+        run: uv run alembic stamp head
       - name: Tests (with coverage gate on scoring + adapters)
         run: uv run pytest --cov=app/scoring --cov=app/integrations --cov-report=term-missing --cov-fail-under=70
 

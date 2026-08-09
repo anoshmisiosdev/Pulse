@@ -46,6 +46,11 @@ class CompetitorPriceResearchRun(UUIDMixin, Base):
     models_used_json: Mapped[list] = mapped_column(JsonCol, default=list)
     warnings_json: Mapped[list] = mapped_column(JsonCol, default=list)
     response_json: Mapped[dict] = mapped_column(JsonCol, default=dict)
+    status: Mapped[str] = mapped_column(String(24), default="legacy", index=True)
+    pipeline_version: Mapped[str] = mapped_column(String(16), default="v1")
+    provider_cost_usd: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=0)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failure_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -127,6 +132,8 @@ class CompetitorPriceObservation(UUIDMixin, Base):
     confidence_reasons_json: Mapped[list] = mapped_column(JsonCol, default=list)
     price_channel: Mapped[str] = mapped_column(String(32), default="unknown")
     match_quality: Mapped[str] = mapped_column(String(16), default="weak")
+    match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    match_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     corroborated: Mapped[bool] = mapped_column(default=False)
     included_in_summary: Mapped[bool] = mapped_column(default=False)
     source_published_at: Mapped[str | None] = mapped_column(String(64), nullable=True)

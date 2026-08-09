@@ -22,7 +22,8 @@ export default function PricingTable({
         </h2>
         <p className="text-sm text-slate-500">
           {result.competitors.length} found near {result.query.locationLabel};{" "}
-          {result.marketSummary.sampleSize} with source-backed prices.
+          {result.marketSummary.sampleSize} exact benchmark prices. Close equivalents stay
+          separate.
         </p>
       </div>
       <div className="overflow-x-auto">
@@ -30,6 +31,7 @@ export default function PricingTable({
           <thead className="bg-white/40 text-xs uppercase tracking-wide text-slate-400">
             <tr>
               <th className="px-5 py-3">Competitor</th>
+              <th className="px-5 py-3">Matched item</th>
               <th className="px-5 py-3">Price</th>
               <th className="px-5 py-3">Confidence</th>
               <th className="px-5 py-3">Evidence</th>
@@ -39,8 +41,8 @@ export default function PricingTable({
           <tbody className="divide-y divide-slate-100">
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-8 text-center text-slate-400">
-                  No competitors were found.
+                <td colSpan={6} className="px-5 py-8 text-center text-slate-400">
+                  No authoritative nearby competitors were discovered for this run.
                 </td>
               </tr>
             )}
@@ -73,16 +75,25 @@ export default function PricingTable({
                     </p>
                   )}
                 </td>
+                <td className="min-w-[250px] px-5 py-4">
+                  {row.price ? (
+                    <MatchDetails requestedOffer={result.query.targetOffer} price={row.price} />
+                  ) : (
+                    <div>
+                      <p className="font-semibold text-slate-500">No acceptable item match</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Requested: {result.query.targetOffer}
+                      </p>
+                    </div>
+                  )}
+                </td>
                 <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-900">
-                  {row.price ? formatPrice(row.price) : "No exact price found"}
+                  {row.price ? formatPrice(row.price) : "No price found"}
                   <p className="mt-1 text-xs font-normal text-slate-400">
                     {row.price?.priceType ?? "strict evidence required"}
                   </p>
                   {row.price && (
                     <div className="mt-2 flex flex-wrap gap-1">
-                      <Badge tone={row.price.matchQuality === "exact" ? "green" : "amber"}>
-                        {row.price.matchQuality}
-                      </Badge>
                       {row.price.corroborated && <Badge tone="cyan">Corroborated</Badge>}
                       {row.price.includedInMarketSummary ? (
                         <Badge tone="green">In benchmark</Badge>
@@ -140,9 +151,11 @@ export default function PricingTable({
 export function DeliveryPrices({
   rows,
   summary,
+  requestedOffer,
 }: {
   rows: Array<{ competitor: CompetitorPriceCompetitor; price: CompetitorPrice }>;
   summary: CompetitorPriceResearchResponse["marketSummary"] | null;
+  requestedOffer: string;
 }) {
   return (
     <div className="glass p-5">
@@ -168,6 +181,24 @@ export function DeliveryPrices({
             <div className="flex items-center justify-between gap-3">
               <p className="font-semibold text-slate-800">{competitor.name}</p>
               <p className="font-display text-lg font-bold text-slate-900">{formatPrice(price)}</p>
+            </div>
+            <div className="mt-2 rounded-lg border border-amber-100 bg-white/60 px-3 py-2">
+              <p className="text-[10px] font-bold uppercase tracking-[.1em] text-amber-700">
+                Matched item
+              </p>
+              <p className="mt-0.5 font-semibold text-slate-800">{price.offerName}</p>
+              <p className="text-xs text-slate-500">Requested: {requestedOffer}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                <Badge tone={matchTone(price.matchQuality)}>
+                  {matchLabel(price.matchQuality)}
+                </Badge>
+                {price.matchScore !== null && price.matchScore !== undefined && (
+                  <Badge tone="slate">{Math.round(price.matchScore * 100)}% name match</Badge>
+                )}
+              </div>
+              {price.matchReason && (
+                <p className="mt-1.5 text-xs leading-relaxed text-slate-500">{price.matchReason}</p>
+              )}
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
               <Badge tone={price.freshnessStatus === "current" ? "green" : "amber"}>
@@ -195,6 +226,55 @@ export function DeliveryPrices({
       </div>
     </div>
   );
+}
+
+function MatchDetails({
+  requestedOffer,
+  price,
+}: {
+  requestedOffer: string;
+  price: CompetitorPrice;
+}) {
+  const isExact = price.matchQuality === "exact";
+  return (
+    <div>
+      <p className="font-semibold text-slate-900">{price.offerName}</p>
+      <p className="mt-1 text-xs text-slate-500">Requested: {requestedOffer}</p>
+      <div className="mt-2 flex flex-wrap gap-1">
+        <Badge tone={matchTone(price.matchQuality)}>
+          {matchLabel(price.matchQuality)}
+        </Badge>
+        {price.matchScore !== null && price.matchScore !== undefined && (
+          <Badge tone="slate">{Math.round(price.matchScore * 100)}% name match</Badge>
+        )}
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+        {price.matchReason ??
+          (isExact
+            ? "The competitor item matches the requested product name."
+            : "Legacy result: a deterministic match explanation was not stored.")}
+      </p>
+      {!price.includedInMarketSummary && (
+        <p className="mt-1 text-[11px] font-semibold text-amber-700">
+          Shown for context · excluded from exact benchmark
+        </p>
+      )}
+    </div>
+  );
+}
+
+function matchLabel(quality: CompetitorPrice["matchQuality"]): string {
+  if (quality === "exact") return "Exact match";
+  if (quality === "close") return "Close equivalent";
+  return "Weak match";
+}
+
+function matchTone(
+  quality: CompetitorPrice["matchQuality"]
+): "green" | "amber" | "slate" {
+  if (quality === "exact") return "green";
+  if (quality === "close") return "amber";
+  return "slate";
 }
 
 export function Badge({
@@ -242,7 +322,16 @@ export function formatPrice(price: CompetitorPrice): string {
 }
 
 function retrievalLabel(method: CompetitorPrice["retrievalMethod"]): string {
-  return method === "direct_fetch" ? "Directly retrieved" : "Search-provided content";
+  const labels: Record<string, string> = {
+    direct_fetch: "Directly retrieved",
+    perplexity_content: "Perplexity content",
+    tavily_extract: "Tavily extract",
+    exa_contents: "Exa contents",
+    firecrawl_scrape: "Firecrawl scrape",
+    search_snippet: "Search snippet only",
+    none: "Not retrieved",
+  };
+  return labels[method ?? ""] ?? "Retrieval unknown";
 }
 
 function extractionLabel(method: CompetitorPrice["extractionMethod"]): string {
@@ -252,6 +341,7 @@ function extractionLabel(method: CompetitorPrice["extractionMethod"]): string {
     search_snippet: "Search evidence",
     sonar: "Perplexity Sonar",
     tokenmart: "AI fallback",
+    bounded_ai: "Bounded AI extraction",
     method_consensus: "Method consensus",
   };
   return labels[method ?? ""] ?? "Extraction method unknown";

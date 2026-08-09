@@ -99,6 +99,9 @@ async def _run_pricing_monitors() -> dict:
     from app.services.competitor_prices.competitor_research_service import CompetitorResearchService
     from app.services.competitor_prices.schemas import CompetitorPriceResearchRequest
 
+    if not settings.pricing_monitoring_enabled:
+        return {"status": "disabled", "researched": 0}
+
     now = datetime.now(UTC)
     completed = 0
     async with SessionLocal() as db:
