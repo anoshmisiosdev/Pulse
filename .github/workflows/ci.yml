@@ -42,20 +42,27 @@ jobs:
       - name: Validate Alembic migration chain
         run: uv run alembic upgrade head --sql > /dev/null
       - name: Bootstrap base schema (mirrors app startup create_all)
+        # Alembic migrations here only ALTER tables create_all already made
+        # (see CLAUDE.md) — they were never meant to build a schema from a
+        # truly empty DB. Mirror production: enable pgvector, then create_all
+        # against real Postgres to catch dialect issues (JSONB, vector, UUID)
+        # that SQLite hides.
         run: |
           uv run python - <<'PY'
           import asyncio
+          from sqlalchemy import text
           from app import models  # noqa: F401 - register tables on metadata
           from app.core.database import Base, engine
 
           async def main():
               async with engine.begin() as conn:
+                  await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
                   await conn.run_sync(Base.metadata.create_all)
 
           asyncio.run(main())
           PY
-      - name: Apply migrations to PostgreSQL
-        run: uv run alembic upgrade head
+      - name: Stamp Alembic head (schema already bootstrapped via create_all)
+        run: uv run alembic stamp head
       - name: Tests (with coverage gate on scoring + adapters)
         run: uv run pytest --cov=app/scoring --cov=app/integrations --cov-report=term-missing --cov-fail-under=70
 
