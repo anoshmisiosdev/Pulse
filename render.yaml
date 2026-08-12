@@ -38,6 +38,30 @@ services:
         value: "0"
       - key: FERNET_KEY
         sync: false
+      - key: API_BASE_URL
+        sync: false
+      - key: STRIPE_CONNECT_CLIENT_ID
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_CONNECT_WEBHOOK_SECRET
+        sync: false
+      - key: SQUARE_APP_ID
+        sync: false
+      - key: SQUARE_APP_SECRET
+        sync: false
+      - key: SQUARE_ENVIRONMENT
+        value: production
+      - key: SQUARE_WEBHOOK_SIGNATURE_KEY
+        sync: false
+      - key: SQUARE_WEBHOOK_URL
+        sync: false
+      - key: PAYMENT_HISTORY_LOOKBACK_DAYS
+        value: "730"
+      - key: PAYMENT_SYNC_OVERLAP_MINUTES
+        value: "10"
+      - key: PAYMENT_SYNC_INTERVAL_SECONDS
+        value: "900"
       - key: GOOGLE_MAPS_SERVER_API_KEY
         sync: false
       - key: PERPLEXITY_API_KEY
@@ -95,6 +119,20 @@ services:
         sync: false
       - key: DB_USE_PGBOUNCER
         value: "true"
+      - key: FERNET_KEY
+        sync: false
+      - key: SQUARE_APP_ID
+        sync: false
+      - key: SQUARE_APP_SECRET
+        sync: false
+      - key: SQUARE_ENVIRONMENT
+        value: production
+      - key: PAYMENT_HISTORY_LOOKBACK_DAYS
+        value: "730"
+      - key: PAYMENT_SYNC_OVERLAP_MINUTES
+        value: "10"
+      - key: PAYMENT_SYNC_INTERVAL_SECONDS
+        value: "900"
       - key: TOKEN_ROUTER_API_KEY
         sync: false
       - key: TOKEN_ROUTER_BASE_URL

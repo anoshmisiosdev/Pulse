@@ -121,6 +121,7 @@ fastapi_app.add_middleware(
         "/api/competitor-prices": (10, 60), # v2 batch queue; tenant quota is authoritative
         "/api/analytics": (60, 60),         # bounded public landing-page metrics
         "/api/waitlist": (5, 60),           # 5 per 60s — unauthenticated public write
+        "/api/integrations/webhooks": (240, 60), # signed Stripe/Square deliveries
         "/api/visitors/webhooks": (120, 60), # bounded third-party identity deliveries
         "/api/discord/interactions": (120, 60), # signed Discord command deliveries
     },

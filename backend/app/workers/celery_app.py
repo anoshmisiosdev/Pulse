@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from celery import Celery
@@ -45,6 +46,10 @@ celery.conf.update(
         "dispatch-automations": {
             "task": "app.workers.celery_app.dispatch_automations_tick",
             "schedule": settings.automation_dispatch_interval_seconds,
+        },
+        "sync-payment-integrations": {
+            "task": "app.workers.celery_app.sync_payment_integrations_tick",
+            "schedule": settings.payment_sync_interval_seconds,
         },
     },
 )
@@ -152,3 +157,37 @@ def dispatch_automations_tick() -> dict:
     total_sends = sum(r["sends_created"] for r in results.values() if isinstance(r, dict))
     logger.info("dispatch_automations_tick complete: %d sends queued/sent", total_sends)
     return {"status": "ok", "businesses": len(results), "sends_created": total_sends}
+
+
+@celery.task
+def sync_payment_integrations_tick() -> dict:
+    """Incrementally refresh every connected Stripe/Square account."""
+    from app.models import IntegrationConnection
+    from app.services.payment_sync import sync_connection
+
+    async def _sync(db, bid: str) -> dict:
+        connections = (
+            await db.execute(
+                select(IntegrationConnection).where(
+                    IntegrationConnection.business_id == uuid.UUID(bid),
+                    IntegrationConnection.source.in_(("stripe", "square")),
+                    IntegrationConnection.access_token_enc.is_not(None),
+                )
+            )
+        ).scalars().all()
+        synced = 0
+        errors = 0
+        for connection in connections:
+            try:
+                await sync_connection(db, connection)
+                synced += 1
+            except Exception:
+                errors += 1
+                logger.exception("Payment sync failed for connection %s", connection.id)
+        return {"synced": synced, "errors": errors}
+
+    results = asyncio.run(_for_every_business(_sync))
+    synced = sum(row["synced"] for row in results.values() if isinstance(row, dict))
+    errors = sum(row["errors"] for row in results.values() if isinstance(row, dict))
+    logger.info("sync_payment_integrations complete: %d synced, %d errors", synced, errors)
+    return {"status": "ok", "synced": synced, "errors": errors}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { usePulse } from "../context/PulseContext";
-import { relativeDays, type CustomerRisk, type Segment } from "../lib/api";
+import { formatCurrency, relativeDays, type CustomerRisk, type Segment } from "../lib/api";
 import { SEGMENTS, SEGMENT_ORDER } from "../lib/segments";
 import RiskBadge from "../components/RiskBadge";
 import CustomerDrawer from "../components/CustomerDrawer";
@@ -10,7 +10,7 @@ type SortKey = "health" | "risk" | "seen";
 type SortDir = "asc" | "desc";
 
 export default function Customers() {
-  const { customers } = usePulse();
+  const { customers, currency } = usePulse();
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("health");
@@ -111,7 +111,7 @@ export default function Customers() {
         >
           <HeaderCell>Name</HeaderCell>
           <HeaderCell sortable onClick={() => toggleSort("health")}>Health {arrow("health")}</HeaderCell>
-          <HeaderCell sortable onClick={() => toggleSort("risk")}>$ at risk {arrow("risk")}</HeaderCell>
+          <HeaderCell sortable onClick={() => toggleSort("risk")}>Value at risk {arrow("risk")}</HeaderCell>
           <HeaderCell sortable onClick={() => toggleSort("seen")}>Last seen {arrow("seen")}</HeaderCell>
         </div>
         <div className="max-h-[620px] overflow-y-auto scroll-thin">
@@ -131,7 +131,9 @@ export default function Customers() {
                 className="font-display text-[15px] font-bold"
                 style={{ color: c.estimated_annual_value >= 500 ? "#A23B1E" : "var(--ink)" }}
               >
-                {c.estimated_annual_value > 0 ? `$${c.estimated_annual_value.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}
+                {c.estimated_annual_value > 0
+                  ? formatCurrency(c.estimated_annual_value, false, currency)
+                  : "—"}
               </div>
               <div>
                 <p className="text-sm" style={{ color: "var(--ink-strong)" }}>{c.last_visit ?? "—"}</p>

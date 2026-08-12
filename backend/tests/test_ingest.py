@@ -127,3 +127,35 @@ async def test_cross_source_merge_by_email(db, now):
     assert len(loaded.customers) == 2
     amara = next(c for c in loaded.customers if c.email == "amara@example.com")
     assert amara.phone == "5550001111"  # phone backfilled from the Square record
+
+
+async def test_provider_identity_allows_customer_contact_updates(db, now):
+    await ingest.ensure_business(db, BUSINESS_ID, "Test Cafe", "cafe")
+    initial = SyncResult(
+        customers=[
+            NormalizedCustomer(
+                external_id="cus_update",
+                source="stripe",
+                first_name="Ari",
+                email="old@example.com",
+            )
+        ]
+    )
+    await ingest.persist_sync(db, BUSINESS_ID, "stripe", initial)
+
+    changed = SyncResult(
+        customers=[
+            NormalizedCustomer(
+                external_id="cus_update",
+                source="stripe",
+                first_name="Ariana",
+                email="new@example.com",
+            )
+        ]
+    )
+    await ingest.persist_sync(db, BUSINESS_ID, "stripe", changed)
+    loaded = await ingest.load_sync(db, BUSINESS_ID)
+
+    assert len(loaded.customers) == 1
+    assert loaded.customers[0].first_name == "Ariana"
+    assert loaded.customers[0].email == "new@example.com"

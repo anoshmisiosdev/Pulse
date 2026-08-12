@@ -45,7 +45,7 @@ export default function Setup() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const { user } = useAuth();
-  const { applyPortfolio, refresh, status } = usePulse();
+  const { applyPortfolio, refresh, status, portfolio } = usePulse();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [provider, setProvider] = useState<Provider>("square");
@@ -60,9 +60,24 @@ export default function Setup() {
     square: false,
   });
   const [manualOpen, setManualOpen] = useState(false);
+  const [environment, setEnvironment] = useState<"sandbox" | "production">("sandbox");
 
   const hasData = status === "ready";
   const oauthAvailable = provider !== "csv" && oauthOk[provider];
+  const connections = portfolio?.connections ?? [];
+  const liveConnections = connections.filter((c) => c.source === "stripe" || c.source === "square");
+  const publicSampleConnection = connections.find((c) => c.source === "uci_online_retail");
+  const connectedSources = new Set(
+    connections.map((c) => (c.source === "uci_online_retail" ? "csv" : c.source))
+  );
+  const portfolioHydrated = useRef(false);
+
+  useEffect(() => {
+    if (!portfolio || portfolioHydrated.current) return;
+    portfolioHydrated.current = true;
+    setBusinessName(portfolio.business_name);
+    setVertical(portfolio.vertical);
+  }, [portfolio]);
 
   // Which providers have OAuth configured → show "Connect with …" buttons.
   useEffect(() => {
@@ -111,6 +126,7 @@ export default function Setup() {
       const portfolio = await api.connect({
         provider: provider as "stripe" | "square",
         credential: credential.trim(),
+        environment,
         vertical,
         business_name: businessName.trim(),
       });
@@ -120,6 +136,21 @@ export default function Setup() {
       navigate("/", { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Connection failed");
+      setPhase(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSync() {
+    setError(null);
+    setBusy(true);
+    setPhase("Syncing the latest payments…");
+    try {
+      applyPortfolio(await api.resync());
+      setPhase(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sync failed");
       setPhase(null);
     } finally {
       setBusy(false);
@@ -137,6 +168,26 @@ export default function Setup() {
       navigate("/", { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
+      setPhase(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePublicSample() {
+    setError(null);
+    setBusy(true);
+    setPhase("Loading real public payment history…");
+    try {
+      const imported = await api.importUciSample(
+        vertical,
+        businessName.trim() || "UCI Online Retail Demo"
+      );
+      applyPortfolio(imported);
+      localStorage.removeItem(SETUP_SKIPPED_KEY);
+      navigate("/", { replace: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Public sample import failed");
       setPhase(null);
     } finally {
       setBusy(false);
@@ -187,9 +238,51 @@ export default function Setup() {
             </span>
             <p className="font-display text-lg font-bold" style={{ color: "var(--ink)" }}>{p.name}</p>
             <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--muted)" }}>{p.blurb}</p>
+            {connectedSources.has(p.id) && (
+              <p className="mt-2 text-xs font-bold" style={{ color: "var(--sage-text)" }}>
+                {p.id === "csv" && publicSampleConnection ? "✓ Public sample loaded" : "✓ Connected"}
+              </p>
+            )}
           </button>
         ))}
       </div>
+
+      {publicSampleConnection && (
+        <div className="glass mt-4 p-4">
+          <p className="text-sm font-bold" style={{ color: "var(--ink)" }}>
+            UCI Online Retail sample is loaded
+          </p>
+          <p className="text-xs" style={{ color: "var(--muted-2)" }}>
+            The dashboard is using 60 pseudonymous customers and 1,510 real
+            invoice-level transactions. Choose CSV upload to reload the sample or
+            replace it with another file.
+          </p>
+        </div>
+      )}
+
+      {liveConnections.length > 0 && (
+        <div className="glass mt-4 flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <p className="text-sm font-bold" style={{ color: "var(--ink)" }}>Automatic payment sync is on</p>
+            <p className="text-xs" style={{ color: "var(--muted-2)" }}>
+              Stripe and Square refresh every 15 minutes; configured signed webhooks apply updates sooner.
+            </p>
+          </div>
+          <button
+            onClick={handleSync}
+            disabled={busy}
+            className="rounded-full border px-4 py-2 text-sm font-semibold disabled:opacity-50"
+            style={{ borderColor: "var(--border)", color: "var(--ink-strong)", background: "var(--surface-2)" }}
+          >
+            {busy ? phase ?? "Syncing…" : "Sync now"}
+          </button>
+          {liveConnections.some((connection) => connection.last_error) && (
+            <p className="w-full text-xs text-red-600">
+              {liveConnections.find((connection) => connection.last_error)?.last_error}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="glass mt-4 space-y-4 p-6">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -277,6 +370,20 @@ export default function Setup() {
                     Stored encrypted — never shown again.
                   </span>
                 </label>
+                {provider === "square" && (
+                  <label className="block">
+                    <span className="text-sm font-medium" style={{ color: "var(--ink-strong)" }}>Square environment</span>
+                    <select
+                      value={environment}
+                      onChange={(e) => setEnvironment(e.target.value as "sandbox" | "production")}
+                      className="mt-1 w-full rounded-xl border bg-white/70 px-3 py-2.5 text-sm outline-none"
+                      style={{ borderColor: "var(--border)", color: "var(--ink)" }}
+                    >
+                      <option value="sandbox">Sandbox (sample/test payments)</option>
+                      <option value="production">Production (live payments)</option>
+                    </select>
+                  </label>
+                )}
                 <button
                   onClick={handleConnect}
                   disabled={busy || !credential.trim()}
@@ -311,6 +418,24 @@ export default function Setup() {
                 Download the template
               </a>
             </p>
+            <div className="rounded-xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface-2)" }}>
+              <p className="text-sm font-semibold" style={{ color: "var(--ink-strong)" }}>
+                Or test with real public transactions
+              </p>
+              <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--muted-2)" }}>
+                Import 60 anonymized customers and 1,510 invoice-level payments from UCI
+                Online Retail. Dates are shifted near today while preserving visit cadence;
+                refunds and favorite products remain intact. CC BY 4.0.
+              </p>
+              <button
+                onClick={handlePublicSample}
+                disabled={busy}
+                className="mt-3 rounded-full border px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                style={{ borderColor: "var(--border)", color: "var(--ink-strong)", background: "var(--surface)" }}
+              >
+                {busy ? phase ?? "Importing…" : "Use UCI public payment sample"}
+              </button>
+            </div>
           </>
         )}
 

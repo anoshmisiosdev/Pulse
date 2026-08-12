@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def _normalize_phone(value: str | None) -> str | None:
@@ -58,8 +58,12 @@ class NormalizedCustomer(BaseModel):
 
     @property
     def dedupe_key(self) -> str | None:
-        """Identity used to merge duplicates: prefer email, then phone."""
-        return self.email or self.phone
+        """Identity used to merge duplicates, including pseudonymous public data."""
+        if self.email or self.phone:
+            return self.email or self.phone
+        if self.external_id:
+            return f"{self.source}:{self.external_id}"
+        return None
 
     @property
     def full_name(self) -> str:
@@ -73,9 +77,17 @@ class NormalizedTransaction(BaseModel):
     customer_external_id: str | None = None
     customer_email: str | None = None
     customer_phone: str | None = None
+    customer_name: str | None = None
+    # Net amount recognized as revenue. Failed/fully-refunded payments use 0.
     amount: Decimal
+    gross_amount: Decimal | None = None
+    refunded_amount: Decimal = Decimal("0")
     currency: str = "USD"
+    # completed | partially_refunded | refunded | failed | pending | canceled
+    status: str = "completed"
     occurred_at: datetime
+    updated_at: datetime | None = None
+    failure_code: str | None = None
 
     @field_validator("customer_email")
     @classmethod
@@ -86,6 +98,10 @@ class NormalizedTransaction(BaseModel):
     @classmethod
     def _phone(cls, v: str | None) -> str | None:
         return _normalize_phone(v)
+
+    @property
+    def is_revenue(self) -> bool:
+        return self.status in {"completed", "partially_refunded"} and self.amount > 0
 
 
 class NormalizedVisit(BaseModel):
@@ -110,7 +126,7 @@ class NormalizedVisit(BaseModel):
 class SyncResult(BaseModel):
     """Counts returned by an adapter sync, mirrored into a SyncRun row."""
 
-    customers: list[NormalizedCustomer] = []
-    transactions: list[NormalizedTransaction] = []
-    visits: list[NormalizedVisit] = []
-    warnings: list[str] = []
+    customers: list[NormalizedCustomer] = Field(default_factory=list)
+    transactions: list[NormalizedTransaction] = Field(default_factory=list)
+    visits: list[NormalizedVisit] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

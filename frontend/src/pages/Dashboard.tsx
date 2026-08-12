@@ -15,7 +15,7 @@ const VISIT_BUCKETS = [
 
 /** 0→1 mount progress, easeOutCubic over 1s — drives count-ups. */
 export default function Dashboard() {
-  const { customers, portfolio, revenueRecovered } = usePulse();
+  const { customers, portfolio, currency, revenueRecovered } = usePulse();
   const s = portfolio?.summary;
   const p = useMountProgress();
   const [queueSort, setQueueSort] = useState<"risk" | "value">("risk");
@@ -95,7 +95,7 @@ export default function Dashboard() {
           delay={0.06}
           tone="critical"
           label="Revenue at risk"
-          value={formatCurrency((s?.revenue_at_risk ?? 0) * p)}
+          value={formatCurrency((s?.revenue_at_risk ?? 0) * p, false, currency)}
           sub={`Across ${s?.high_risk ?? 0} high-risk customers`}
         />
         <MetricCard
@@ -116,7 +116,7 @@ export default function Dashboard() {
           delay={0.18}
           tone="positive"
           label="Revenue retained"
-          value={formatCurrency(revenueRecovered * p)}
+          value={formatCurrency(revenueRecovered * p, false, currency)}
           sub={revenueRecovered > 0 ? "Recovered through outreach" : "Ready to start recovering"}
         />
       </section>
@@ -125,11 +125,12 @@ export default function Dashboard() {
         <FocusQueue
           customers={focusQueue}
           selectedCustomerId={selectedCustomer?.customer_id ?? ""}
+          currency={currency}
           sort={queueSort}
           onSort={setQueueSort}
           onSelect={setSelectedCustomerId}
         />
-        {selectedCustomer && <PriorityPanel customer={selectedCustomer} />}
+        {selectedCustomer && <PriorityPanel customer={selectedCustomer} currency={currency} />}
       </section>
 
       <div className="dashboard-section-heading anim-fade-up" style={{ animationDelay: "0.26s" }}>
@@ -149,7 +150,7 @@ export default function Dashboard() {
           <VisitBars data={visitData} />
         </Panel>
 
-        <RevenuePanel series={s?.revenue_series ?? []} p={p} />
+        <RevenuePanel series={s?.revenue_series ?? []} p={p} currency={currency} />
 
         <Panel title="Why They Leave" subtitle="Common patterns in customer behavior" delay={0.48}>
           <PatternBars data={patternData} />
@@ -162,12 +163,14 @@ export default function Dashboard() {
 function FocusQueue({
   customers,
   selectedCustomerId,
+  currency,
   sort,
   onSort,
   onSelect,
 }: {
   customers: CustomerRisk[];
   selectedCustomerId: string;
+  currency: string;
   sort: "risk" | "value";
   onSort: (sort: "risk" | "value") => void;
   onSelect: (customerId: string) => void;
@@ -212,7 +215,7 @@ function FocusQueue({
               <small>last visit</small>
             </span>
             <span className="queue-reading queue-value">
-              <strong>{formatCurrency(customer.estimated_annual_value)}</strong>
+              <strong>{formatCurrency(customer.estimated_annual_value, false, currency)}</strong>
               <small>annual value</small>
             </span>
             <span className={`risk-chip risk-${customer.band}`}>{customer.score}</span>
@@ -224,7 +227,7 @@ function FocusQueue({
   );
 }
 
-function PriorityPanel({ customer }: { customer: CustomerRisk }) {
+function PriorityPanel({ customer, currency }: { customer: CustomerRisk; currency: string }) {
   const riskDegrees = Math.max(0, Math.min(100, customer.score)) * 3.6;
   return (
     <aside className="priority-panel" key={customer.customer_id}>
@@ -249,7 +252,10 @@ function PriorityPanel({ customer }: { customer: CustomerRisk }) {
       </div>
       <dl className="priority-facts">
         <div><dt>Last visit</dt><dd>{relativeDays(customer.days_since_last_visit)}</dd></div>
-        <div><dt>Annual value</dt><dd>{formatCurrency(customer.estimated_annual_value)}</dd></div>
+        <div>
+          <dt>Annual value</dt>
+          <dd>{formatCurrency(customer.estimated_annual_value, false, currency)}</dd>
+        </div>
         <div><dt>Favorite</dt><dd>{customer.favorite_item ?? "Not known"}</dd></div>
       </dl>
       <Link className="priority-action" to={`/retention?customer=${encodeURIComponent(customer.customer_id)}`}>
@@ -398,7 +404,11 @@ function VisitBars({ data }: { data: { label: string; count: number }[] }) {
 }
 
 /* ── Revenue area chart with scrub + range toggle ── */
-function RevenuePanel({ series, p }: { series: { month: string; amount: number }[]; p: number }) {
+function RevenuePanel({ series, p, currency }: {
+  series: { month: string; amount: number }[];
+  p: number;
+  currency: string;
+}) {
   const [range, setRange] = useState<6 | 12>(12);
   const [hover, setHover] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -492,7 +502,7 @@ function RevenuePanel({ series, p }: { series: { month: string; amount: number }
               boxShadow: "0 6px 16px -6px rgba(0,0,0,.5)",
             }}
           >
-            {data[hover].month} · {formatCurrency(data[hover].amount)}
+            {data[hover].month} · {formatCurrency(data[hover].amount, false, currency)}
           </div>
         )}
       </div>

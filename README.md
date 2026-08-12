@@ -55,7 +55,32 @@ cd backend && uv run python -m app.scripts.seed   # ~300-customer fake fitness s
 ```
 
 Then upload `backend/app/scripts/sample_customers.csv` via the onboarding screen,
-or hit `POST /api/integrations/csv/preview`.
+or hit `POST /api/integrations/csv/preview`. For a larger real-transaction test,
+choose **CSV → Use UCI public payment sample** on `/setup`. That path imports an
+attributed CC BY 4.0 subset with 60 pseudonymous customers and 1,510 invoices,
+rebases it near today without changing customer cadence, persists it, and opens
+the real dashboard.
+
+## Stripe + Square retention data
+
+Stripe/Square customer and payment histories now flow through provider identity
+mapping, refund/failure reconciliation, signed webhooks, scheduled incremental
+sync, and the same explainable retention scoring pipeline. Credential-free
+provider-shaped fixtures are included for local QA:
+
+```bash
+cd backend
+.venv/bin/python -m app.scripts.payment_history_demo --provider both --customers 40
+.venv/bin/pytest tests/test_payment_history_e2e.py
+```
+
+See [docs/payment-retention-integrations.md](docs/payment-retention-integrations.md)
+for Sandbox setup, OAuth/webhook URLs, environment variables, and production
+verification.
+
+The ranked product opportunities unlocked by richer payment, order, catalog,
+loyalty, and campaign-outcome data are in
+[docs/payment-data-product-opportunities.md](docs/payment-data-product-opportunities.md).
 
 ## Competitor price research
 

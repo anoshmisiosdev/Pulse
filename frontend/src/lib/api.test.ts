@@ -45,6 +45,10 @@ describe("formatCurrency", () => {
   it("handles zero", () => {
     expect(formatCurrency(0)).toBe("$0");
   });
+
+  it("formats a portfolio's source currency", () => {
+    expect(formatCurrency(2100, false, "GBP")).toBe("£2,100");
+  });
 });
 
 describe("analytics identity", () => {
@@ -134,5 +138,40 @@ describe("pricing API failures", () => {
       stage: "geocode",
       retryable: false,
     });
+  });
+});
+
+describe("public payment sample", () => {
+  it("imports the UCI fixture through the authenticated persistence endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          status: "ready",
+          business_name: "Public Retail Demo",
+          vertical: "retail",
+          summary: {
+            total_customers: 60,
+            high_risk: 20,
+            med_risk: 20,
+            low_risk: 20,
+            revenue_at_risk: 1000,
+            avg_days_away: 10,
+            revenue_series: [],
+          },
+          customers: [],
+          warnings: [],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const portfolio = await api.importUciSample("retail", "Public Retail Demo");
+
+    expect(portfolio.summary.total_customers).toBe(60);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/integrations/samples/uci-online-retail/import?vertical=retail&business_name=Public+Retail+Demo",
+      expect.objectContaining({ method: "POST" })
+    );
   });
 });

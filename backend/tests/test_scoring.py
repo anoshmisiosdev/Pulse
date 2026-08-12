@@ -131,3 +131,25 @@ def test_score_is_bounded_and_band_consistent(now):
     result = score_customer(activity, vertical=cfg, now=now)
     assert 0 <= result.score <= 100
     assert result.band in ("low", "med", "high")
+
+
+def test_same_day_payments_do_not_create_zero_day_cadence(now):
+    visits = [
+        now - timedelta(days=60, hours=8),
+        now - timedelta(days=60, hours=1),
+        now - timedelta(days=30, hours=8),
+        now - timedelta(days=30, hours=1),
+    ]
+
+    result = score_customer(
+        CustomerActivity(
+            customer_id="split-checks",
+            visit_dates=visits,
+            joined_at=now - timedelta(days=300),
+        ),
+        vertical="cafe",
+        now=now,
+    )
+
+    assert all("0-day gap" not in reason for reason in result.reasons)
+    assert result.signals["recency"] < 0.9

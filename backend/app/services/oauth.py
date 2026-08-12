@@ -8,6 +8,7 @@ adapters — which don't know or care whether a key was pasted or OAuth-issued.
 
 from __future__ import annotations
 
+from datetime import datetime
 from urllib.parse import urlencode
 
 import httpx
@@ -24,6 +25,7 @@ _SQUARE_HOSTS = {
 }
 # Read-only scopes: enough to pull customers + payments, nothing more.
 _SQUARE_SCOPES = "CUSTOMERS_READ PAYMENTS_READ MERCHANT_PROFILE_READ"
+_SQUARE_VERSION = "2026-07-15"
 
 
 def availability() -> dict[str, bool]:
@@ -104,6 +106,7 @@ async def exchange_code(provider: str, code: str) -> dict:
             host = _SQUARE_HOSTS[settings.square_environment]
             resp = await _post(
                 f"{host}/oauth2/token",
+                headers={"Square-Version": _SQUARE_VERSION, "Content-Type": "application/json"},
                 json={
                     "client_id": settings.square_app_id,
                     "client_secret": settings.square_app_secret,
@@ -120,8 +123,47 @@ async def exchange_code(provider: str, code: str) -> dict:
                 "access_token": data["access_token"],
                 "refresh_token": data.get("refresh_token"),
                 "account_id": data.get("merchant_id"),
+                "expires_at": (
+                    datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
+                    if data.get("expires_at")
+                    else None
+                ),
             }
     except httpx.HTTPError as exc:
         raise IntegrationError(f"Could not reach {provider}: {exc}") from exc
 
     raise IntegrationError(f"OAuth not supported for {provider!r}")
+
+
+async def refresh_access_token(provider: str, refresh_token: str, environment: str) -> dict:
+    """Refresh an expiring OAuth token (Square access tokens expire in 30 days)."""
+    if provider != "square":
+        raise IntegrationError(f"Token refresh is not supported for {provider!r}")
+    host = _SQUARE_HOSTS.get(environment, _SQUARE_HOSTS["production"])
+    try:
+        resp = await _post(
+            f"{host}/oauth2/token",
+            headers={"Square-Version": _SQUARE_VERSION, "Content-Type": "application/json"},
+            json={
+                "client_id": settings.square_app_id,
+                "client_secret": settings.square_app_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+        )
+        data = resp.json()
+    except httpx.HTTPError as exc:
+        raise IntegrationError(f"Could not refresh Square access: {exc}") from exc
+    if resp.status_code >= 400 or not data.get("access_token"):
+        detail = (data.get("errors") or [{}])[0].get("detail", resp.text[:200])
+        raise IntegrationError(f"Square token refresh failed: {detail}")
+    return {
+        "access_token": data["access_token"],
+        "refresh_token": data.get("refresh_token") or refresh_token,
+        "account_id": data.get("merchant_id"),
+        "expires_at": (
+            datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
+            if data.get("expires_at")
+            else None
+        ),
+    }

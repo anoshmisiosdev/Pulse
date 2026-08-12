@@ -249,10 +249,21 @@ class Settings(BaseSettings):
     square_app_id: str = ""
     square_app_secret: str = ""
     square_environment: Literal["sandbox", "production"] = "sandbox"
+    square_webhook_signature_key: str = ""
+    # Must exactly match the notification URL registered with Square because it
+    # is part of Square's HMAC signature input.
+    square_webhook_url: str = ""
 
     # Stripe Connect platform (Dashboard → Settings → Connect). Enables
     # "Connect with Stripe"; token exchange authenticates with stripe_secret_key.
     stripe_connect_client_id: str = ""
+    stripe_connect_webhook_secret: str = ""
+
+    # Retention ingest defaults. Initial imports keep two years of payment
+    # history; incremental pulls overlap to tolerate eventual consistency.
+    payment_history_lookback_days: int = 730
+    payment_sync_overlap_minutes: int = 10
+    payment_sync_interval_seconds: int = 900
 
     # Stripe
     stripe_secret_key: str = ""

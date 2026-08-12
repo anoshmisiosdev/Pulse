@@ -50,3 +50,47 @@ def verify_svix_signature(
         if hmac.compare_digest(sig or candidate, expected):
             return True
     return False
+
+
+def verify_stripe_signature(
+    payload: bytes,
+    signature_header: str,
+    secret: str,
+    *,
+    now: int | None = None,
+    tolerance_seconds: int = _TOLERANCE_SECONDS,
+) -> bool:
+    """Verify Stripe's ``t=…,v1=…`` signature against the unmodified body."""
+    if not payload or not signature_header or not secret:
+        return False
+    parts: dict[str, list[str]] = {}
+    for item in signature_header.split(","):
+        key, sep, value = item.strip().partition("=")
+        if sep:
+            parts.setdefault(key, []).append(value)
+    try:
+        timestamp = int((parts.get("t") or [""])[0])
+    except ValueError:
+        return False
+    current = int(time.time()) if now is None else now
+    if abs(current - timestamp) > tolerance_seconds:
+        return False
+    signed = str(timestamp).encode() + b"." + payload
+    expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+    return any(hmac.compare_digest(expected, value) for value in parts.get("v1", []))
+
+
+def verify_square_signature(
+    payload: bytes,
+    signature_header: str,
+    signature_key: str,
+    notification_url: str,
+) -> bool:
+    """Verify Square's HMAC-SHA256 signature in constant time."""
+    if not payload or not signature_header or not signature_key or not notification_url:
+        return False
+    signed = notification_url.encode() + payload
+    expected = base64.b64encode(
+        hmac.new(signature_key.encode(), signed, hashlib.sha256).digest()
+    ).decode()
+    return hmac.compare_digest(expected, signature_header)
