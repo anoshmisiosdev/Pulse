@@ -13,22 +13,45 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.posthog_client import capture_event, identify_user, request_distinct_id
 from app.models.waitlist import WaitlistSignup
 from app.schemas.waitlist import WaitlistIn, WaitlistOut
+from app.visitor_intelligence.service import (
+    link_waitlist_signup,
+    request_session_id,
+)
 
 router = APIRouter(prefix="/waitlist", tags=["waitlist"])
 
 logger = logging.getLogger("pulse.waitlist")
 
 
+def _vertical_bucket(value: str | None) -> str:
+    """Map free-form waitlist choices to a stable, non-PII analytics value."""
+    if not value:
+        return "not_provided"
+    normalized = value.casefold()
+    if "café" in normalized or "cafe" in normalized or "coffee" in normalized:
+        return "cafe"
+    if "salon" in normalized or "barber" in normalized:
+        return "salon"
+    if "gym" in normalized or "fitness" in normalized:
+        return "fitness"
+    if "med spa" in normalized:
+        return "med_spa"
+    if "yoga" in normalized or "pilates" in normalized:
+        return "yoga_pilates"
+    return "other"
+
+
 @router.post("", response_model=WaitlistOut)
 async def join_waitlist(
-    payload: WaitlistIn, db: AsyncSession = Depends(get_db)
+    payload: WaitlistIn, request: Request, db: AsyncSession = Depends(get_db)
 ) -> WaitlistOut:
     """Record a signup, or quietly refresh the one that already exists."""
     # Honeypot tripped: answer exactly as we would on success. A bot that can
@@ -36,6 +59,22 @@ async def join_waitlist(
     if payload.website.strip():
         logger.info("waitlist honeypot tripped")
         return WaitlistOut(ok=True)
+
+    distinct_id = request_distinct_id(request)
+    acquisition_properties = {
+        "surface": "landing",
+        "metric_version": 1,
+        "has_business_name": payload.business_name is not None,
+        "vertical": _vertical_bucket(payload.vertical),
+    }
+    # The API has now accepted a valid, non-honeypot submission. Keeping this
+    # adjacent to the conversion event preserves ordering in PostHog.
+    if distinct_id:
+        capture_event(
+            "landing_waitlist_submitted",
+            distinct_id=distinct_id,
+            properties=acquisition_properties,
+        )
 
     # WaitlistIn has already stripped and lowercased these.
     existing = (
@@ -49,18 +88,50 @@ async def join_waitlist(
         existing.business_name = payload.business_name or existing.business_name
         existing.vertical = payload.vertical or existing.vertical
         existing.note = payload.note or existing.note
-        await db.flush()
-        return WaitlistOut(ok=True, already_joined=True)
-
-    db.add(
-        WaitlistSignup(
+        signup = existing
+        already_joined = True
+    else:
+        signup = WaitlistSignup(
             email=payload.email,
             name=payload.name,
             business_name=payload.business_name,
             vertical=payload.vertical,
             note=payload.note,
         )
-    )
+        db.add(signup)
+        already_joined = False
+
     await db.flush()
-    logger.info("waitlist signup recorded")
-    return WaitlistOut(ok=True)
+    await link_waitlist_signup(
+        db,
+        signup=signup,
+        anonymous_id=distinct_id,
+        session_id=request_session_id(request),
+        already_joined=already_joined,
+    )
+    # This is the acquisition conversion event, so emit it only after the
+    # database has confirmed the write. The dependency's final commit is then
+    # an idempotent no-op.
+    await db.commit()
+    # Alias the pseudonymous browser history to an opaque waitlist record ID.
+    # Names and emails remain in Churnary's own database, never in PostHog.
+    if distinct_id:
+        identify_user(
+            f"waitlist:{signup.id}",
+            anonymous_id=distinct_id,
+            properties={
+                "lifecycle_stage": "waitlist",
+                "source": "landing",
+                "vertical": _vertical_bucket(payload.vertical),
+            },
+        )
+        capture_event(
+            "landing_waitlist_joined",
+            distinct_id=distinct_id,
+            properties={
+                **acquisition_properties,
+                "already_joined": already_joined,
+            },
+        )
+    logger.info("waitlist signup recorded (already_joined=%s)", already_joined)
+    return WaitlistOut(ok=True, already_joined=already_joined)

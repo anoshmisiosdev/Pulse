@@ -51,6 +51,12 @@ def _scored(
         pattern="fading_away",
         confidence="high",
         trend_pct=-40,
+        # Payment-retention fields, populated the way build_scored_customers does.
+        # None of them feed the action ladder yet — see the note in recommend_action.
+        return_likelihood=100 - score,
+        expected_next_visit=None,
+        days_overdue=max(0, (days_since or 0) - 30),
+        payment_issue=False,
     )
 
 

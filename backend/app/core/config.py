@@ -81,11 +81,31 @@ class Settings(BaseSettings):
 
     # Competitor research uses Google Places for authoritative local-business
     # discovery and Perplexity Sonar for grounded research and structured output.
-    strict_free_tier: bool = True
+    # Pricing pipeline v2. ``strict_free_tier`` remains accepted for legacy
+    # deployments, but quota, cache, and provider budgets are now independent.
+    pricing_pipeline_v2_enabled: bool = True
+    pricing_monitoring_enabled: bool = False
+    pricing_daily_fresh_run_limit: int = 10
+    pricing_complete_cache_minutes: int = 120
+    pricing_no_evidence_cache_minutes: int = 30
+    pricing_max_provider_cost_usd: float = 0.10
+    pricing_max_competitors_per_run: int = 4
+    pricing_max_ai_fallbacks_per_run: int = 2
+    pricing_max_content_fallbacks_per_run: int = 1
+    pricing_max_geocoding_requests_per_run: int = 1
+    pricing_place_provider: Literal["google_places", "foursquare"] = "google_places"
+    pricing_search_provider: Literal["perplexity", "tavily", "exa"] = "perplexity"
+    pricing_content_fallback: Literal["none", "tavily", "exa", "firecrawl"] = "none"
+    pricing_extraction_provider: Literal["deterministic", "sonar", "deepseek"] = "sonar"
+    strict_free_tier: bool = False
     google_maps_server_api_key: str = ""
     google_maps_api_key: str = ""
     enable_google_places_discovery: bool = True
+    pricing_google_place_details_enabled: bool = False
     google_places_base_url: str = "https://places.googleapis.com/v1"
+    foursquare_api_key: str = ""
+    foursquare_base_url: str = "https://places-api.foursquare.com"
+    foursquare_api_version: str = "2025-06-17"
     enable_direct_source_fetch: bool = True
     source_fetch_timeout_seconds: float = 10.0
     source_fetch_max_bytes: int = 2_000_000
@@ -107,6 +127,12 @@ class Settings(BaseSettings):
     perplexity_max_results: int = 5
     perplexity_max_queries_per_competitor: int = 3
     perplexity_max_tokens_per_page: int = 2048
+    tavily_api_key: str = ""
+    tavily_base_url: str = "https://api.tavily.com"
+    exa_api_key: str = ""
+    exa_base_url: str = "https://api.exa.ai"
+    firecrawl_api_key: str = ""
+    firecrawl_base_url: str = "https://api.firecrawl.dev/v2"
     # Legacy settings remain accepted while old deployments roll forward.
     # The pricing workflow no longer calls these providers.
     tokenmart_api_key: str = ""
@@ -136,7 +162,9 @@ class Settings(BaseSettings):
 
     @property
     def effective_google_maps_api_key(self) -> str:
-        """Prefer the dedicated server key while preserving legacy deployments."""
+        """Never let a browser/referrer key become a production server credential."""
+        if self.environment == "production":
+            return self.google_maps_server_api_key
         return self.google_maps_server_api_key or self.google_maps_api_key
 
     @property
@@ -219,7 +247,7 @@ class Settings(BaseSettings):
     # This replaces Splay's Convex blob store.
     s3_media_bucket: str = ""
     s3_media_prefix: str = "social/"
-    media_public_base_url: str = ""  # e.g. https://media.churnary.com
+    media_public_base_url: str = ""  # e.g. https://media.churnary.ai
 
     @property
     def media_host_configured(self) -> bool:
@@ -229,10 +257,21 @@ class Settings(BaseSettings):
     square_app_id: str = ""
     square_app_secret: str = ""
     square_environment: Literal["sandbox", "production"] = "sandbox"
+    square_webhook_signature_key: str = ""
+    # Must exactly match the notification URL registered with Square because it
+    # is part of Square's HMAC signature input.
+    square_webhook_url: str = ""
 
     # Stripe Connect platform (Dashboard → Settings → Connect). Enables
     # "Connect with Stripe"; token exchange authenticates with stripe_secret_key.
     stripe_connect_client_id: str = ""
+    stripe_connect_webhook_secret: str = ""
+
+    # Retention ingest defaults. Initial imports keep two years of payment
+    # history; incremental pulls overlap to tolerate eventual consistency.
+    payment_history_lookback_days: int = 730
+    payment_sync_overlap_minutes: int = 10
+    payment_sync_interval_seconds: int = 900
 
     # Stripe
     stripe_secret_key: str = ""
@@ -260,11 +299,93 @@ class Settings(BaseSettings):
             missing.append("SUPABASE_URL")
         if self.supabase_jwt_secret and len(self.supabase_jwt_secret) < 32:
             missing.append("SUPABASE_JWT_SECRET (must be >=32 chars or blank for JWKS)")
+        if self.pricing_pipeline_v2_enabled:
+            if not self.google_maps_server_api_key:
+                missing.append("GOOGLE_MAPS_SERVER_API_KEY")
+            if self.pricing_place_provider == "foursquare" and not self.foursquare_api_key:
+                missing.append("FOURSQUARE_API_KEY")
+            if self.pricing_search_provider == "perplexity" and not self.perplexity_api_key:
+                missing.append("PERPLEXITY_API_KEY")
+            if self.pricing_search_provider == "tavily" and not self.tavily_api_key:
+                missing.append("TAVILY_API_KEY")
+            if self.pricing_search_provider == "exa" and not self.exa_api_key:
+                missing.append("EXA_API_KEY")
+            if self.pricing_content_fallback == "tavily" and not self.tavily_api_key:
+                missing.append("TAVILY_API_KEY")
+            if self.pricing_content_fallback == "exa" and not self.exa_api_key:
+                missing.append("EXA_API_KEY")
+            if self.pricing_content_fallback == "firecrawl" and not self.firecrawl_api_key:
+                missing.append("FIRECRAWL_API_KEY")
+            if self.pricing_extraction_provider == "sonar" and not self.perplexity_api_key:
+                missing.append("PERPLEXITY_API_KEY")
+            if self.pricing_extraction_provider == "deepseek" and not (
+                self.tokenmart_api_key or self.deepseek_api_key
+            ):
+                missing.append("TOKENMART_API_KEY or DEEPSEEK_API_KEY")
         if missing:
+            missing = list(dict.fromkeys(missing))
             raise ValueError(
                 f"Production requires these settings: {', '.join(missing)}"
             )
         return self
+
+    # PostHog
+    posthog_project_token: str = ""
+    posthog_host: str = "https://us.i.posthog.com"
+    posthog_disabled: bool = False
+
+    # Platform-owned marketing visitor intelligence. This data is deliberately
+    # separate from tenant customer data and only visible to platform admins.
+    visitor_admin_emails: str = ""
+    # RB2B's generic webhook cannot attach custom headers, so its opaque secret
+    # is included as a query parameter in the URL configured in RB2B.
+    rb2b_webhook_secret: str = ""
+    rb2b_monthly_cost_usd: float = 0.0
+
+    # Discord companion for RB2B/visitor intelligence. Alerts can be delivered
+    # either by a channel webhook (least privilege) or by the bot user. Slash
+    # commands use Discord's signed HTTP interactions endpoint, so the API does
+    # not need a long-running Gateway/WebSocket worker.
+    discord_application_id: str = ""
+    discord_public_key: str = ""
+    discord_bot_token: str = ""
+    discord_guild_id: str = ""
+    discord_alert_channel_id: str = ""
+    discord_webhook_url: str = ""
+    discord_allowed_role_ids: str = ""
+    discord_alert_min_intent_score: int = 25
+    discord_include_email: bool = False
+
+    @property
+    def visitor_admin_email_set(self) -> set[str]:
+        return {
+            email.strip().casefold()
+            for email in self.visitor_admin_emails.split(",")
+            if email.strip()
+        }
+
+    @property
+    def discord_allowed_role_id_set(self) -> set[str]:
+        return {
+            role_id.strip()
+            for role_id in self.discord_allowed_role_ids.split(",")
+            if role_id.strip()
+        }
+
+    @property
+    def discord_alerts_configured(self) -> bool:
+        return bool(
+            self.discord_webhook_url
+            or (self.discord_bot_token and self.discord_alert_channel_id)
+        )
+
+    @property
+    def discord_commands_configured(self) -> bool:
+        return bool(
+            self.discord_application_id
+            and self.discord_public_key
+            and self.discord_guild_id
+        )
 
     @property
     def cors_origins(self) -> list[str]:

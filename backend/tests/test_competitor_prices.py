@@ -16,7 +16,7 @@ from app.core.logging import redact_secrets
 from app.main import app, fastapi_app
 from app.services.competitor_prices.competitor_research_service import (
     CompetitorResearchService,
-    ResearchConfigurationError,
+    ResearchUnavailableError,
     _cached_response_missing_configured_provider,
     _CandidatePrice,
     _dedupe_and_rank_sources,
@@ -29,6 +29,7 @@ from app.services.competitor_prices.competitor_research_service import (
 )
 from app.services.competitor_prices.confidence_scoring import (
     ConfidenceInput,
+    assess_offer_match,
     build_market_summary,
     canonicalize_offer_label,
     evidence_contains_price,
@@ -58,7 +59,11 @@ from app.services.competitor_prices.perplexity_client import (
     PerplexitySearchClient,
     PerplexitySearchResult,
 )
-from app.services.competitor_prices.pricing_extraction_service import PricingExtractionService
+from app.services.competitor_prices.pricing_extraction_service import (
+    PricingExtractionService,
+    _source_contains_offer_price_pair,
+    _valid_source_prices,
+)
 from app.services.competitor_prices.schemas import (
     CompetitorDiscoveryResult,
     CompetitorPriceResearchRequest,
@@ -161,7 +166,7 @@ def test_cache_key_normalizes_request():
         }
     )
     cache_key = build_cache_key(payload)
-    assert cache_key.startswith("v5|places|fresh-18|")
+    assert cache_key.startswith("v6|places|fresh-18|")
     assert "|hair salon|women's haircut|" in cache_key
 
 
@@ -177,6 +182,76 @@ def test_offer_canonicalization_fixes_capuccino_typo():
         }
     )
     assert "|cappuccino|" in build_cache_key(payload)
+
+
+def test_offer_match_assessment_distinguishes_exact_close_and_weak():
+    exact = assess_offer_match("Cappuccino", "cappuccino")
+    sized_variant = assess_offer_match("Cappuccino", "12 oz Cappuccino")
+    close = assess_offer_match("Blueberry Scone", "Mixed Berry Scone")
+    weak = assess_offer_match("Cappuccino", "Turkey Sandwich")
+
+    assert exact.quality == "exact"
+    assert exact.score == 1
+    assert sized_variant.quality == "close"
+    assert sized_variant.score == 0.95
+    assert "size or modifier" in sized_variant.reason
+    assert close.quality == "close"
+    assert 0.48 <= close.score < 1
+    assert "scone" in close.reason.lower()
+    assert weak.quality == "weak"
+
+
+async def test_deterministic_extraction_preserves_the_actual_close_item_name():
+    result = await PricingExtractionService(allow_structured_ai=False).extract_prices(
+        competitor=DiscoveredCompetitor(name="Fixture Bakery"),
+        source=DiscoveredSource(
+            url="https://fixture.example/menu",
+            snippet="Mixed Berry Scone $4.50",
+            sourceType="official_site",
+        ),
+        target_offer="Blueberry Scone",
+        allow_ai=False,
+    )
+
+    assert len(result.data.prices) == 1
+    price = result.data.prices[0]
+    assert price.offer_name == "Mixed Berry Scone"
+    assert price.match_quality == "close"
+    assert price.match_score and price.match_score >= 0.48
+    assert price.match_reason and "modifiers differ" in price.match_reason
+    contract = price.model_dump(by_alias=True, mode="json")
+    assert contract["offerName"] == "Mixed Berry Scone"
+    assert contract["matchQuality"] == "close"
+    assert contract["matchScore"] == price.match_score
+    assert contract["matchReason"] == price.match_reason
+
+
+def test_ai_price_binding_rejects_a_requested_label_absent_from_source():
+    source = DiscoveredSource(
+        url="https://fixture.example/menu",
+        sourceType="official_site",
+    )
+    content = "Mixed Berry Scone $4.50"
+    hallucinated = _price(
+        offerName="Blueberry Scone",
+        normalizedOfferName="blueberry scone",
+        priceMin=4.5,
+        priceMax=4.5,
+        sourceUrl=source.url,
+        evidenceText="Blueberry Scone $4.50",
+    )
+    grounded = hallucinated.model_copy(
+        update={
+            "offer_name": "Mixed Berry Scone",
+            "normalized_offer_name": "mixed berry scone",
+            "evidence_text": "Mixed Berry Scone $4.50",
+        }
+    )
+
+    assert not _source_contains_offer_price_pair(content, "Blueberry Scone", [4.5])
+    assert _source_contains_offer_price_pair(content, "Mixed Berry Scone", [4.5])
+    assert _valid_source_prices([hallucinated], source, content) == []
+    assert _valid_source_prices([grounded], source, content) == [grounded]
 
 
 def test_cache_guard_skips_pre_perplexity_cached_response(monkeypatch):
@@ -262,61 +337,63 @@ def test_source_identity_gate_rejects_a_different_merchant():
     )
 
 
-async def test_competitor_discovery_uses_perplexity_evidence_and_deepseek(monkeypatch):
-    monkeypatch.setattr(settings, "enable_perplexity_search", True)
+async def test_v2_competitor_discovery_uses_authoritative_places_only(monkeypatch):
+    monkeypatch.setattr(settings, "pricing_pipeline_v2_enabled", True)
 
-    class FakePerplexity:
-        async def search(self, _query, *, max_results):
-            assert max_results == settings.perplexity_max_results
+    class FakePlaces:
+        provider_name = "google_places"
+
+        async def discover(self, **kwargs):
+            assert kwargs["latitude"] == 37.56
+            assert kwargs["longitude"] == -122.01
             return [
-                PerplexitySearchResult(
-                    title="Hops & Beans Cafe",
-                    url="https://hops.example/menu",
-                    snippet="Hops & Beans Cafe, 4000 Bay St, Fremont, serves cappuccino.",
+                DiscoveredCompetitor(
+                    name="Hops & Beans Cafe",
+                    address="4000 Bay St, Fremont, CA",
+                    latitude=37.55,
+                    longitude=-122.00,
+                    placeId="place-hops",
+                    discoveryProvider="google_places",
                 )
             ]
 
-    class FakeDeepSeek:
+    class NoSearchOrModel:
+        async def search(self, *_args, **_kwargs):
+            raise AssertionError("v2 place discovery must not infer competitors from web search")
+
         async def generate_json(self, **_kwargs):
-            return DeepSeekJSONResult(
-                data=CompetitorDiscoveryResult(
-                    competitors=[
-                        DiscoveredCompetitor(
-                            name="Hops & Beans Cafe",
-                            address="4000 Bay St, Fremont, CA",
-                            sourceUrls=["https://hops.example/menu"],
-                        ),
-                        DiscoveredCompetitor(
-                            name="Invented Cafe",
-                            sourceUrls=["https://invented.example"],
-                        ),
-                    ]
-                ),
-                model="deepseek-v4-flash",
-            )
+            raise AssertionError("v2 place discovery must not ask a model to invent competitors")
 
     service = CompetitorResearchService(
         db=None,
-        deepseek_client=FakeDeepSeek(),  # type: ignore[arg-type]
-        perplexity_client=FakePerplexity(),  # type: ignore[arg-type]
+        deepseek_client=NoSearchOrModel(),  # type: ignore[arg-type]
+        perplexity_client=NoSearchOrModel(),  # type: ignore[arg-type]
+        places_client=FakePlaces(),  # type: ignore[arg-type]
     )
     payload = CompetitorPriceResearchRequest.model_validate(
         {
             "businessCategory": "Coffee Shop",
             "targetOffer": "Cappuccino",
-            "location": {"city": "Fremont", "state": "CA"},
+            "location": {
+                "city": "Fremont",
+                "state": "CA",
+                "latitude": 37.56,
+                "longitude": -122.01,
+            },
         }
     )
     metadata = ResearchCallMetadata()
     result = await service.discover_competitors(payload, [], metadata)
     assert [competitor.name for competitor in result.competitors] == ["Hops & Beans Cafe"]
-    assert metadata.perplexity_search_used
-    assert metadata.deepseek_research_used
-    assert metadata.models_used == {"perplexity-search", "deepseek-v4-flash"}
+    assert result.competitors[0].place_id == "place-hops"
+    assert metadata.google_places_used
+    assert not metadata.perplexity_search_used
+    assert not metadata.deepseek_research_used
+    assert metadata.models_used == set()
 
 
-async def test_competitor_discovery_refuses_ungrounded_fallback(monkeypatch):
-    monkeypatch.setattr(settings, "enable_perplexity_search", False)
+async def test_v2_competitor_discovery_requires_verified_origin(monkeypatch):
+    monkeypatch.setattr(settings, "pricing_pipeline_v2_enabled", True)
     service = CompetitorResearchService(db=None, deepseek_client=object())  # type: ignore[arg-type]
     payload = CompetitorPriceResearchRequest.model_validate(
         {
@@ -325,8 +402,10 @@ async def test_competitor_discovery_refuses_ungrounded_fallback(monkeypatch):
             "location": {"city": "Fremont", "state": "CA"},
         }
     )
-    with pytest.raises(ResearchConfigurationError):
+    with pytest.raises(ResearchUnavailableError) as exc_info:
         await service.discover_competitors(payload, [], ResearchCallMetadata())
+    assert exc_info.value.code == "PRICING_GEOCODE_UNAVAILABLE"
+    assert exc_info.value.stage == "geocode"
 
 
 async def test_perplexity_source_discovery_returns_grounded_sources(monkeypatch):
@@ -434,28 +513,12 @@ def test_tokenmart_configuration_is_preferred(monkeypatch):
     assert client._chat_url() == "https://model.service-inference.ai/v1/chat/completions"
 
 
-async def test_extraction_uses_deepseek(monkeypatch):
+async def test_deterministic_extraction_preempts_structured_ai(monkeypatch):
     monkeypatch.setattr(settings, "enable_deepseek_extraction", True)
 
     class FakeDeepSeek:
         async def generate_json(self, **_kwargs):
-            return DeepSeekJSONResult(
-                data=PriceExtractionResult(
-                    prices=[
-                        _price(
-                            offerName="Cappuccino",
-                            normalizedOfferName="cappuccino",
-                            priceMin=6,
-                            priceMax=6,
-                            sourceUrl="https://example.com/menu",
-                            sourceTitle="Menu",
-                            evidenceText="Cappuccino $6.00",
-                            matchQuality="exact",
-                        )
-                    ]
-                ),
-                model="deepseek-v4-flash",
-            )
+            raise AssertionError("structured AI should not run for explicit source evidence")
 
     service = PricingExtractionService(FakeDeepSeek())  # type: ignore[arg-type]
     result = await service.extract_prices(
@@ -474,8 +537,9 @@ async def test_extraction_uses_deepseek(monkeypatch):
     )
 
     assert result.data.prices[0].price_min == 6
-    assert result.model == "deepseek-v4-flash"
-    assert "deepseek_extraction" in result.tools_used
+    assert result.model == ""
+    assert result.tools_used == set()
+    assert result.data.prices[0].extraction_method == "search_snippet"
 
 
 def test_api_route_uses_mocked_service(monkeypatch):
@@ -589,7 +653,7 @@ def test_v4_cache_key_separates_all_research_inputs():
         "currentPrice": 4,
     }
     original = CompetitorPriceResearchRequest.model_validate(base)
-    assert build_cache_key(original).startswith("v5|places|fresh-18|")
+    assert build_cache_key(original).startswith("v6|places|fresh-18|")
     variants = [
         {**base, "businessName": "Another Coffee"},
         {**base, "businessWebsite": "https://another.example"},
@@ -824,7 +888,7 @@ async def test_source_fallback_checks_three_unique_domains_and_stops_on_corrobor
     assert _has_corroborating_pair(work.candidates)
 
 
-async def test_deepseek_failure_does_not_report_success(monkeypatch):
+async def test_unavailable_ai_is_not_called_when_deterministic_evidence_succeeds(monkeypatch):
     monkeypatch.setattr(settings, "enable_deepseek_extraction", True)
 
     class FakeDeepSeek:
@@ -832,16 +896,17 @@ async def test_deepseek_failure_does_not_report_success(monkeypatch):
             raise DeepSeekError("unauthorized")
 
     service = PricingExtractionService(FakeDeepSeek())  # type: ignore[arg-type]
-    with pytest.raises(DeepSeekError):
-        await service.extract_prices(
-            competitor=DiscoveredCompetitor(name="Test", address="Fremont, CA"),
-            source=DiscoveredSource(
-                url="https://example.com/menu",
-                snippet="Cappuccino USD 6.00",
-                sourceType="official_site",
-            ),
-            target_offer="Cappuccino",
-        )
+    result = await service.extract_prices(
+        competitor=DiscoveredCompetitor(name="Test", address="Fremont, CA"),
+        source=DiscoveredSource(
+            url="https://example.com/menu",
+            snippet="Cappuccino USD 6.00",
+            sourceType="official_site",
+        ),
+        target_offer="Cappuccino",
+    )
+    assert result.data.prices[0].price_min == 6
+    assert result.tools_used == set()
 
 
 async def test_google_geocoder_success_zero_results_and_missing_key():
@@ -862,7 +927,8 @@ async def test_google_geocoder_success_zero_results_and_missing_key():
         await GoogleGeocodingClient(api_key="").geocode("Fremont")
 
 
-async def test_google_places_discovers_and_enriches_canonical_competitor():
+async def test_google_places_can_optionally_enrich_canonical_competitor(monkeypatch):
+    monkeypatch.setattr(settings, "pricing_google_place_details_enabled", True)
     async def handler(request: httpx.Request):
         assert request.headers["x-goog-api-key"] == "test-key"
         assert "key=" not in str(request.url)
@@ -910,6 +976,41 @@ async def test_google_places_discovers_and_enriches_canonical_competitor():
     assert competitors[0].discovery_provider == "google_places"
     assert competitors[0].website == "https://canonical.example/menu"
     assert places.requests_made == 2
+
+
+async def test_google_places_default_discovery_stays_within_one_billable_request(monkeypatch):
+    monkeypatch.setattr(settings, "pricing_google_place_details_enabled", False)
+
+    async def handler(request: httpx.Request):
+        if not request.url.path.endswith("places:searchNearby"):
+            raise AssertionError("details must stay off in the budgeted production path")
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "place-1",
+                        "displayName": {"text": "Canonical Cafe"},
+                        "formattedAddress": "1 Main St, Fremont, CA",
+                        "location": {"latitude": 37.56, "longitude": -122.01},
+                        "businessStatus": "OPERATIONAL",
+                    }
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        places = GooglePlacesClient(api_key="test-key", http_client=client)
+        competitors = await places.discover(
+            latitude=37.56,
+            longitude=-122.01,
+            radius_miles=10,
+            business_category="Coffee Shop",
+            max_results=3,
+        )
+
+    assert competitors[0].website is None
+    assert places.requests_made == 1
 
 
 async def test_perplexity_multi_query_preserves_dates_and_content_budget(monkeypatch):
@@ -1183,6 +1284,41 @@ async def test_json_ld_precedes_ai_and_conflicts_require_review():
     assert expired_result.data.prices == []
 
 
+async def test_fremont_menu_canary_extracts_bare_decimal_from_visible_dom():
+    """Stable production canary: the real menu presents 12.95 without a dollar sign."""
+
+    class NoAI:
+        async def generate_json(self, **_kwargs):
+            raise AssertionError("the canary must pass without an intelligence provider")
+
+    url = "https://www.fremontcoffeeco.com/food-menu"
+    page = PageFetchResult(
+        url=url,
+        content=(
+            "<html><body><section><h3>Big Breakfast Burrito</h3>"
+            "<span class='menu-price'>12.95</span></section></body></html>"
+        ),
+        status_code=200,
+        content_type="text/html",
+        retrieved_at=datetime.now(UTC),
+        content_hash="fremont-canary",
+    )
+    result = await PricingExtractionService(NoAI()).extract_prices(  # type: ignore[arg-type]
+        competitor=DiscoveredCompetitor(name="Fremont Coffee Company"),
+        source=DiscoveredSource(url=url, sourceType="official_site"),
+        target_offer="Big Breakfast Burrito",
+        page=page,
+    )
+
+    assert len(result.data.prices) == 1
+    price = result.data.prices[0]
+    assert price.price_min == 12.95
+    assert price.source_url == url
+    assert price.retrieval_method == "direct_fetch"
+    assert price.extraction_method == "visible_text"
+    assert result.tools_used == set()
+
+
 async def test_old_third_party_evidence_keeps_real_date_and_is_stale():
     service = PricingExtractionService(object())  # type: ignore[arg-type]
     result = await service.extract_prices(
@@ -1326,14 +1462,18 @@ async def test_prefilled_fremont_fixture_separates_channels_and_excludes_self(mo
                     name="Suju's Coffee",
                     address="3602 Thornton Ave, Fremont, CA",
                 ),
-                DiscoveredCompetitor(
-                    name="Hops & Beans",
-                    address="4000 Bay St, Fremont, CA",
-                ),
-                DiscoveredCompetitor(
-                    name="Philz Coffee",
-                    address="Philz, Fremont, CA",
-                ),
+                    DiscoveredCompetitor(
+                        name="Hops & Beans",
+                        address="4000 Bay St, Fremont, CA",
+                        latitude=37.548,
+                        longitude=-121.989,
+                    ),
+                    DiscoveredCompetitor(
+                        name="Philz Coffee",
+                        address="Philz, Fremont, CA",
+                        latitude=37.55,
+                        longitude=-121.99,
+                    ),
             ]
         )
 
@@ -1380,7 +1520,11 @@ async def test_prefilled_fremont_fixture_separates_channels_and_excludes_self(mo
         "Philz Coffee",
     ]
     assert response.market_summary.sample_size == 1
-    assert response.market_summary.price_median == 4.78
+    assert response.market_summary.price_median is None
+    assert response.status == "partial"
+    assert "At least two unique verified businesses" in (
+        response.market_summary.recommended_positioning
+    )
     assert response.channel_summaries is not None
     assert response.channel_summaries.delivery.price_median is None
     assert any(

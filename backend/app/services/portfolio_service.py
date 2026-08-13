@@ -15,6 +15,7 @@ from app.services.activity import (
     ScoredCustomer,
     build_scored_customers,
     monthly_revenue_series,
+    portfolio_currency,
     summarize,
 )
 from app.services.attribution import recovery_totals
@@ -49,6 +50,10 @@ def to_risk(scored: list[ScoredCustomer], persisted: bool = False) -> list[Custo
             confidence=s.confidence,
             trend_pct=s.trend_pct,
             favorite_item=s.customer.favorite_item,
+            return_likelihood=s.return_likelihood,
+            expected_next_visit=s.expected_next_visit,
+            days_overdue=s.days_overdue,
+            payment_issue=s.payment_issue,
             recommended_action=s.recommended_action,
             action_reason=s.action_reason,
         )
@@ -65,6 +70,8 @@ async def build_portfolio(db: AsyncSession, user: CurrentUser) -> PortfolioOut:
             source=c.source,
             status=c.status,
             last_synced_at=c.last_synced_at.isoformat() if c.last_synced_at else None,
+            environment=c.environment,
+            last_error=c.last_error,
         )
         for c in await ingest.list_connections(db, user.business_id)
     ]
@@ -79,6 +86,7 @@ async def build_portfolio(db: AsyncSession, user: CurrentUser) -> PortfolioOut:
             status="empty",
             business_name=name,
             vertical=vertical,
+            currency="USD",
             summary=PortfolioSummaryOut(
                 total_customers=0, high_risk=0, med_risk=0, low_risk=0, revenue_at_risk=0.0
             ),
@@ -93,6 +101,7 @@ async def build_portfolio(db: AsyncSession, user: CurrentUser) -> PortfolioOut:
         status="ready",
         business_name=name,
         vertical=vertical,
+        currency=portfolio_currency(sync),
         summary=PortfolioSummaryOut(
             **summary.__dict__,
             recovered_count=totals.recovered_count,

@@ -1,6 +1,15 @@
 // Typed client for the Pulse API. Mirrors backend/app/schemas/api.py.
 
+import {
+  ANALYTICS_ID_STORAGE_KEY,
+  PRIVACY_PREFERENCE_EVENT,
+  VISITOR_SESSION_STORAGE_KEY,
+  hasAnalyticsConsent,
+} from "./privacyPreferences";
+
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+export const POSTHOG_DISTINCT_ID_HEADER = "X-PostHog-Distinct-Id";
+export const VISITOR_SESSION_ID_HEADER = "X-Visitor-Session-Id";
 
 // localStorage flag: owner chose "skip setup" — lives here (not Setup.tsx) so the
 // route gate can read it without pulling the lazy-loaded Setup page into the main chunk.
@@ -52,6 +61,11 @@ export interface CustomerRisk {
   confidence: string;
   trend_pct: number;
   favorite_item: string | null;
+  /** Explainable inverse of churn risk; not a calibrated probability. */
+  return_likelihood: number;
+  expected_next_visit: string | null;
+  days_overdue: number;
+  payment_issue: boolean;
   recommended_action: RecommendedAction;
   action_reason: string;
 }
@@ -102,11 +116,14 @@ export interface Connection {
   source: string;
   status: string;
   last_synced_at: string | null;
+  environment: "production" | "sandbox";
+  last_error: string | null;
 }
 
 export interface Portfolio {
   business_name: string;
   vertical: string;
+  currency: string;
   summary: PortfolioSummary;
   customers: CustomerRisk[];
   warnings: string[];
@@ -190,6 +207,119 @@ export interface AuthUser {
   business_id: string;
   business_name: string;
   role: string;
+  can_manage_visitors: boolean;
+}
+
+export type VisitorStatus =
+  | "new"
+  | "reviewing"
+  | "qualified"
+  | "contacted"
+  | "dismissed";
+export type VisitorIdentityLevel =
+  | "anonymous"
+  | "company"
+  | "person"
+  | "waitlist"
+  | "account";
+
+export interface VisitorSummary {
+  active_24h: number;
+  unique_visitors: number;
+  identified_visitors: number;
+  identification_rate: number;
+  high_intent: number;
+  waitlist_conversions: number;
+  provider_matches: number;
+  window_days: number;
+}
+
+export interface VisitorListItem {
+  id: string;
+  primary_email: string | null;
+  full_name: string | null;
+  job_title: string | null;
+  linkedin_url: string | null;
+  company_name: string | null;
+  company_domain: string | null;
+  company_website: string | null;
+  industry: string | null;
+  employee_count: string | null;
+  estimated_revenue: string | null;
+  city: string | null;
+  state: string | null;
+  zipcode: string | null;
+  identity_level: VisitorIdentityLevel;
+  source_provider: string;
+  status: VisitorStatus;
+  intent_score: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  visit_count: number;
+  pageview_count: number;
+  last_path: string | null;
+  referrer_host: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  tags: string[];
+  waitlist_signup_id: string | null;
+  authenticated_user_id: string | null;
+  suppressed: boolean;
+}
+
+export interface VisitorEvent {
+  id: string;
+  event_name: string;
+  occurred_at: string;
+  path: string | null;
+  referrer: string | null;
+  provider: string;
+  properties: Record<string, unknown>;
+}
+
+export interface VisitorDetail extends VisitorListItem {
+  events: VisitorEvent[];
+}
+
+export interface VisitorList {
+  items: VisitorListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  summary: VisitorSummary;
+}
+
+export interface VisitorPilotMetrics {
+  provider: string;
+  window_days: number;
+  deliveries: number;
+  unique_profiles: number;
+  person_matches: number;
+  company_matches: number;
+  repeat_visitors: number;
+  high_intent_matches: number;
+  waitlist_conversions: number;
+  conversion_rate: number;
+  monthly_cost_usd: number | null;
+  cost_per_match_usd: number | null;
+  recommendation: string;
+}
+
+export interface VisitorIntegrationStatus {
+  rb2b_webhook_configured: boolean;
+  rb2b_webhook_endpoint: string;
+  discord_alerts_configured: boolean;
+  discord_commands_configured: boolean;
+  discord_interactions_endpoint: string;
+  discord_guild_configured: boolean;
+  discord_alert_min_intent_score: number;
+  discord_includes_email: boolean;
+}
+
+export interface DiscordTestResult {
+  delivered: boolean;
+  transport: string;
 }
 
 export interface CompetitorPriceResearchInput {
@@ -227,14 +357,30 @@ export interface CompetitorPrice {
   confidence: number;
   confidenceReasons: string[];
   matchQuality: "exact" | "close" | "weak";
+  matchScore?: number | null;
+  matchReason?: string | null;
   priceChannel: "in_store" | "delivery" | "unknown";
   corroborated: boolean;
   includedInMarketSummary: boolean;
   sourcePublishedAt?: string | null;
   sourceUpdatedAt?: string | null;
   verifiedAt?: string | null;
-  retrievalMethod?: "direct_fetch" | "perplexity_content" | "search_snippet" | "none";
-  extractionMethod?: "json_ld" | "visible_text" | "search_snippet" | "sonar" | "tokenmart" | "method_consensus";
+  retrievalMethod?:
+    | "direct_fetch"
+    | "perplexity_content"
+    | "tavily_extract"
+    | "exa_contents"
+    | "firecrawl_scrape"
+    | "search_snippet"
+    | "none";
+  extractionMethod?:
+    | "json_ld"
+    | "visible_text"
+    | "search_snippet"
+    | "sonar"
+    | "tokenmart"
+    | "bounded_ai"
+    | "method_consensus";
   freshnessStatus?: "current" | "stale" | "unknown" | "expired";
   needsReview?: boolean;
 }
@@ -251,7 +397,51 @@ export interface CompetitorPriceCompetitor {
   radiusVerified: boolean;
   exclusionReasons: string[];
   placeId?: string | null;
-  discoveryProvider?: "google_places" | "perplexity";
+  discoveryProvider?: "google_places" | "foursquare" | "perplexity";
+}
+
+export type CompetitorPriceResearchStatus = "complete" | "partial" | "no_evidence";
+export type CompetitorPriceStageName =
+  | "geocode"
+  | "place_discovery"
+  | "source_search"
+  | "content_fetch"
+  | "price_extraction"
+  | "aggregation";
+
+export interface CompetitorPriceEstimateSummary {
+  method: "verified_peer_distribution";
+  sampleSize: number;
+  priceLow: number;
+  priceMedian: number;
+  priceHigh: number;
+  currency: string;
+  maxAgeDays: number;
+  basis: "close_equivalent";
+}
+
+export interface CompetitorPriceIssue {
+  code: string;
+  stage: CompetitorPriceStageName;
+  severity: "info" | "warning" | "error";
+  retryable: boolean;
+  message: string;
+}
+
+export interface CompetitorPriceStageResult {
+  stage: CompetitorPriceStageName;
+  status: "ok" | "degraded" | "failed" | "skipped";
+  provider: string | null;
+  attempts: number;
+  durationMs: number;
+  code: string | null;
+}
+
+export interface CompetitorPriceQuota {
+  dailyLimit: number;
+  used: number;
+  remaining: number;
+  resetsAt: string | null;
 }
 
 export interface CompetitorPriceMarketSummary {
@@ -267,6 +457,7 @@ export interface CompetitorPriceMarketSummary {
 }
 
 export interface CompetitorPriceResearchResponse {
+  status: CompetitorPriceResearchStatus;
   query: {
     businessCategory: string;
     targetOffer: string;
@@ -276,10 +467,13 @@ export interface CompetitorPriceResearchResponse {
   };
   competitors: CompetitorPriceCompetitor[];
   marketSummary: CompetitorPriceMarketSummary;
+  estimateSummary: CompetitorPriceEstimateSummary | null;
   channelSummaries: {
     inStore: CompetitorPriceMarketSummary;
     delivery: CompetitorPriceMarketSummary;
   } | null;
+  issues: CompetitorPriceIssue[];
+  quota: CompetitorPriceQuota | null;
   warnings: string[];
   metadata: {
     modelsUsed: string[];
@@ -327,6 +521,9 @@ export interface CompetitorPriceResearchResponse {
       tokenmartReturnedModels?: string[];
       tokenmartUsage?: Record<string, number>;
     };
+    stages: CompetitorPriceStageResult[];
+    providerCostUsd: number;
+    pipelineVersion: string;
   };
 }
 
@@ -351,27 +548,144 @@ export interface CompetitorPriceWatch {
 
 // The current Supabase access token, kept in sync by AuthContext.
 let accessToken: string | null = null;
+let analyticsDistinctId: string | null = null;
+let visitorSessionId: string | null = null;
+
+if (typeof window !== "undefined") {
+  window.addEventListener(PRIVACY_PREFERENCE_EVENT, () => {
+    if (!hasAnalyticsConsent()) {
+      analyticsDistinctId = null;
+      visitorSessionId = null;
+    }
+  });
+}
+
 export function setAccessToken(t: string | null): void {
   accessToken = t;
 }
 
-/** Exported so lib/social.ts can share one auth + error-handling convention. */
+export function getAnalyticsDistinctId(): string {
+  if (analyticsDistinctId) return analyticsDistinctId;
+
+  if (typeof window !== "undefined") {
+    try {
+      const stored = window.localStorage.getItem(ANALYTICS_ID_STORAGE_KEY);
+      if (stored) {
+        analyticsDistinctId = stored;
+        return stored;
+      }
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }
+
+  analyticsDistinctId =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `anon-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(ANALYTICS_ID_STORAGE_KEY, analyticsDistinctId);
+    } catch {
+      // The in-memory ID still keeps this page load internally consistent.
+    }
+  }
+  return analyticsDistinctId;
+}
+
+export function getVisitorSessionId(): string {
+  if (visitorSessionId) return visitorSessionId;
+  if (typeof window !== "undefined") {
+    try {
+      const stored = window.sessionStorage.getItem(VISITOR_SESSION_STORAGE_KEY);
+      if (stored) {
+        visitorSessionId = stored;
+        return stored;
+      }
+    } catch {
+      // Session storage can be unavailable in privacy-restricted contexts.
+    }
+  }
+  visitorSessionId =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  if (typeof window !== "undefined") {
+    try {
+      window.sessionStorage.setItem(VISITOR_SESSION_STORAGE_KEY, visitorSessionId);
+    } catch {
+      // The in-memory session remains usable for this page load.
+    }
+  }
+  return visitorSessionId;
+}
+
+/** Exported so lib/social.ts can share one auth + analytics-header convention. */
 export function authHeaders(): Record<string, string> {
-  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+  const headers: Record<string, string> = {};
+  if (hasAnalyticsConsent()) {
+    headers[POSTHOG_DISTINCT_ID_HEADER] = getAnalyticsDistinctId();
+    headers[VISITOR_SESSION_ID_HEADER] = getVisitorSessionId();
+  } else {
+    analyticsDistinctId = null;
+    visitorSessionId = null;
+  }
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  return headers;
 }
 
 export const API_BASE = BASE;
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly stage: string | null;
+  readonly retryable: boolean | null;
+
+  constructor(input: {
+    message: string;
+    status: number;
+    code?: string | null;
+    stage?: string | null;
+    retryable?: boolean | null;
+  }) {
+    super(input.message);
+    this.name = "ApiError";
+    this.status = input.status;
+    this.code = input.code ?? null;
+    this.stage = input.stage ?? null;
+    this.retryable = input.retryable ?? null;
+  }
+}
+
 export async function asJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = `Request failed (${res.status})`;
+    let code: string | null = null;
+    let stage: string | null = null;
+    let retryable: boolean | null = null;
     try {
-      const body = await res.json();
-      detail = body.detail ?? detail;
+      const body = (await res.json()) as {
+        detail?: string | {
+          errorCode?: string;
+          stage?: string;
+          retryable?: boolean;
+          message?: string;
+        };
+      };
+      if (typeof body.detail === "string") {
+        detail = body.detail;
+      } else if (body.detail && typeof body.detail === "object") {
+        detail = body.detail.message ?? detail;
+        code = body.detail.errorCode ?? null;
+        stage = body.detail.stage ?? null;
+        retryable = body.detail.retryable ?? null;
+      }
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(detail);
+    throw new ApiError({ message: detail, status: res.status, code, stage, retryable });
   }
   return res.json() as Promise<T>;
 }
@@ -400,6 +714,75 @@ async function getJson<T>(path: string): Promise<T> {
 export const api = {
   async me(): Promise<AuthUser> {
     return getJson<AuthUser>("/api/auth/me");
+  },
+
+  async listVisitors(filters: {
+    days?: number;
+    limit?: number;
+    offset?: number;
+    q?: string;
+    status?: VisitorStatus | "";
+    identity?: VisitorIdentityLevel | "";
+    source?: string;
+  } = {}): Promise<VisitorList> {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== "") params.set(key, String(value));
+    });
+    return getJson<VisitorList>(`/api/visitors?${params}`);
+  },
+
+  async visitorDetail(id: string): Promise<VisitorDetail> {
+    return getJson<VisitorDetail>(`/api/visitors/${id}`);
+  },
+
+  async updateVisitorStatus(
+    id: string,
+    visitorStatus: VisitorStatus
+  ): Promise<VisitorListItem> {
+    const res = await fetch(`${BASE}/api/visitors/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ status: visitorStatus }),
+    });
+    return asJson<VisitorListItem>(res);
+  },
+
+  async suppressVisitor(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/visitors/${id}/suppress`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!res.ok && res.status !== 204) {
+      throw new Error(`Request failed (${res.status})`);
+    }
+  },
+
+  async deleteVisitor(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/visitors/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok && res.status !== 204) {
+      throw new Error(`Request failed (${res.status})`);
+    }
+  },
+
+  async visitorPilot(days = 30, provider = "rb2b"): Promise<VisitorPilotMetrics> {
+    const params = new URLSearchParams({ days: String(days), provider });
+    return getJson<VisitorPilotMetrics>(`/api/visitors/pilot?${params}`);
+  },
+
+  async visitorIntegrationStatus(): Promise<VisitorIntegrationStatus> {
+    return getJson<VisitorIntegrationStatus>("/api/visitors/integrations/status");
+  },
+
+  async testDiscordIntegration(): Promise<DiscordTestResult> {
+    const res = await fetch(`${BASE}/api/visitors/integrations/discord/test`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<DiscordTestResult>(res);
   },
 
   /** The tenant's persisted dashboard data. status:"empty" → route to /setup. */
@@ -433,6 +816,19 @@ export const api = {
       body: form,
       headers: authHeaders(),
     });
+    return asJson<Portfolio>(res);
+  },
+
+  /** Import the bundled, attributed CC BY 4.0 UCI transaction sample. */
+  async importUciSample(vertical: string, businessName: string): Promise<Portfolio> {
+    const qs = new URLSearchParams({
+      vertical,
+      business_name: businessName || "UCI Online Retail Demo",
+    });
+    const res = await fetch(
+      `${BASE}/api/integrations/samples/uci-online-retail/import?${qs}`,
+      { method: "POST", headers: authHeaders() }
+    );
     return asJson<Portfolio>(res);
   },
 
@@ -534,6 +930,13 @@ export const api = {
       headers: authHeaders(),
     });
     return asJson<CompetitorPriceHistoryItem[]>(res);
+  },
+
+  async competitorPriceQuota(): Promise<CompetitorPriceQuota> {
+    const res = await fetch(`${BASE}/api/competitor-prices/quota`, {
+      headers: authHeaders(),
+    });
+    return asJson<CompetitorPriceQuota>(res);
   },
 
   async competitorPriceWatch(): Promise<CompetitorPriceWatch | null> {
@@ -661,10 +1064,10 @@ export const api = {
   },
 };
 
-export function formatCurrency(n: number, withCents = false): string {
+export function formatCurrency(n: number, withCents = false, currency = "USD"): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency: currency.toUpperCase(),
     maximumFractionDigits: withCents ? 2 : 0,
   }).format(n);
 }

@@ -26,12 +26,72 @@ services:
         sync: false
       - key: EXTRA_CORS_ORIGINS # your Vercel domain, e.g. https://pulse.vercel.app
         sync: false
+      - key: POSTHOG_PROJECT_TOKEN
+        sync: false
+      - key: POSTHOG_HOST
+        value: https://us.i.posthog.com
+      - key: VISITOR_ADMIN_EMAILS
+        sync: false
+      - key: RB2B_WEBHOOK_SECRET
+        sync: false
+      - key: RB2B_MONTHLY_COST_USD
+        value: "0"
       - key: FERNET_KEY
         sync: false
+      - key: API_BASE_URL
+        sync: false
+      - key: STRIPE_CONNECT_CLIENT_ID
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_CONNECT_WEBHOOK_SECRET
+        sync: false
+      - key: SQUARE_APP_ID
+        sync: false
+      - key: SQUARE_APP_SECRET
+        sync: false
+      - key: SQUARE_ENVIRONMENT
+        value: production
+      - key: SQUARE_WEBHOOK_SIGNATURE_KEY
+        sync: false
+      - key: SQUARE_WEBHOOK_URL
+        sync: false
+      - key: PAYMENT_HISTORY_LOOKBACK_DAYS
+        value: "730"
+      - key: PAYMENT_SYNC_OVERLAP_MINUTES
+        value: "10"
+      - key: PAYMENT_SYNC_INTERVAL_SECONDS
+        value: "900"
       - key: GOOGLE_MAPS_SERVER_API_KEY
         sync: false
       - key: PERPLEXITY_API_KEY
         sync: false
+      - key: FOURSQUARE_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: EXA_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: PRICING_PIPELINE_V2_ENABLED
+        value: "true"
+      - key: PRICING_MONITORING_ENABLED
+        value: "false"
+      - key: PRICING_DAILY_FRESH_RUN_LIMIT
+        value: "10"
+      - key: PRICING_MAX_PROVIDER_COST_USD
+        value: "0.10"
+      - key: PRICING_MAX_COMPETITORS_PER_RUN
+        value: "4"
+      - key: PRICING_MAX_AI_FALLBACKS_PER_RUN
+        value: "2"
+      - key: PRICING_MAX_CONTENT_FALLBACKS_PER_RUN
+        value: "1"
+      - key: PRICING_MAX_GEOCODING_REQUESTS_PER_RUN
+        value: "1"
+      - key: PRICING_GOOGLE_PLACE_DETAILS_ENABLED
+        value: "false"
       - key: TOKEN_ROUTER_API_KEY
         sync: false
       - key: TOKEN_ROUTER_BASE_URL
@@ -59,6 +119,20 @@ services:
         sync: false
       - key: DB_USE_PGBOUNCER
         value: "true"
+      - key: FERNET_KEY
+        sync: false
+      - key: SQUARE_APP_ID
+        sync: false
+      - key: SQUARE_APP_SECRET
+        sync: false
+      - key: SQUARE_ENVIRONMENT
+        value: production
+      - key: PAYMENT_HISTORY_LOOKBACK_DAYS
+        value: "730"
+      - key: PAYMENT_SYNC_OVERLAP_MINUTES
+        value: "10"
+      - key: PAYMENT_SYNC_INTERVAL_SECONDS
+        value: "900"
       - key: TOKEN_ROUTER_API_KEY
         sync: false
       - key: TOKEN_ROUTER_BASE_URL

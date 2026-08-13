@@ -119,9 +119,13 @@ def parse_csv(content: str) -> SyncResult:
         return SyncResult(warnings=["CSV had no header row"])
 
     field_map = _build_field_map(reader.fieldnames)
-    if not any(c in field_map.values() for c in ("email", "phone", "name", "first_name")):
+    if not any(
+        c in field_map.values()
+        for c in ("external_id", "email", "phone", "name", "first_name")
+    ):
         raise IntegrationError(
-            "CSV must contain at least one identity column (email, phone, or name)."
+            "CSV must contain at least one identity column "
+            "(customer ID, email, phone, or name)."
         )
 
     result = SyncResult()
@@ -139,7 +143,7 @@ def parse_csv(content: str) -> SyncResult:
         phone = fields.get("phone") or None
         external_id = fields.get("external_id") or None
 
-        if not (email or phone or first):
+        if not (external_id or email or phone or first):
             result.warnings.append(f"Row {i}: no identity, skipped")
             continue
 

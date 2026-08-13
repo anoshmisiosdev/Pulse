@@ -17,12 +17,13 @@ from app.models.competitor_price import (
 )
 from app.models.customer import (
     Customer,
+    CustomerIdentity,
     EngagementEvent,
     RiskScore,
     Transaction,
     Visit,
 )
-from app.models.integration import IntegrationConnection, SyncRun
+from app.models.integration import IntegrationConnection, ProviderWebhookEvent, SyncRun
 from app.models.knowledge import BusinessKnowledge
 from app.models.social import (
     BrandKitVersion,
@@ -32,6 +33,7 @@ from app.models.social import (
     SocialComment,
     SocialPost,
 )
+from app.models.visitor import VisitorEvent, VisitorIdentifier, VisitorProfile
 from app.models.waitlist import WaitlistSignup
 
 __all__ = [
@@ -47,10 +49,12 @@ __all__ = [
     "IntegrationConnection",
     "SyncRun",
     "Customer",
+    "CustomerIdentity",
     "Transaction",
     "Visit",
     "EngagementEvent",
     "RiskScore",
+    "ProviderWebhookEvent",
     "Campaign",
     "CampaignSend",
     "AutomationRule",
@@ -62,4 +66,7 @@ __all__ = [
     "CompetitorPriceObservation",
     "CompetitorPriceWatch",
     "WaitlistSignup",
+    "VisitorProfile",
+    "VisitorIdentifier",
+    "VisitorEvent",
 ]

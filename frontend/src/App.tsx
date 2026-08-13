@@ -4,6 +4,8 @@ import AppShell from "./components/AppShell";
 import EmptyState from "./components/EmptyState";
 import ErrorBoundary from "./components/ErrorBoundary";
 import PageSkeleton from "./components/PageSkeleton";
+import PrivacyControls from "./components/PrivacyControls";
+import Rb2bLoader from "./components/Rb2bLoader";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PulseProvider, usePulse } from "./context/PulseContext";
 import { SETUP_SKIPPED_KEY } from "./lib/api";
@@ -18,6 +20,8 @@ const Pricing = lazy(() => import("./pages/Pricing"));
 const Landing = lazy(() => import("./pages/Landing"));
 const Login = lazy(() => import("./pages/Login"));
 const Setup = lazy(() => import("./pages/Setup"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const Visitors = lazy(() => import("./pages/Visitors"));
 
 function Spinner({ label }: { label: string }) {
   return (
@@ -73,11 +77,14 @@ function DataGate({ children }: { children: React.ReactNode }) {
 }
 
 function AuthedApp() {
+  const { user, configured } = useAuth();
+  const canManageVisitors = !configured || Boolean(user?.can_manage_visitors);
   return (
     <PulseProvider>
       <Routes>
         {/* Marketing page stays reachable in demo mode for local preview */}
         <Route path="/landing" element={<Landing />} />
+        <Route path="/privacy" element={<Privacy />} />
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route
           path="*"
@@ -87,6 +94,12 @@ function AuthedApp() {
                 <Route path="/setup" element={<Setup />} />
                 <Route path="/connect" element={<Navigate to="/setup" replace />} />
                 <Route path="/pricing" element={<Pricing />} />
+                <Route
+                  path="/visitors"
+                  element={
+                    canManageVisitors ? <Visitors /> : <Navigate to="/" replace />
+                  }
+                />
                 <Route path="/" element={<DataGate><Dashboard /></DataGate>} />
                 <Route path="/customers" element={<DataGate><Customers /></DataGate>} />
                 <Route path="/retention" element={<DataGate><Retention /></DataGate>} />
@@ -112,6 +125,7 @@ function PublicSite() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/privacy" element={<Privacy />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -130,9 +144,11 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
+        <Rb2bLoader />
         <Suspense fallback={<Spinner label="Loading…" />}>
           <Gate />
         </Suspense>
+        <PrivacyControls />
       </AuthProvider>
     </ErrorBoundary>
   );

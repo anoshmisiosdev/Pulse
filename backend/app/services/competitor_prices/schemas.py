@@ -23,17 +23,37 @@ SourceType = Literal[
 ]
 MatchQuality = Literal["exact", "close", "weak"]
 PriceChannel = Literal["in_store", "delivery", "unknown"]
-RetrievalMethod = Literal["direct_fetch", "perplexity_content", "search_snippet", "none"]
+RetrievalMethod = Literal[
+    "direct_fetch",
+    "perplexity_content",
+    "tavily_extract",
+    "exa_contents",
+    "firecrawl_scrape",
+    "search_snippet",
+    "none",
+]
 ExtractionMethod = Literal[
     "json_ld",
     "visible_text",
     "search_snippet",
     "sonar",
     "tokenmart",
+    "bounded_ai",
     "method_consensus",
 ]
 FreshnessStatus = Literal["current", "stale", "unknown", "expired"]
-DiscoveryProvider = Literal["google_places", "perplexity"]
+DiscoveryProvider = Literal["google_places", "foursquare", "perplexity"]
+ResearchStatus = Literal["complete", "partial", "no_evidence"]
+StageName = Literal[
+    "geocode",
+    "place_discovery",
+    "source_search",
+    "content_fetch",
+    "price_extraction",
+    "aggregation",
+]
+StageStatus = Literal["ok", "degraded", "failed", "skipped"]
+IssueSeverity = Literal["info", "warning", "error"]
 
 
 class CamelModel(BaseModel):
@@ -138,6 +158,8 @@ class PriceObservationOut(CamelModel):
     confidence: float
     confidence_reasons: list[str] = Field(default_factory=list, alias="confidenceReasons")
     match_quality: MatchQuality = Field(default="weak", alias="matchQuality")
+    match_score: float | None = Field(default=None, alias="matchScore", ge=0, le=1)
+    match_reason: str | None = Field(default=None, alias="matchReason")
     price_channel: PriceChannel = Field(default="unknown", alias="priceChannel")
     corroborated: bool = False
     included_in_market_summary: bool = Field(default=False, alias="includedInMarketSummary")
@@ -175,6 +197,43 @@ class MarketSummaryOut(CamelModel):
     currency: str = "USD"
     recommended_positioning: str = Field(alias="recommendedPositioning")
     confidence: float
+
+
+class EstimateSummaryOut(CamelModel):
+    """A range derived only from source-verified comparable observations."""
+
+    method: Literal["verified_peer_distribution"] = "verified_peer_distribution"
+    sample_size: int = Field(alias="sampleSize", ge=3)
+    price_low: float = Field(alias="priceLow", ge=0)
+    price_median: float = Field(alias="priceMedian", ge=0)
+    price_high: float = Field(alias="priceHigh", ge=0)
+    currency: str = "USD"
+    max_age_days: int = Field(default=180, alias="maxAgeDays")
+    basis: Literal["close_equivalent"] = "close_equivalent"
+
+
+class PricingIssueOut(CamelModel):
+    code: str
+    stage: StageName
+    severity: IssueSeverity = "warning"
+    retryable: bool = False
+    message: str
+
+
+class StageResultOut(CamelModel):
+    stage: StageName
+    status: StageStatus
+    provider: str | None = None
+    attempts: int = 0
+    duration_ms: int = Field(default=0, alias="durationMs")
+    code: str | None = None
+
+
+class PricingQuotaOut(CamelModel):
+    daily_limit: int = Field(default=10, alias="dailyLimit")
+    used: int = 0
+    remaining: int = 10
+    resets_at: datetime | None = Field(default=None, alias="resetsAt")
 
 
 class ChannelSummariesOut(CamelModel):
@@ -242,13 +301,20 @@ class MetadataOut(CamelModel):
     provider_stats: ProviderStatsOut = Field(
         default_factory=ProviderStatsOut, alias="providerStats"
     )
+    stages: list[StageResultOut] = Field(default_factory=list)
+    provider_cost_usd: float = Field(default=0.0, alias="providerCostUsd")
+    pipeline_version: str = Field(default="v1", alias="pipelineVersion")
 
 
 class CompetitorPriceResearchResponse(CamelModel):
+    status: ResearchStatus = "partial"
     query: QueryOut
     competitors: list[CompetitorOut] = Field(default_factory=list)
     market_summary: MarketSummaryOut = Field(alias="marketSummary")
+    estimate_summary: EstimateSummaryOut | None = Field(default=None, alias="estimateSummary")
     channel_summaries: ChannelSummariesOut | None = Field(default=None, alias="channelSummaries")
+    issues: list[PricingIssueOut] = Field(default_factory=list)
+    quota: PricingQuotaOut | None = None
     warnings: list[str] = Field(default_factory=list)
     metadata: MetadataOut
 
@@ -330,6 +396,8 @@ class ExtractedPrice(CamelModel):
     evidence_text: str = Field(alias="evidenceText")
     observed_at: date = Field(alias="observedAt")
     match_quality: MatchQuality = Field(default="weak", alias="matchQuality")
+    match_score: float | None = Field(default=None, alias="matchScore", ge=0, le=1)
+    match_reason: str | None = Field(default=None, alias="matchReason")
     notes: str | None = None
     source_published_at: str | None = Field(default=None, alias="sourcePublishedAt")
     source_updated_at: str | None = Field(default=None, alias="sourceUpdatedAt")
@@ -362,6 +430,11 @@ class ResearchCallMetadata(CamelModel):
     perplexity_requests: int = 0
     page_fetch_requests: int = 0
     tokenmart_requests: int = 0
+    place_discovery_requests: int = 0
+    source_search_requests: int = 0
+    content_fallback_requests: int = 0
+    price_extraction_attempts: int = 0
+    ai_extraction_requests: int = 0
     pages_fetched: int = 0
     pages_parsed: int = 0
     deterministic_extractions: int = 0

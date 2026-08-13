@@ -54,6 +54,9 @@ def test_production_refuses_to_boot_with_auth_disabled():
             auth_disabled=True,
             fernet_key="x" * 44,
             supabase_url="https://abc.supabase.co",
+            # Also required in production by the pricing pipeline's validator.
+            google_maps_server_api_key="test-key",
+            perplexity_api_key="test-key",
             _env_file=None,
         )
 
@@ -64,6 +67,8 @@ def test_production_still_boots_without_it():
         auth_disabled=False,
         fernet_key="x" * 44,
         supabase_url="https://abc.supabase.co",
+        google_maps_server_api_key="test-key",
+        perplexity_api_key="test-key",
         _env_file=None,
     )
     assert ok.is_production

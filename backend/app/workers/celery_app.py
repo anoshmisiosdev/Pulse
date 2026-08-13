@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from celery import Celery
@@ -52,6 +53,10 @@ celery.conf.update(
             # be frequent enough that the dashboard isn't visibly stale — and it
             # re-reads the same rows every run, so there's no reason to hammer it.
             "schedule": 60 * 60.0,
+        },
+        "sync-payment-integrations": {
+            "task": "app.workers.celery_app.sync_payment_integrations_tick",
+            "schedule": settings.payment_sync_interval_seconds,
         },
     },
 )
@@ -105,6 +110,9 @@ async def _run_pricing_monitors() -> dict:
     from app.models.competitor_price import CompetitorPriceWatch
     from app.services.competitor_prices.competitor_research_service import CompetitorResearchService
     from app.services.competitor_prices.schemas import CompetitorPriceResearchRequest
+
+    if not settings.pricing_monitoring_enabled:
+        return {"status": "disabled", "researched": 0}
 
     now = datetime.now(UTC)
     completed = 0
@@ -187,3 +195,37 @@ def dispatch_automations_tick() -> dict:
     total_sends = sum(r["sends_created"] for r in results.values() if isinstance(r, dict))
     logger.info("dispatch_automations_tick complete: %d sends queued/sent", total_sends)
     return {"status": "ok", "businesses": len(results), "sends_created": total_sends}
+
+
+@celery.task
+def sync_payment_integrations_tick() -> dict:
+    """Incrementally refresh every connected Stripe/Square account."""
+    from app.models import IntegrationConnection
+    from app.services.payment_sync import sync_connection
+
+    async def _sync(db, bid: str) -> dict:
+        connections = (
+            await db.execute(
+                select(IntegrationConnection).where(
+                    IntegrationConnection.business_id == uuid.UUID(bid),
+                    IntegrationConnection.source.in_(("stripe", "square")),
+                    IntegrationConnection.access_token_enc.is_not(None),
+                )
+            )
+        ).scalars().all()
+        synced = 0
+        errors = 0
+        for connection in connections:
+            try:
+                await sync_connection(db, connection)
+                synced += 1
+            except Exception:
+                errors += 1
+                logger.exception("Payment sync failed for connection %s", connection.id)
+        return {"synced": synced, "errors": errors}
+
+    results = asyncio.run(_for_every_business(_sync))
+    synced = sum(row["synced"] for row in results.values() if isinstance(row, dict))
+    errors = sum(row["errors"] for row in results.values() if isinstance(row, dict))
+    logger.info("sync_payment_integrations complete: %d synced, %d errors", synced, errors)
+    return {"status": "ok", "synced": synced, "errors": errors}

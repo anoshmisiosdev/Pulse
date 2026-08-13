@@ -30,6 +30,11 @@ class CustomerRisk(BaseModel):
     confidence: str = "medium"
     trend_pct: int = 0
     favorite_item: str | None = None
+    # Explainable score inverse, not a statistically calibrated probability.
+    return_likelihood: int = 0
+    expected_next_visit: str | None = None
+    days_overdue: int = 0
+    payment_issue: bool = False
     # What to do next, and why — see services/activity.recommend_action.
     recommended_action: str = "email"
     action_reason: str = ""
@@ -69,6 +74,7 @@ class CustomerTimelineOut(BaseModel):
 class CSVPreviewOut(BaseModel):
     business_name: str = "Your Business"
     vertical: str = "other"
+    currency: str = "USD"
     summary: PortfolioSummaryOut
     customers: list[CustomerRisk]
     warnings: list[str] = []
@@ -176,6 +182,7 @@ class AuthUser(BaseModel):
     business_id: str
     business_name: str
     role: str = "owner"
+    can_manage_visitors: bool = False
 
 
 # ── integrations / per-tenant portfolio ──
@@ -191,6 +198,8 @@ class ConnectionOut(BaseModel):
     source: str
     status: str
     last_synced_at: str | None = None
+    environment: str = "production"
+    last_error: str | None = None
 
 
 class SyncRunOut(BaseModel):

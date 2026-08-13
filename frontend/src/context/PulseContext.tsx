@@ -18,6 +18,7 @@ interface PulseCtx {
   status: DataStatus;
   businessName: string;
   vertical: string;
+  currency: string;
   portfolio: Portfolio | null;
   customers: CustomerRisk[];
   refresh: () => Promise<void>;
@@ -119,6 +120,7 @@ export function PulseProvider({ children }: { children: ReactNode }) {
     status,
     businessName: portfolio?.business_name ?? "Churnary",
     vertical: portfolio?.vertical ?? "other",
+    currency: portfolio?.currency ?? "USD",
     portfolio,
     customers,
     refresh,

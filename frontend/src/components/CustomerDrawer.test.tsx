@@ -23,6 +23,10 @@ const CUSTOMER: CustomerRisk = {
   confidence: "high",
   trend_pct: -62,
   favorite_item: "Oat flat white",
+  return_likelihood: 16,
+  expected_next_visit: "2026-06-05",
+  days_overdue: 21,
+  payment_issue: false,
   recommended_action: "owner_call",
   action_reason:
     "Worth about $1,240/yr and away 31 days — one of your most valuable at-risk customers.",

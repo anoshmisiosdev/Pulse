@@ -153,6 +153,13 @@ export default function Login() {
               {isSignup ? "Sign in" : "Create an account"}
             </button>
           </p>
+          <p className="text-center text-[11px] leading-relaxed" style={{ color: "var(--muted-2)" }}>
+            By continuing, you acknowledge our{" "}
+            <Link to="/privacy" className="font-semibold hover:underline">
+              Privacy Policy
+            </Link>
+            .
+          </p>
         </form>
       </div>
     </div>

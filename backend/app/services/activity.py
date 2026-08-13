@@ -9,12 +9,14 @@ trend, churn pattern, confidence) plus portfolio aggregates. Powers the onboardi
 from __future__ import annotations
 
 import statistics
+from collections import Counter
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from app.integrations.csv_adapter import dedupe_customers
 from app.schemas.normalized import NormalizedCustomer, SyncResult
 from app.scoring import CustomerActivity, ScoreResult, SpendEvent, score_customer
+from app.scoring.config import get_vertical_config
 
 # Five health segments shown in the dashboard donut + customer DB tabs.
 SEGMENTS = ("needs_attention", "slipping_away", "keep_an_eye_on", "regulars", "new")
@@ -40,8 +42,14 @@ class ScoredCustomer:
     pattern: str | None
     confidence: str
     trend_pct: int  # negative = declining
+    # Explainable indicator (100 - churn risk), not a calibrated probability.
+    return_likelihood: int
+    expected_next_visit: str | None
+    days_overdue: int
+    payment_issue: bool
     # Set in a second pass by build_scored_customers — "owner_call" is relative to
     # the rest of the portfolio, so it can't be decided one customer at a time.
+    # Defaulted, so these stay last: the fields above are required.
     recommended_action: str = "email"
     action_reason: str = ""
 
@@ -84,14 +92,21 @@ def _event_keys(email: str | None, phone: str | None, external_id: str | None) -
 
 
 def _median_interval(visits: list[datetime]) -> float | None:
-    if len(visits) < 2:
+    # The rest of the UI describes cadence in days. Collapse split checks or
+    # multiple invoices on one calendar day so they cannot create a "0-day"
+    # personal interval while all payments still contribute to spend.
+    by_day: dict[date, datetime] = {}
+    for visit in visits:
+        day = visit.date()
+        by_day[day] = max(visit, by_day.get(day, visit))
+    ordered = sorted(by_day.values())
+    if len(ordered) < 2:
         return None
-    ordered = sorted(visits)
     gaps = [
         (ordered[i] - ordered[i - 1]).total_seconds() / 86400.0 for i in range(1, len(ordered))
     ]
     gaps = [g for g in gaps if g > 0]
-    return statistics.median(gaps) if gaps else None
+    return max(1.0, statistics.median(gaps)) if gaps else None
 
 
 def _estimate_annual_value(spend: list[SpendEvent], visits: list[datetime]) -> float:
@@ -262,6 +277,8 @@ def build_scored_customers(
 
     visits_by_idx: dict[int, list[datetime]] = {}
     spend_by_idx: dict[int, list[SpendEvent]] = {}
+    failed_payments_by_idx: dict[int, list[datetime]] = {}
+    successful_payments_by_idx: dict[int, list[datetime]] = {}
 
     def resolve(email, phone, external_id) -> int | None:
         for key in _event_keys(email, phone, external_id):
@@ -276,25 +293,44 @@ def build_scored_customers(
     for t in sync.transactions:
         idx = resolve(t.customer_email, t.customer_phone, t.customer_external_id)
         if idx is not None:
-            spend_by_idx.setdefault(idx, []).append(
-                SpendEvent(at=_naive(t.occurred_at), amount=float(t.amount))
-            )
+            at = _naive(t.occurred_at)
+            if t.is_revenue:
+                spend_by_idx.setdefault(idx, []).append(
+                    SpendEvent(at=at, amount=float(t.amount))
+                )
+                successful_payments_by_idx.setdefault(idx, []).append(at)
+            elif t.status == "failed":
+                failed_payments_by_idx.setdefault(idx, []).append(at)
 
     scored: list[ScoredCustomer] = []
+    cfg = get_vertical_config(vertical)
     for idx, cust in enumerate(customers):
         visits = visits_by_idx.get(idx, [])
         spend = spend_by_idx.get(idx, [])
+        failures = failed_payments_by_idx.get(idx, [])
+        successes = successful_payments_by_idx.get(idx, [])
+        latest_failure = max(failures) if failures else None
+        latest_success = max(successes) if successes else None
+        failed_payment = bool(
+            latest_failure
+            and (now - latest_failure).days <= 30
+            and (latest_success is None or latest_failure > latest_success)
+        )
         activity = CustomerActivity(
             customer_id=cust.dedupe_key or cust.external_id or f"row-{idx}",
             visit_dates=list(visits),
             spend_events=list(spend),
             joined_at=cust.created_at,
+            failed_payment=failed_payment,
         )
         result = score_customer(activity, vertical=vertical, now=now)
 
         is_new = any("New customer" in r for r in result.reasons)
         median = _median_interval(visits)
         days_since = (now - max(visits)).days if visits else None
+        expected_interval = median or cfg.expected_interval_days
+        expected_next = max(visits) + timedelta(days=expected_interval) if visits else None
+        days_overdue = max(0, (now - expected_next).days) if expected_next else 0
         segment = _segment(result.score, is_new)
         scored.append(
             ScoredCustomer(
@@ -309,6 +345,12 @@ def build_scored_customers(
                 pattern=_pattern(segment, visits, now, median),
                 confidence=_confidence(len(visits)),
                 trend_pct=_trend_pct(visits, now, median),
+                return_likelihood=100 - result.score,
+                expected_next_visit=(
+                    expected_next.date().isoformat() if expected_next is not None else None
+                ),
+                days_overdue=days_overdue,
+                payment_issue=failed_payment,
             )
         )
 
@@ -336,11 +378,37 @@ def monthly_revenue_series(
         buckets[label] = 0.0
         order.append(label)
     for t in sync.transactions:
+        if not t.is_revenue:
+            continue
         at = _naive(t.occurred_at)
         label = at.strftime("%b %y")
         if label in buckets:
             buckets[label] += float(t.amount)
     return [{"month": label, "amount": round(buckets[label], 2)} for label in order]
+
+
+def portfolio_currency(sync: SyncResult, default: str = "USD") -> str:
+    """Return the dominant ISO currency represented by revenue transactions.
+
+    Churnary currently assumes one merchant display currency. Provider records
+    still retain their original currency, while the API uses the most frequent
+    revenue currency for honest formatting instead of hard-coding USD.
+    """
+    currencies = [
+        transaction.currency.upper()
+        for transaction in sync.transactions
+        if transaction.is_revenue and transaction.currency
+    ]
+    if not currencies:
+        currencies = [
+            transaction.currency.upper()
+            for transaction in sync.transactions
+            if transaction.currency
+        ]
+    if not currencies:
+        return default
+    counts = Counter(currencies)
+    return min(counts, key=lambda currency: (-counts[currency], currency))
 
 
 def summarize(

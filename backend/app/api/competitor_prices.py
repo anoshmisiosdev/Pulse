@@ -18,6 +18,7 @@ from app.services.competitor_prices.competitor_research_service import (
     CompetitorResearchService,
     FreeTierRateLimitError,
     ResearchConfigurationError,
+    ResearchUnavailableError,
     _stable_business_uuid,
 )
 from app.services.competitor_prices.deepseek_client import (
@@ -36,6 +37,7 @@ from app.services.competitor_prices.schemas import (
     PriceHistoryItemOut,
     PriceWatchIn,
     PriceWatchOut,
+    PricingQuotaOut,
 )
 
 router = APIRouter(prefix="/competitor-prices", tags=["competitor-prices"])
@@ -55,7 +57,7 @@ async def latest_competitor_prices(
         stmt = stmt.where(CompetitorPriceResearchRun.target_offer.ilike(target_offer.strip()))
     result = await db.execute(stmt.order_by(CompetitorPriceResearchRun.created_at.desc()).limit(1))
     run = result.scalars().first()
-    return CompetitorPriceResearchResponse.model_validate_json(run.response_json) if run else None
+    return _decode_response(run.response_json) if run else None
 
 
 @router.get("/portfolio", response_model=list[CompetitorPriceResearchResponse])
@@ -86,7 +88,7 @@ async def competitor_price_portfolio(
         offer_key = run.target_offer.strip().casefold()
         if offer_key in seen_offers:
             continue
-        reports.append(CompetitorPriceResearchResponse.model_validate_json(run.response_json))
+        reports.append(_decode_response(run.response_json))
         seen_offers.add(offer_key)
         if len(reports) == limit:
             break
@@ -117,7 +119,7 @@ async def competitor_price_history(
     history: list[PriceHistoryItemOut] = []
     previous_by_offer: dict[str, float | None] = {}
     for run in reversed(rows):
-        response = CompetitorPriceResearchResponse.model_validate_json(run.response_json)
+        response = _decode_response(run.response_json)
         median = response.market_summary.price_median
         previous = previous_by_offer.get(run.target_offer.lower())
         change = (
@@ -146,6 +148,7 @@ async def get_price_watch(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> PriceWatchOut | None:
+    _ensure_monitoring_enabled()
     watch = (
         (
             await db.execute(
@@ -167,6 +170,7 @@ async def upsert_price_watch(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> PriceWatchOut:
+    _ensure_monitoring_enabled()
     business_id = _stable_business_uuid(current_user.business_id)
     watch = (
         (
@@ -198,6 +202,16 @@ async def upsert_price_watch(
     return _watch_out(watch)
 
 
+@router.get("/quota", response_model=PricingQuotaOut)
+async def competitor_price_quota(
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> PricingQuotaOut:
+    return await CompetitorResearchService(db).quota(
+        _stable_business_uuid(current_user.business_id)
+    )
+
+
 def _watch_out(watch: CompetitorPriceWatch) -> PriceWatchOut:
     return PriceWatchOut(
         enabled=watch.enabled,
@@ -221,12 +235,15 @@ async def research_competitor_prices(
         duration_ms = _elapsed_ms(started_at)
         response.metadata.duration_ms = duration_ms
         logger.info(
-            "Competitor price research completed in %.2fs cached=%s competitors=%s prices=%s "
-            "models=%s offer=%r location=%r",
+            "Competitor price research completed in %.2fs status=%s cached=%s "
+            "competitors=%s prices=%s cost_usd=%.4f stages=%s models=%s offer=%r location=%r",
             duration_ms / 1000,
+            response.status,
             response.metadata.cached,
             len(response.competitors),
             sum(len(competitor.prices) for competitor in response.competitors),
+            response.metadata.provider_cost_usd,
+            ",".join(f"{stage.stage}:{stage.status}" for stage in response.metadata.stages),
             ",".join(response.metadata.models_used),
             payload.target_offer,
             payload.location.label,
@@ -235,6 +252,17 @@ async def research_competitor_prices(
     except FreeTierRateLimitError as exc:
         _log_research_failure(started_at, payload, exc)
         raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except ResearchUnavailableError as exc:
+        _log_research_failure(started_at, payload, exc)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "errorCode": exc.code,
+                "stage": exc.stage,
+                "retryable": exc.retryable,
+                "message": str(exc),
+            },
+        ) from exc
     except (
         ResearchConfigurationError,
         DeepSeekConfigurationError,
@@ -260,6 +288,27 @@ async def research_competitor_prices(
     except DeepSeekError as exc:
         _log_research_failure(started_at, payload, exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+def _decode_response(value: object) -> CompetitorPriceResearchResponse:
+    if isinstance(value, (str, bytes, bytearray)):
+        return CompetitorPriceResearchResponse.model_validate_json(value)
+    return CompetitorPriceResearchResponse.model_validate(value)
+
+
+def _ensure_monitoring_enabled() -> None:
+    from app.core.config import settings
+
+    if not settings.pricing_monitoring_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "errorCode": "PRICING_MONITORING_NOT_AVAILABLE",
+                "stage": "monitoring",
+                "retryable": False,
+                "message": "Scheduled pricing monitoring is not enabled in this deployment.",
+            },
+        )
 
 
 def _elapsed_ms(started_at: float) -> int:

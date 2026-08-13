@@ -26,6 +26,7 @@ dependencies = [
     "boto3>=1.35",
     "resend>=2.5",
     "twilio>=9.3",
+    "posthog>=7.0,<8",
 ]
 
 [project.optional-dependencies]

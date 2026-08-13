@@ -5,13 +5,21 @@ No network calls — the exchange itself is exercised only through failure paths
 
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlparse
+
+import httpx
 import pytest
 from starlette.testclient import TestClient
 
 from app.core.config import settings
 from app.core.security import decrypt_state, encrypt_state
 from app.main import app
-from app.services.oauth import authorize_url, availability, redirect_uri
+from app.services.oauth import (
+    authorize_url,
+    availability,
+    redirect_uri,
+    refresh_access_token,
+)
 
 client = TestClient(app)
 
@@ -72,6 +80,8 @@ def test_start_returns_authorize_url_when_configured(monkeypatch):
     assert "client_id=sq0idp-test" in url
     assert "CUSTOMERS_READ" in url
     assert "state=" in url
+    state = parse_qs(urlparse(url).query)["state"][0]
+    assert decrypt_state(state)["u"] == "demo-user"
 
 
 def test_authorize_url_stripe(monkeypatch):
@@ -112,3 +122,30 @@ def test_callback_missing_code_redirects_with_error():
     )
     assert r.status_code == 303
     assert "error=" in r.headers["location"]
+
+
+async def test_square_refresh_uses_sandbox_and_preserves_refresh_token(monkeypatch):
+    monkeypatch.setattr(settings, "square_app_id", "sq-app")
+    monkeypatch.setattr(settings, "square_app_secret", "sq-secret")
+    captured = {}
+
+    async def fake_post(url, **kwargs):
+        captured.update({"url": url, **kwargs})
+        return httpx.Response(
+            200,
+            json={
+                "access_token": "new-access",
+                "merchant_id": "merchant-1",
+                "expires_at": "2026-09-01T00:00:00Z",
+            },
+        )
+
+    monkeypatch.setattr("app.services.oauth._post", fake_post)
+    result = await refresh_access_token("square", "existing-refresh", "sandbox")
+
+    assert captured["url"] == "https://connect.squareupsandbox.com/oauth2/token"
+    assert captured["json"]["grant_type"] == "refresh_token"
+    assert captured["json"]["refresh_token"] == "existing-refresh"
+    assert result["access_token"] == "new-access"
+    assert result["refresh_token"] == "existing-refresh"
+    assert result["account_id"] == "merchant-1"

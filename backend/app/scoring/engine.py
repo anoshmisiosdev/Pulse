@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from app.scoring.config import VerticalConfig, get_vertical_config
 
@@ -65,10 +65,20 @@ def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
 
 def _median_interval_days(visits: list[datetime], cfg: VerticalConfig) -> float:
     """Median gap between consecutive visits, or the vertical default if we can't
-    compute one (fewer than two visits)."""
-    if len(visits) < 2:
+    compute one (fewer than two active days).
+
+    Retention cadence is expressed in days throughout the product. Several
+    payments or split checks on one calendar day therefore count as one active
+    day for this calculation; otherwise a same-day gap rounds to ``0 days`` in
+    the UI and makes an ordinary absence look hundreds of cycles overdue.
+    """
+    by_day: dict[date, datetime] = {}
+    for visit in visits:
+        day = visit.date()
+        by_day[day] = max(visit, by_day.get(day, visit))
+    ordered = sorted(by_day.values())
+    if len(ordered) < 2:
         return cfg.expected_interval_days
-    ordered = sorted(visits)
     gaps = [
         (ordered[i] - ordered[i - 1]).total_seconds() / 86400.0
         for i in range(1, len(ordered))
@@ -76,7 +86,7 @@ def _median_interval_days(visits: list[datetime], cfg: VerticalConfig) -> float:
     gaps = [g for g in gaps if g > 0]
     if not gaps:
         return cfg.expected_interval_days
-    return max(0.5, statistics.median(gaps))
+    return max(1.0, statistics.median(gaps))
 
 
 def _in_window(at: datetime, now: datetime, start_days: float, end_days: float) -> bool:

@@ -30,7 +30,7 @@ export default function CustomerDrawer({
   customer: CustomerRisk;
   onClose: () => void;
 }) {
-  const { businessName, vertical, markContacted, markWonBack, contactedIds } = usePulse();
+  const { businessName, vertical, currency, markContacted, markWonBack, contactedIds } = usePulse();
   const [channel, setChannel] = useState<Channel>("email");
   const [copy, setCopy] = useState<GeneratedCopy | null>(null);
   const [loading, setLoading] = useState(false);
@@ -99,8 +99,18 @@ export default function CustomerDrawer({
           </span>
 
           <div className="mt-5 grid grid-cols-2 gap-3.5">
-            <Tile label="Revenue at risk" value={formatCurrency(customer.estimated_annual_value)} valueColor="#A23B1E" />
+            <Tile
+              label="Revenue at risk"
+              value={formatCurrency(customer.estimated_annual_value, false, currency)}
+              valueColor="#A23B1E"
+            />
             <Tile label="Last seen" value={relativeDays(customer.days_since_last_visit)} />
+            <Tile label="Return likelihood" value={`${customer.return_likelihood}/100`} valueColor="#4F7A40" />
+            <Tile
+              label="Expected return"
+              value={customer.days_overdue > 0 ? `${customer.days_overdue}d overdue` : customer.expected_next_visit ?? "Learning"}
+              valueColor={customer.days_overdue > 0 ? "#A23B1E" : undefined}
+            />
           </div>
 
           {customer.favorite_item && (
@@ -129,6 +139,7 @@ export default function CustomerDrawer({
                 <Tag bg="#F4EAD1" color="#A9781F">⚡ {PATTERNS[customer.pattern].toLowerCase()}</Tag>
               )}
               <Tag bg="#E6EFDF" color="#4F7A40">{customer.confidence} confidence</Tag>
+              {customer.payment_issue && <Tag bg="#F7E3DC" color="#A23B1E">payment failed</Tag>}
             </div>
           </div>
 

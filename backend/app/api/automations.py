@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser, CurrentUserDep
+from app.core.posthog_client import capture_event
 from app.core.security import decrypt_token
 from app.models import AutomationRule, Business, CampaignSend, Customer, EngagementEvent
 from app.schemas.api import (
@@ -113,6 +114,17 @@ async def create_rule(
     db.add(rule)
     await db.commit()
     await db.refresh(rule)
+    capture_event(
+        "automation_rule_created",
+        distinct_id=user.user_id,
+        properties={
+            "trigger_band": payload.trigger_band,
+            "channel": payload.channel,
+            "mode": payload.mode,
+            "has_incentive": bool(payload.incentive),
+            "cooldown_days": payload.cooldown_days,
+        },
+    )
     return _rule_out(rule)
 
 
@@ -202,6 +214,17 @@ async def approve_send(
             "Still outside allowed SMS hours (9am-8pm local) — "
             "TCPA requires waiting; try again later.",
         )
+    capture_event(
+        "campaign_approved",
+        distinct_id=user.user_id,
+        properties={
+            "channel": send.channel,
+            "status": send.status,
+            "automation_rule_id": (
+                str(send.automation_rule_id) if send.automation_rule_id else None
+            ),
+        },
+    )
     return _send_out(send, customer)
 
 
@@ -212,6 +235,15 @@ async def trigger_dispatch(
     """Manually run the rule engine now, instead of waiting for the next beat tick."""
     summary = await dispatch_automations(db, user.business_id)
     await db.commit()
+    capture_event(
+        "automation_dispatched",
+        distinct_id=user.user_id,
+        properties={
+            "rules_evaluated": summary.rules_evaluated,
+            "sends_created": summary.sends_created,
+            "skipped": summary.skipped,
+        },
+    )
     return DispatchSummaryOut(
         rules_evaluated=summary.rules_evaluated,
         sends_created=summary.sends_created,

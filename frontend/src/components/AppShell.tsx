@@ -14,12 +14,17 @@ const NAV = [
   { to: "/social", label: "Social" },
   { to: "/pricing", label: "Pricing" },
   { to: "/setup", label: "Data sources" },
+  { to: "/visitors", label: "Recent visitors" },
 ];
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const { businessName: dataBusiness } = usePulse();
   const { user, logout, configured } = useAuth();
   const businessName = user?.business_name ?? dataBusiness;
+  const nav = NAV.filter(
+    (item) =>
+      item.to !== "/visitors" || !configured || Boolean(user?.can_manage_visitors)
+  );
   const [briefing, setBriefing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -42,7 +47,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               </span>
             </div>
             <nav className="hidden items-center gap-1 md:flex">
-              {NAV.map((n) => (
+              {nav.map((n) => (
                 <NavLink
                   key={n.to}
                   to={n.to}
@@ -119,7 +124,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
         {/* mobile nav */}
         <nav className="flex items-center gap-1 overflow-x-auto px-4 pb-2 sm:px-6 md:hidden">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
@@ -146,7 +151,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 }
 
 function BriefingModal({ onClose }: { onClose: () => void }) {
-  const { businessName, customers, portfolio, revenueRecovered } = usePulse();
+  const { businessName, customers, portfolio, currency, revenueRecovered } = usePulse();
   const s = portfolio?.summary;
   const top = customers[0];
   const [sentToday, setSentToday] = useState(0);
@@ -185,14 +190,14 @@ function BriefingModal({ onClose }: { onClose: () => void }) {
           {s && (
             <>
               {" "}You have <strong style={{ color: "var(--accent-dark)" }}>{s.high_risk} customers at high
-              risk</strong>, worth about <strong style={{ color: "var(--ink)" }}>{formatCurrency(s.revenue_at_risk)}/year</strong>.
+              risk</strong>, worth about <strong style={{ color: "var(--ink)" }}>{formatCurrency(s.revenue_at_risk, false, currency)}/year</strong>.
               {top && (
                 <>
                   {" "}Your top priority is <strong style={{ color: "var(--ink)" }}>{top.name}</strong> — {top.reasons[0]?.toLowerCase()}.
                 </>
               )}
               {" "}Churnary has already sent <strong style={{ color: "var(--ink)" }}>{sentToday} win-back messages</strong> on autopilot,
-              and you've recovered <strong style={{ color: "var(--sage-text)" }}>{formatCurrency(revenueRecovered)}</strong> so far.
+              and you've recovered <strong style={{ color: "var(--sage-text)" }}>{formatCurrency(revenueRecovered, false, currency)}</strong> so far.
             </>
           )}
         </p>

@@ -160,3 +160,25 @@ def test_adjacent_windows_never_double_count_a_boundary_date():
     now = datetime(2026, 8, 13)
     boundary = now - timedelta(days=30)
     assert _count_between([boundary], now, 30, 0) + _count_between([boundary], now, 120, 30) == 1
+
+
+def test_same_day_payments_do_not_create_zero_day_cadence(now):
+    visits = [
+        now - timedelta(days=60, hours=8),
+        now - timedelta(days=60, hours=1),
+        now - timedelta(days=30, hours=8),
+        now - timedelta(days=30, hours=1),
+    ]
+
+    result = score_customer(
+        CustomerActivity(
+            customer_id="split-checks",
+            visit_dates=visits,
+            joined_at=now - timedelta(days=300),
+        ),
+        vertical="cafe",
+        now=now,
+    )
+
+    assert all("0-day gap" not in reason for reason in result.reasons)
+    assert result.signals["recency"] < 0.9

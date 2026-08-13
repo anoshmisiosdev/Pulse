@@ -59,6 +59,8 @@ class PlacesCallStats:
 
 
 class GooglePlacesClient:
+    provider_name = "google_places"
+
     def __init__(
         self,
         api_key: str | None = None,
@@ -120,6 +122,11 @@ class GooglePlacesClient:
             raise GooglePlacesError("Google Places returned an unexpected response.")
         basic = [self._parse_place(item) for item in places if isinstance(item, dict)]
         active = [item for item in basic if item is not None]
+        # Place Details multiplies both latency and billable requests. Source search
+        # can resolve official sites from the canonical name/address, so production
+        # keeps enrichment off unless a bake-off explicitly enables it.
+        if not settings.pricing_google_place_details_enabled:
+            return active[:max_results]
         enriched: list[DiscoveredCompetitor] = []
         for competitor in active[:count]:
             if not competitor.place_id:
@@ -134,7 +141,7 @@ class GooglePlacesClient:
                 enriched.append(self._parse_place(detail) or competitor)
             except GooglePlacesError:
                 enriched.append(competitor)
-        return enriched
+        return enriched[:max_results]
 
     async def _request(
         self,

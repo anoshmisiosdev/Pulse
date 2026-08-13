@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import adityaPhoto from "../assets/team/aditya-kolekar.jpg";
+import pranjalPhoto from "../assets/team/pranjal-mishra.jpg";
+import sohamPhoto from "../assets/team/soham-dogra.jpg";
 import ChurnaryMark from "../components/ChurnaryMark";
 import WaitlistForm from "../components/WaitlistForm";
 import useMountProgress from "../hooks/useMountProgress";
+import { landingViewMetric, trackLandingEvent } from "../lib/landingAnalytics";
+import {
+  hasAnalyticsConsent,
+  onPrivacyPreferenceChange,
+  openPrivacyChoices,
+} from "../lib/privacyPreferences";
 
 /* ─────────────────────────────────────────────────────────────
    Public marketing landing page. Fully self-contained: no data
@@ -38,30 +47,57 @@ function useReducedMotion(): boolean {
 }
 
 /**
+ * Module-level scroll scheduler backing useRafScroll below: one "scroll"/
+ * "resize" listener and one requestAnimationFrame chain for the whole page,
+ * shared by every call site instead of one pair per component instance —
+ * that per-instance fan-out (Nav, the hero curtain, 9x ScrubWords headline)
+ * was what previously turned a single wheel spin into 11 forced layout
+ * passes per frame and froze the tab on a fast scroll.
+ */
+const rafScrollCallbacks = new Set<() => void>();
+let rafScrollHandle = 0;
+let rafScrollBound = false;
+
+function runRafScrollCallbacks() {
+  rafScrollHandle = 0;
+  rafScrollCallbacks.forEach((cb) => cb());
+}
+
+function scheduleRafScroll() {
+  if (!rafScrollHandle) rafScrollHandle = requestAnimationFrame(runRafScrollCallbacks);
+}
+
+/**
+ * Add a callback to the shared scroll scheduler, binding the page-wide
+ * "scroll"/"resize" listener on first use. Exported (only) so a test can
+ * assert the listener fan-out doesn't regress without rendering the page.
+ */
+export function subscribeRafScroll(cb: () => void): () => void {
+  if (!rafScrollBound) {
+    rafScrollBound = true;
+    window.addEventListener("scroll", scheduleRafScroll, { passive: true });
+    window.addEventListener("resize", scheduleRafScroll);
+  }
+  rafScrollCallbacks.add(cb);
+  scheduleRafScroll();
+  return () => rafScrollCallbacks.delete(cb);
+}
+
+/**
  * Subscribe to scroll, coalesced to one callback per frame.
  *
- * Every scroll-driven effect on this page shares this so a fast wheel spin
- * costs one rAF, not one layout pass per listener.
+ * Every scroll-driven effect on this page shares one listener/rAF chain (see
+ * the module-level scheduler above) so a fast wheel spin costs one rAF, not
+ * one layout pass per listener.
  */
 function useRafScroll(onScroll: () => void, enabled = true) {
+  const onScrollRef = useRef(onScroll);
+  onScrollRef.current = onScroll;
+
   useEffect(() => {
     if (!enabled) return;
-    let raf = 0;
-    const tick = () => {
-      raf = 0;
-      onScroll();
-    };
-    const schedule = () => {
-      if (!raf) raf = requestAnimationFrame(tick);
-    };
-    schedule();
-    window.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
-    return () => {
-      window.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
-      if (raf) cancelAnimationFrame(raf);
-    };
+    const cb = () => onScrollRef.current();
+    return subscribeRafScroll(cb);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
 }
@@ -108,6 +144,45 @@ function useActiveSection(ids: string[]): string {
     return () => io.disconnect();
   }, [ids]);
   return active;
+}
+
+/** Capture the acquisition page once, plus meaningful content reach milestones. */
+function useLandingMetrics() {
+  const viewed = useRef(false);
+  const [enabled, setEnabled] = useState(hasAnalyticsConsent);
+
+  useEffect(
+    () => onPrivacyPreferenceChange(() => setEnabled(hasAnalyticsConsent())),
+    []
+  );
+
+  useEffect(() => {
+    if (!enabled || viewed.current) return;
+    viewed.current = true;
+    void trackLandingEvent(landingViewMetric());
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const seen = new Set<string>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting || seen.has(entry.target.id)) return;
+          const section = entry.target.id as "demo" | "pricing" | "waitlist";
+          seen.add(section);
+          void trackLandingEvent({ event: "landing_section_viewed", section });
+          io.unobserve(entry.target);
+        });
+      },
+      { threshold: 0.25, rootMargin: "0px 0px -10% 0px" }
+    );
+    (["demo", "pricing", "waitlist"] as const).forEach((id) => {
+      const section = document.getElementById(id);
+      if (section) io.observe(section);
+    });
+    return () => io.disconnect();
+  }, [enabled]);
 }
 
 /* ── text splitting ──────────────────────────────────────────────────────── */
@@ -305,12 +380,14 @@ const NAV_LINKS: [string, string][] = [
   ["flow", "How it works"],
   ["demo", "Live demo"],
   ["features", "Features"],
+  ["team", "Team"],
   ["pricing", "Pricing"],
 ];
 
 export default function Landing() {
   const reduced = useReducedMotion();
   useRevealOnScroll(reduced);
+  useLandingMetrics();
   // The shared hook has no enabled flag, so gate its output rather than the
   // call — a hook can't be called conditionally. Under reduced motion the
   // counters jump straight to their final value.
@@ -331,6 +408,7 @@ export default function Landing() {
         <Features reduced={reduced} />
         <HowItWorks reduced={reduced} />
         <Guardrails reduced={reduced} />
+        <Team reduced={reduced} />
         <Pricing reduced={reduced} />
         <Waitlist reduced={reduced} />
       </main>
@@ -342,14 +420,32 @@ export default function Landing() {
 /* ── Nav — transparent over the dark hero, cream once past it ── */
 function Nav() {
   const [solid, setSolid] = useState(false);
+  const [open, setOpen] = useState(false);
   const active = useActiveSection(NAV_LINKS.map(([id]) => id));
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   useRafScroll(() => setSolid(window.scrollY > window.innerHeight * 0.7));
+
+  // Escape closes the mobile panel and hands focus back to the toggle —
+  // no full focus trap needed since the panel is a simple link list, not a
+  // modal, but leaving keyboard users stranded inside it would be broken.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      toggleRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const closeMenu = () => setOpen(false);
 
   return (
     <header className={`lp-nav${solid ? " is-solid" : ""}`}>
       <div className="lp-nav-inner">
-        <a href="#top" className="lp-brand" aria-label="Churnary, top of page">
+        <a href="#top" className="lp-brand" aria-label="Churnary, top of page" onClick={closeMenu}>
           {/* Tile only once the nav turns cream — over the dark hero the mark's
               own espresso tile would disappear into the background. */}
           <ChurnaryMark size={30} tile={solid} className="lp-brand-mark" />
@@ -368,14 +464,94 @@ function Nav() {
           ))}
         </nav>
         <div className="lp-nav-cta">
-          <Link to="/login" className="lp-nav-signin">
+          <Link
+            to="/login"
+            className="lp-nav-signin"
+            onClick={() =>
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "sign_in",
+                location: "navbar",
+                destination: "login",
+              })
+            }
+          >
             Sign in
           </Link>
-          <a href="#waitlist" className="lp-btn lp-btn-primary lp-btn-sm">
+          <a
+            href="#waitlist"
+            className="lp-btn lp-btn-primary lp-btn-sm"
+            onClick={() =>
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "join_waitlist",
+                location: "navbar",
+                destination: "waitlist",
+              })
+            }
+          >
+            Join the waitlist
+          </a>
+          <button
+            type="button"
+            ref={toggleRef}
+            className={`lp-nav-toggle${open ? " is-open" : ""}`}
+            aria-expanded={open}
+            aria-controls="lp-mobile-menu"
+            aria-label={open ? "Close menu" : "Menu"}
+            onClick={() => setOpen((o) => !o)}
+          >
+            <span className="lp-nav-toggle-bar" />
+            <span className="lp-nav-toggle-bar" />
+            <span className="lp-nav-toggle-bar" />
+          </button>
+        </div>
+      </div>
+      <nav id="lp-mobile-menu" className={`lp-nav-mobile${open ? " is-open" : ""}`} aria-label="Mobile">
+        {NAV_LINKS.map(([id, label]) => (
+          <a
+            key={id}
+            href={`#${id}`}
+            className={active === id ? "is-active" : ""}
+            aria-current={active === id ? "true" : undefined}
+            onClick={closeMenu}
+          >
+            {label}
+          </a>
+        ))}
+        <div className="lp-nav-mobile-cta">
+          <Link
+            to="/login"
+            className="lp-nav-signin"
+            onClick={() => {
+              closeMenu();
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "sign_in",
+                location: "navbar",
+                destination: "login",
+              });
+            }}
+          >
+            Sign in
+          </Link>
+          <a
+            href="#waitlist"
+            className="lp-btn lp-btn-primary lp-btn-sm"
+            onClick={() => {
+              closeMenu();
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "join_waitlist",
+                location: "navbar",
+                destination: "waitlist",
+              });
+            }}
+          >
             Join the waitlist
           </a>
         </div>
-      </div>
+      </nav>
     </header>
   );
 }
@@ -446,10 +622,32 @@ function Hero({ p, reduced }: { p: number; reduced: boolean }) {
           </p>
 
           <div className="lp-hero-actions">
-            <a href="#waitlist" className="lp-btn lp-btn-primary lp-btn-lg">
+            <a
+              href="#waitlist"
+              className="lp-btn lp-btn-primary lp-btn-lg"
+              onClick={() =>
+                void trackLandingEvent({
+                  event: "landing_cta_clicked",
+                  cta: "join_waitlist",
+                  location: "hero",
+                  destination: "waitlist",
+                })
+              }
+            >
               Join the waitlist <span aria-hidden>→</span>
             </a>
-            <a href="#demo" className="lp-btn lp-btn-ghost lp-btn-lg">
+            <a
+              href="#demo"
+              className="lp-btn lp-btn-ghost lp-btn-lg"
+              onClick={() =>
+                void trackLandingEvent({
+                  event: "landing_cta_clicked",
+                  cta: "live_demo",
+                  location: "hero",
+                  destination: "demo",
+                })
+              }
+            >
               Try the live demo
             </a>
           </div>
@@ -665,7 +863,7 @@ function Flow({ reduced }: { reduced: boolean }) {
 
   return (
     <section id="flow" className="lp-section lp-alt">
-      <SectionHead kicker="How it works" index={1} total={7}>
+      <SectionHead kicker="How it works" index={1} total={8}>
         <div className="lp-head-split">
           <ScrubWords
             className="font-display lp-h2"
@@ -751,7 +949,7 @@ const STANCE: [string, string, string][] = [
 function Stance({ reduced }: { reduced: boolean }) {
   return (
     <section className="lp-section">
-      <SectionHead kicker="Where the line sits" index={2} total={7}>
+      <SectionHead kicker="Where the line sits" index={2} total={8}>
         <ScrubWords
           className="font-display lp-h2 is-wide"
           text="Churnary proposes. *You* approve."
@@ -776,14 +974,18 @@ const DEMO_VERTICALS = [
   { id: "cafe", label: "Café", interval: 4, unit: "days" },
   { id: "fitness", label: "Gym", interval: 5, unit: "days" },
   { id: "salon", label: "Salon", interval: 35, unit: "days" },
-];
+] as const;
+
+type DemoVertical = (typeof DEMO_VERTICALS)[number];
 
 function RiskDemo({ reduced }: { reduced: boolean }) {
-  const [vertical, setVertical] = useState(DEMO_VERTICALS[0]);
+  const [vertical, setVertical] = useState<DemoVertical>(DEMO_VERTICALS[0]);
   const [days, setDays] = useState(12);
 
   const ratio = days / vertical.interval;
   const score = Math.min(97, Math.max(3, Math.round(ratio * 27)));
+  const riskBand =
+    ratio >= 2.5 ? "needs_attention" : ratio >= 1.5 ? "watch" : "healthy";
   const band =
     ratio >= 2.5
       ? { label: "Needs Attention", color: "#A23B1E", bg: "#F7E3DC", action: "Churnary drafts a win-back email — you tap approve." }
@@ -795,7 +997,7 @@ function RiskDemo({ reduced }: { reduced: boolean }) {
 
   return (
     <section id="demo" className="lp-section lp-alt">
-      <SectionHead kicker="Try it yourself" index={3} total={7} />
+      <SectionHead kicker="Try it yourself" index={3} total={8} />
       <div className="lp-demo">
         <div className="lp-demo-copy">
           <ScrubWords
@@ -832,7 +1034,16 @@ function RiskDemo({ reduced }: { reduced: boolean }) {
             {DEMO_VERTICALS.map((v) => (
               <button
                 key={v.id}
-                onClick={() => { setVertical(v); setDays(Math.min(3 * v.interval, v.interval * 12)); }}
+                onClick={() => {
+                  setVertical(v);
+                  setDays(Math.min(3 * v.interval, v.interval * 12));
+                  void trackLandingEvent({
+                    event: "landing_demo_interacted",
+                    control: "vertical",
+                    vertical: v.id,
+                    risk_band: "needs_attention",
+                  });
+                }}
                 className={`lp-chip${vertical.id === v.id ? " is-on" : ""}`}
               >
                 {v.label}
@@ -857,6 +1068,22 @@ function RiskDemo({ reduced }: { reduced: boolean }) {
               max={maxDays}
               value={Math.min(days, maxDays)}
               onChange={(e) => setDays(Number(e.target.value))}
+              onPointerUp={() =>
+                void trackLandingEvent({
+                  event: "landing_demo_interacted",
+                  control: "days",
+                  vertical: vertical.id,
+                  risk_band: riskBand,
+                })
+              }
+              onKeyUp={() =>
+                void trackLandingEvent({
+                  event: "landing_demo_interacted",
+                  control: "days",
+                  vertical: vertical.id,
+                  risk_band: riskBand,
+                })
+              }
               className="lp-slider"
               style={{ accentColor: band.color, color: band.color }}
             />
@@ -919,7 +1146,7 @@ function Features({ reduced }: { reduced: boolean }) {
   ];
   return (
     <section id="features" className="lp-section">
-      <SectionHead kicker="Why owners trust it" index={4} total={7}>
+      <SectionHead kicker="Why owners trust it" index={4} total={8}>
         <div className="lp-head-split">
           <ScrubWords
             className="font-display lp-h2"
@@ -956,7 +1183,7 @@ function HowItWorks({ reduced }: { reduced: boolean }) {
   ];
   return (
     <section id="how" className="lp-section lp-alt">
-      <SectionHead kicker="Owner-simple, on purpose" index={5} total={7}>
+      <SectionHead kicker="Owner-simple, on purpose" index={5} total={8}>
         <ScrubWords
           className="font-display lp-h2 is-wide"
           text="Built for people who run a counter, *not a CRM*."
@@ -988,7 +1215,7 @@ const GUARDRAILS: [string, string][] = [
 function Guardrails({ reduced }: { reduced: boolean }) {
   return (
     <section className="lp-section lp-dark-section">
-      <SectionHead kicker="Guardrails" index={6} total={7} dark>
+      <SectionHead kicker="Guardrails" index={6} total={8} dark>
         <div className="lp-head-split">
           <ScrubWords
             className="font-display lp-h2 is-dark"
@@ -1015,16 +1242,127 @@ function Guardrails({ reduced }: { reduced: boolean }) {
   );
 }
 
+/* ── Team ── */
+const TEAM_MEMBERS = [
+  {
+    name: "Soham Dogra",
+    education: "CS + Linguistics · San José State",
+    bio: "An AI product builder working across strategy, engineering and growth, with experience developing AI infrastructure at Inference.ai.",
+    email: "soham@churnary.ai",
+    linkedin: "https://www.linkedin.com/in/soham-dogra-b110ab2ab/",
+    image: sohamPhoto,
+    imagePosition: "center 28%",
+  },
+  {
+    name: "Riyan Anosh",
+    education: "Computer Engineering · UC Merced",
+    bio: "A hands-on builder with a soft spot for homelabs, hardware and turning ambitious AI ideas into working prototypes.",
+    email: "riyan@churnary.ai",
+    linkedin: "https://www.linkedin.com/in/riyan-anosh-0aba9434b/",
+    image: null,
+    imagePosition: "center",
+  },
+  {
+    name: "Pranjal Mishra",
+    education: "Aerospace + Mechanical · RPI",
+    bio: "An engineer-in-training who pairs flight manufacturing experience with a background in software engineering and applied AI.",
+    email: "pranjal@churnary.ai",
+    linkedin: "https://www.linkedin.com/in/pranjal-mishra-b622252a6/",
+    image: pranjalPhoto,
+    imagePosition: "center 32%",
+  },
+  {
+    name: "Aditya Kolekar",
+    education: "Artificial Intelligence · UC San Diego",
+    bio: "An AI builder and three-time hackathon winner focused on making complex technology feel clear, practical and useful.",
+    email: "aditya@churnary.ai",
+    linkedin: "https://www.linkedin.com/in/aditkolekar/",
+    image: adityaPhoto,
+    imagePosition: "center 28%",
+  },
+] as const;
+
+function Team({ reduced }: { reduced: boolean }) {
+  return (
+    <section id="team" className="lp-section lp-alt">
+      <SectionHead kicker="About the team" index={7} total={8}>
+        <div className="lp-head-split">
+          <ScrubWords
+            className="font-display lp-h2"
+            text="Four Fremont friends. One *shared obsession*: build the useful thing."
+            reduced={reduced}
+          />
+          <div className="lp-head-aside" data-reveal>
+            <p>
+              We met at American High School in Fremont, California, and kept building together.
+              Churnary brings our backgrounds in AI, product, computer engineering and aerospace
+              systems to one goal: help local businesses keep the customers they worked hard to earn.
+            </p>
+          </div>
+        </div>
+      </SectionHead>
+
+      <div className="lp-team-grid">
+        {TEAM_MEMBERS.map((member, i) => (
+          <article
+            className="lp-team-card"
+            key={member.name}
+            data-reveal
+            style={{ transitionDelay: `${i * 70}ms` }}
+          >
+            <div className="lp-team-photo">
+              {member.image ? (
+                <img
+                  src={member.image}
+                  alt={member.name}
+                  loading="lazy"
+                  decoding="async"
+                  style={{ objectPosition: member.imagePosition }}
+                />
+              ) : (
+                <div className="lp-team-placeholder" role="img" aria-label={`${member.name} initials`}>
+                  <span>RA</span>
+                </div>
+              )}
+            </div>
+            <div className="lp-team-meta">
+              <span className="lp-team-role">Co-founder</span>
+              <a
+                href={member.linkedin}
+                target="_blank"
+                rel="noreferrer noopener"
+                aria-label={`View ${member.name} on LinkedIn`}
+              >
+                LinkedIn <span aria-hidden>↗</span>
+              </a>
+            </div>
+            <h3 className="font-display lp-team-name">{member.name}</h3>
+            <p className="lp-team-education">{member.education}</p>
+            <p className="lp-team-bio">{member.bio}</p>
+            <a
+              className="lp-team-email"
+              href={`mailto:${member.email}`}
+              aria-label={`Email ${member.name} at ${member.email}`}
+            >
+              {member.email} <span aria-hidden>↗</span>
+            </a>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /* ── Pricing ── */
 function Pricing({ reduced }: { reduced: boolean }) {
   const tiers = [
-    { name: "Starter", price: 199, hot: false, lines: ["1 integration", "1,000 customers", "Email win-backs", "Transparent risk scores"] },
-    { name: "Growth", price: 299, hot: true, lines: ["All integrations", "2,500 customers", "Email + SMS", "Automation rules", "Recovery attribution"] },
-    { name: "Pro", price: 499, hot: false, lines: ["Unlimited customers", "Multi-location ready", "Everything in Growth", "Priority support"] },
-  ];
+    { name: "Starter", plan: "starter", price: 199, hot: false, lines: ["1 integration", "1,000 customers", "Email win-backs", "Transparent risk scores"] },
+    { name: "Growth", plan: "growth", price: 299, hot: true, lines: ["All integrations", "2,500 customers", "Email + SMS", "Automation rules", "Recovery attribution"] },
+    { name: "Pro", plan: "pro", price: 499, hot: false, lines: ["Unlimited customers", "Multi-location ready", "Everything in Growth", "Priority support"] },
+  ] as const;
   return (
     <section id="pricing" className="lp-section">
-      <SectionHead kicker="Pricing" index={7} total={7}>
+      <SectionHead kicker="Pricing" index={8} total={8}>
         <div className="lp-head-split">
           <ScrubWords
             className="font-display lp-h2"
@@ -1060,7 +1398,19 @@ function Pricing({ reduced }: { reduced: boolean }) {
                 <li key={l}>{l}</li>
               ))}
             </ul>
-            <a href="#waitlist" className={`lp-btn lp-tier-cta${t.hot ? " lp-btn-primary" : ""}`}>
+            <a
+              href="#waitlist"
+              className={`lp-btn lp-tier-cta${t.hot ? " lp-btn-primary" : ""}`}
+              onClick={() =>
+                void trackLandingEvent({
+                  event: "landing_cta_clicked",
+                  cta: "join_waitlist",
+                  location: "pricing",
+                  destination: "waitlist",
+                  plan: t.plan,
+                })
+              }
+            >
               Join the waitlist
             </a>
           </div>
@@ -1097,7 +1447,20 @@ function Waitlist({ reduced }: { reduced: boolean }) {
         </div>
       </div>
       <p className="lp-waitlist-alt">
-        Already have an account? <Link to="/login">Sign in</Link>
+        Already have an account?{" "}
+        <Link
+          to="/login"
+          onClick={() =>
+            void trackLandingEvent({
+              event: "landing_cta_clicked",
+              cta: "sign_in",
+              location: "waitlist",
+              destination: "login",
+            })
+          }
+        >
+          Sign in
+        </Link>
       </p>
     </section>
   );
@@ -1116,9 +1479,38 @@ function Footer() {
         <div className="lp-footer-links">
           <a href="#flow">How it works</a>
           <a href="#demo">Live demo</a>
+          <a href="#team">Team</a>
           <a href="#pricing">Pricing</a>
-          <a href="#waitlist">Waitlist</a>
-          <Link to="/login">Sign in</Link>
+          <Link to="/privacy">Privacy</Link>
+          <button type="button" onClick={openPrivacyChoices}>
+            Privacy choices
+          </button>
+          <a
+            href="#waitlist"
+            onClick={() =>
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "join_waitlist",
+                location: "footer",
+                destination: "waitlist",
+              })
+            }
+          >
+            Waitlist
+          </a>
+          <Link
+            to="/login"
+            onClick={() =>
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "sign_in",
+                location: "footer",
+                destination: "login",
+              })
+            }
+          >
+            Sign in
+          </Link>
           <span>© 2026 Churnary</span>
         </div>
       </div>
@@ -1273,6 +1665,50 @@ const LP_CSS = `
   .lp-nav-signin:hover { color: var(--cream-text); }
   .lp-nav.is-solid .lp-nav-signin { color: var(--ink-strong); }
   .lp-nav.is-solid .lp-nav-signin:hover { color: var(--accent); }
+
+  /* ── nav — mobile toggle + panel (same breakpoint as .lp-nav-links) ── */
+  .lp-nav-toggle {
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 5px; width: 34px; height: 34px; padding: 0; margin-left: 4px;
+    border: 0; border-radius: 6px; background: none; cursor: pointer; flex: none;
+  }
+  .lp-nav-toggle:hover { background: rgba(244,236,224,.09); }
+  .lp-nav.is-solid .lp-nav-toggle:hover { background: var(--surface-2); }
+  @media (min-width: 920px) { .lp-nav-toggle { display: none; } }
+  .lp-nav-toggle-bar {
+    width: 19px; height: 2px; border-radius: 1px; background: var(--cream-text);
+    transition: transform .2s ease, opacity .2s ease;
+  }
+  .lp-nav.is-solid .lp-nav-toggle-bar { background: var(--ink); }
+  .lp-nav-toggle.is-open .lp-nav-toggle-bar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+  .lp-nav-toggle.is-open .lp-nav-toggle-bar:nth-child(2) { opacity: 0; }
+  .lp-nav-toggle.is-open .lp-nav-toggle-bar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+  .lp-nav-mobile {
+    position: absolute; top: 100%; left: 0; right: 0;
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 10px var(--lp-gutter) 18px;
+    background: rgba(251,246,238,.98); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--lp-rule);
+    opacity: 0; visibility: hidden; transform: translateY(-6px); pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
+  }
+  .lp-nav-mobile.is-open {
+    opacity: 1; visibility: visible; transform: translateY(0); pointer-events: auto;
+    transition: opacity .18s ease, transform .18s ease, visibility 0s linear 0s;
+  }
+  @media (min-width: 920px) { .lp-nav-mobile { display: none !important; } }
+  .lp-nav-mobile a {
+    padding: 10px 4px; border-radius: 5px; font-size: 15px; font-weight: 600; color: var(--muted);
+  }
+  .lp-nav-mobile a:hover { color: var(--ink); background: var(--surface-2); }
+  .lp-nav-mobile a.is-active { color: var(--accent); }
+  .lp-nav-mobile-cta {
+    display: flex; align-items: center; gap: 10px; margin-top: 8px; padding-top: 12px;
+    border-top: 1px solid var(--lp-rule);
+  }
+  .lp-nav-mobile-cta .lp-nav-signin { color: var(--ink-strong); }
+  .lp-nav-mobile-cta .lp-nav-signin:hover { color: var(--accent); }
 
   /* ── hero ── */
   .lp-hero {
@@ -1685,6 +2121,97 @@ const LP_CSS = `
     text-transform: uppercase; color: var(--muted-2);
   }
 
+  /* ── team ── */
+  .lp-team-grid {
+    display: grid; grid-template-columns: 1fr;
+    margin-top: clamp(34px, 4vw, 64px); border-top: 1px solid var(--ink);
+  }
+  .lp-team-card {
+    display: flex; min-width: 0; flex-direction: column;
+    padding: clamp(22px, 2.2vw, 34px) 0 clamp(26px, 2.6vw, 40px);
+    border-bottom: 1px solid var(--lp-rule);
+    transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1);
+  }
+  @media (min-width: 640px) {
+    .lp-team-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .lp-team-card:nth-child(odd) { padding-right: clamp(20px, 2.4vw, 38px); }
+    .lp-team-card:nth-child(even) {
+      padding-left: clamp(20px, 2.4vw, 38px);
+      border-left: 1px solid var(--lp-rule);
+    }
+  }
+  @media (min-width: 1080px) {
+    .lp-team-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .lp-team-card,
+    .lp-team-card:nth-child(odd),
+    .lp-team-card:nth-child(even) {
+      padding-left: clamp(18px, 1.7vw, 30px);
+      padding-right: clamp(18px, 1.7vw, 30px);
+      border-left: 1px solid var(--lp-rule);
+    }
+    .lp-team-card:first-child { padding-left: 0; border-left: none; }
+    .lp-team-card:last-child { padding-right: 0; }
+  }
+  .lp-team-photo {
+    position: relative; overflow: hidden; aspect-ratio: 4 / 3;
+    background: var(--surface-3);
+  }
+  .lp-team-photo img {
+    display: block; width: 100%; height: 100%; object-fit: cover;
+    filter: saturate(.88) contrast(1.02);
+    transition: transform .5s cubic-bezier(.2,.8,.2,1), filter .3s ease;
+  }
+  .lp-team-card:hover .lp-team-photo img { transform: scale(1.025); filter: saturate(1) contrast(1.02); }
+  .lp-team-placeholder {
+    position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden;
+    color: var(--cream-text);
+    background:
+      radial-gradient(220px 180px at 72% 18%, rgba(199,107,58,.48), transparent 70%),
+      linear-gradient(145deg, var(--lp-espresso-2), var(--lp-espresso));
+  }
+  .lp-team-placeholder::before {
+    content: ''; position: absolute; width: 68%; aspect-ratio: 1; border-radius: 50%;
+    border: 1px solid rgba(244,236,224,.18);
+    box-shadow: 0 0 0 24px rgba(244,236,224,.035), 0 0 0 48px rgba(244,236,224,.025);
+  }
+  .lp-team-placeholder span {
+    position: relative; font-family: var(--font-display); font-size: clamp(50px, 5vw, 76px);
+    font-weight: 500; letter-spacing: -.05em;
+  }
+  .lp-team-meta {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-top: 17px;
+  }
+  .lp-team-role {
+    font-size: var(--lp-label); font-weight: 700; letter-spacing: .13em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .lp-team-meta a {
+    font-size: 12.5px; font-weight: 700; color: var(--muted-2);
+    text-decoration: none;
+  }
+  .lp-team-meta a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+  .lp-team-name {
+    margin: 12px 0 0; font-size: clamp(23px, 2vw, 30px); font-weight: 600;
+    letter-spacing: -.025em; line-height: 1.08; color: var(--ink);
+  }
+  .lp-team-education {
+    margin: 7px 0 0; min-height: 2.8em; font-size: 13.5px; font-weight: 700;
+    line-height: 1.4; color: var(--ink-strong);
+  }
+  .lp-team-bio {
+    margin: 13px 0 0; font-size: var(--lp-body); line-height: 1.58;
+    color: var(--muted); max-width: 35ch;
+  }
+  .lp-team-email {
+    align-self: flex-start; margin-top: auto; padding-top: 17px;
+    color: var(--muted-2); font-size: 12.5px; font-weight: 700;
+    text-decoration: none;
+  }
+  .lp-team-email:hover {
+    color: var(--accent); text-decoration: underline; text-underline-offset: 3px;
+  }
+
   /* ── pricing ── */
   .lp-tiers { display: grid; grid-template-columns: 1fr; border-top: 1px solid var(--ink); }
   @media (min-width: 860px) { .lp-tiers { grid-template-columns: repeat(3, 1fr); } }
@@ -1817,7 +2344,8 @@ const LP_CSS = `
   .lp-footer-tag { font-size: 13px; color: var(--muted-2); }
   .lp-footer-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 17px; font-size: 13px; color: var(--muted-2); }
   .lp-footer-links a { color: var(--muted-2); }
-  .lp-footer-links a:hover { color: var(--accent); text-decoration: underline; }
+  .lp-footer-links button { border: 0; padding: 0; background: none; color: var(--muted-2); font: inherit; cursor: pointer; }
+  .lp-footer-links a:hover, .lp-footer-links button:hover { color: var(--accent); text-decoration: underline; }
 
   /* Smooth anchor scrolling, but not for people who asked us not to. */
   @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
