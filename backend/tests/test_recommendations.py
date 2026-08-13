@@ -60,6 +60,19 @@ def test_healthy_customers_are_left_alone():
     assert "no outreach needed" in reason
 
 
+def test_a_collapsing_ticket_beats_a_low_churn_score():
+    """The customer who still turns up every week but whose spend halved. Churn risk
+    is recency-weighted, so they score LOW — but "leave them alone" is the wrong call
+    on someone quietly spending their money elsewhere. Low churn risk is not no
+    revenue risk."""
+    action, reason = recommend_action(
+        _scored(band="low", segment="regulars", signals={"recency": 0.1, "monetary": 0.8}),
+        high_value_threshold=1000.0,
+    )
+    assert action == "offer"
+    assert "80% less" in reason
+
+
 def test_new_customers_get_a_welcome_not_a_winback():
     action, reason = recommend_action(_scored(segment="new", visits=1), 100.0)
     assert action == "welcome"
@@ -100,6 +113,18 @@ def test_declining_spend_gets_an_incentive_rather_than_a_plain_email():
     )
     assert action == "offer"
     assert "70% less" in reason
+
+
+def test_a_lapsed_customer_is_not_told_they_are_still_coming_in():
+    """A customer who stopped visiting also has zero recent spend, so the monetary
+    signal fires for them too — but "still coming in" would be a fabricated claim.
+    High recency risk means gone, and gone means email, not offer."""
+    action, reason = recommend_action(
+        _scored(value=200.0, signals={"recency": 0.95, "monetary": 1.0}),
+        high_value_threshold=1000.0,
+    )
+    assert action == "email"
+    assert "still coming in" not in reason.lower()
 
 
 def test_owner_call_outranks_offer_for_top_value_customers():

@@ -181,9 +181,11 @@ def recommend_action(scored: ScoredCustomer, high_value_threshold: float) -> tup
     value = scored.estimated_annual_value
     days = scored.days_since_last_visit
 
-    if band == "low":
-        return "wait", "Visiting on their normal cadence — no outreach needed right now."
-
+    # ── evidence guards first ────────────────────────────────────────────────
+    # Both of these mean "the value estimate isn't trustworthy", so they have to
+    # precede owner_call: estimated_annual_value is extrapolated from the observed
+    # span, which for a two-week-old customer annualizes a fortnight into a year and
+    # can nominate them as your most valuable client.
     if scored.segment == "new":
         return (
             "welcome",
@@ -205,6 +207,7 @@ def recommend_action(scored: ScoredCustomer, high_value_threshold: float) -> tup
             "worth watching, not worth spending an offer on.",
         )
 
+    # ── then act, most-expensive intervention first ──────────────────────────
     if band == "high" and high_value_threshold > 0 and value >= high_value_threshold:
         away = f"{days} days" if days is not None else "a while"
         return (
@@ -214,13 +217,29 @@ def recommend_action(scored: ScoredCustomer, high_value_threshold: float) -> tup
             "better than an email.",
         )
 
+    # An incentive is the move for someone who still shows up but has traded down —
+    # not for someone who vanished. Both look identical on the monetary signal alone
+    # (a lapsed customer's recent spend is also zero), so this also requires that
+    # they're still visiting. Without the recency check the reason below asserts
+    # "still coming in" about a customer not seen in months, which is exactly the
+    # kind of fabricated claim these reasons must never make.
+    #
+    # This sits ABOVE the low-band check on purpose. Churn risk is recency-weighted
+    # (0.40) far more than spend (0.15), so a customer who still turns up on cadence
+    # while their ticket collapses scores *low* — and "leave them alone" is the wrong
+    # call on someone quietly taking their money elsewhere. Low churn risk is not the
+    # same as no revenue risk.
     monetary_risk = scored.result.signals.get("monetary", 0.0)
-    if monetary_risk >= 0.5:
+    still_visiting = scored.result.signals.get("recency", 1.0) < 0.5
+    if monetary_risk >= 0.5 and still_visiting:
         return (
             "offer",
             f"Still coming in, but spending {int(round(monetary_risk * 100))}% less "
             "than they used to — a small incentive is the cheapest way to reset that.",
         )
+
+    if band == "low":
+        return "wait", "Visiting on their normal cadence — no outreach needed right now."
 
     away = f"{days} days" if days is not None else "longer than usual"
     return (
