@@ -5,6 +5,7 @@ import {
   hasAnalyticsConsent,
   onPrivacyPreferenceChange,
 } from "../lib/privacyPreferences";
+import { isMarketingPath } from "../lib/marketingPages";
 
 type Rb2bQueue = Array<unknown> & {
   invoked?: boolean;
@@ -96,13 +97,14 @@ function loadRb2b(key: string, scriptTemplate: string) {
 export default function Rb2bLoader() {
   const location = useLocation();
   const key = String(import.meta.env.VITE_RB2B_KEY ?? "").trim();
+  const explicitlyEnabled = String(import.meta.env.VITE_RB2B_ENABLED ?? "").toLowerCase() === "true";
   const scriptTemplate = String(import.meta.env.VITE_RB2B_SCRIPT_URL ?? "").trim();
-  const isMarketingPage = location.pathname === "/" || location.pathname === "/landing";
+  const isMarketingPage = isMarketingPath(location.pathname) || location.pathname === "/landing";
 
   useEffect(() => {
     const reconcile = () => {
       const validKey = /^[A-Za-z0-9_-]{1,160}$/.test(key);
-      if (!validKey || !isMarketingPage || !hasAnalyticsConsent()) {
+      if (!explicitlyEnabled || !validKey || !isMarketingPage || !hasAnalyticsConsent()) {
         unloadRb2b();
         return;
       }
@@ -110,7 +112,7 @@ export default function Rb2bLoader() {
     };
     reconcile();
     return onPrivacyPreferenceChange(reconcile);
-  }, [isMarketingPage, key, location.pathname, scriptTemplate]);
+  }, [explicitlyEnabled, isMarketingPage, key, location.pathname, scriptTemplate]);
 
   return null;
 }

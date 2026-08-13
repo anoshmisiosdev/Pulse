@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /login
+Disallow: /setup
+Disallow: /customers
+Disallow: /retention
+Disallow: /automations
+Disallow: /social
+Disallow: /visitors
+
+Sitemap: https://churnary.ai/sitemap.xml

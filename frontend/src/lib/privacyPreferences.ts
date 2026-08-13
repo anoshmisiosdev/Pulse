@@ -24,6 +24,7 @@ const RB2B_COOKIES = [
   "_reb2bresolve",
   "_reb2butk",
 ];
+const CLARITY_COOKIES = ["_clck", "_clsk", "CLID", "ANONCHK", "MR", "MUID", "SM"];
 
 export function globalPrivacyControlEnabled(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -87,6 +88,7 @@ export function clearOptionalTrackingData(): void {
     // Storage may be blocked; cookie cleanup can still proceed.
   }
   clearRb2bTrackingData();
+  CLARITY_COOKIES.forEach(clearCookie);
 }
 
 export function clearRb2bTrackingData(): void {

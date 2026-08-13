@@ -36,9 +36,13 @@ services:
         sync: false
       - key: RB2B_MONTHLY_COST_USD
         value: "0"
+      - key: DISCORD_WEBHOOK_URL # private Churnary team channel
+        sync: false
       - key: FERNET_KEY
         sync: false
       - key: API_BASE_URL
+        sync: false
+      - key: FRONTEND_ORIGIN
         sync: false
       - key: STRIPE_CONNECT_CLIENT_ID
         sync: false
@@ -62,6 +66,20 @@ services:
         value: "10"
       - key: PAYMENT_SYNC_INTERVAL_SECONDS
         value: "900"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: RESEND_WEBHOOK_SECRET # bounce/complaint suppression
+        sync: false
+      - key: WAITLIST_EMAIL_SEQUENCE_ENABLED
+        value: "true"
+      - key: WAITLIST_FOLLOWUP_DELAY_DAYS
+        value: "3"
+      - key: WAITLIST_PILOT_INVITE_DELAY_DAYS
+        value: "7"
+      - key: WAITLIST_FOUNDER_ROSTER
+        value: Soham Dogra,Riyan Anosh,Pranjal Mishra,Aditya Kolekar
       - key: GOOGLE_MAPS_SERVER_API_KEY
         sync: false
       - key: PERPLEXITY_API_KEY
@@ -115,6 +133,8 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
+      - key: API_BASE_URL
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: DB_USE_PGBOUNCER
@@ -133,6 +153,10 @@ services:
         value: "10"
       - key: PAYMENT_SYNC_INTERVAL_SECONDS
         value: "900"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
       - key: TOKEN_ROUTER_API_KEY
         sync: false
       - key: TOKEN_ROUTER_BASE_URL

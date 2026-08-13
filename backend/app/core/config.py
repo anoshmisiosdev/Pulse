@@ -170,6 +170,15 @@ class Settings(BaseSettings):
     # Signs POST /api/automations/resend/webhook (Resend uses Svix — the secret
     # is the "whsec_..." value shown when you create the webhook endpoint).
     resend_webhook_secret: str = ""
+    # Public early-access email is intentionally capped at three messages.
+    waitlist_email_sequence_enabled: bool = True
+    waitlist_followup_delay_days: int = 3
+    waitlist_pilot_invite_delay_days: int = 7
+    # Comma-separated display names. Deterministic assignment keeps the lead
+    # owner stable without needing a counter or another paid routing service.
+    waitlist_founder_roster: str = (
+        "Soham Dogra,Riyan Anosh,Pranjal Mishra,Aditya Kolekar"
+    )
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_from_number: str = ""
@@ -182,6 +191,15 @@ class Settings(BaseSettings):
     @property
     def resend_configured(self) -> bool:
         return bool(self.resend_api_key)
+
+    @property
+    def waitlist_founder_roster_list(self) -> list[str]:
+        roster = [
+            name.strip()[:80]
+            for name in self.waitlist_founder_roster.split(",")
+            if name.strip()
+        ]
+        return roster or ["Churnary team"]
 
     @property
     def twilio_configured(self) -> bool:

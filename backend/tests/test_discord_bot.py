@@ -183,3 +183,61 @@ async def test_discord_alert_hides_email_by_default(monkeypatch):
     assert delivered is True
     assert "dana@bluebird.example" not in str(captured)
     assert captured["allowed_mentions"] == {"parse": []}
+
+
+async def test_waitlist_alert_routes_explicit_signup_to_assigned_founder(monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "discord_webhook_url",
+        "https://discord.com/api/webhooks/1/x",
+    )
+    captured: dict = {}
+
+    async def capture(payload: dict) -> str:
+        captured.update(payload)
+        return "channel webhook"
+
+    monkeypatch.setattr(discord_service, "deliver_discord_message", capture)
+    alert = discord_service.WaitlistAlert(
+        signup_id=uuid.uuid4(),
+        email="dana@bluebird.example",
+        name=None,
+        business_name="Bluebird Coffee",
+        vertical="cafe",
+        assigned_founder="Aditya Kolekar",
+        first_touch=(("content", "aditya_observation_a"), ("source", "linkedin")),
+        created_at=datetime.now(UTC),
+    )
+
+    delivered = await discord_service.send_waitlist_alert(alert)
+
+    assert delivered is True
+    assert "Aditya Kolekar" in str(captured)
+    assert "dana@bluebird.example" in str(captured)
+    assert "aditya_observation_a" in str(captured)
+    assert captured["allowed_mentions"] == {"parse": []}
+
+
+async def test_waitlist_alert_failure_is_isolated(monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "discord_webhook_url",
+        "https://discord.com/api/webhooks/1/x",
+    )
+
+    async def fail(_payload: dict) -> str:
+        raise discord_service.DiscordDeliveryError("offline")
+
+    monkeypatch.setattr(discord_service, "deliver_discord_message", fail)
+    alert = discord_service.WaitlistAlert(
+        signup_id=uuid.uuid4(),
+        email="dana@bluebird.example",
+        name="Dana",
+        business_name=None,
+        vertical=None,
+        assigned_founder="Soham Dogra",
+        first_touch=(),
+        created_at=datetime.now(UTC),
+    )
+
+    assert await discord_service.send_waitlist_alert(alert) is False

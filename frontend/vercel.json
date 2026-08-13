@@ -3,5 +3,13 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/landing", "destination": "/landing/index.html" },
+    { "source": "/coffee-shop-customer-retention", "destination": "/coffee-shop-customer-retention/index.html" },
+    { "source": "/salon-customer-retention", "destination": "/salon-customer-retention/index.html" },
+    { "source": "/gym-member-retention", "destination": "/gym-member-retention/index.html" },
+    { "source": "/customer-churn-risk-calculator", "destination": "/customer-churn-risk-calculator/index.html" },
+    { "source": "/privacy", "destination": "/privacy/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }

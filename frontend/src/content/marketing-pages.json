@@ -1,0 +1,57 @@
+[
+  {
+    "key": "general",
+    "path": "/",
+    "title": "Customer Retention Software for Local Business | Churnary",
+    "description": "Find regular customers who are drifting, understand why, and approve a personal win-back message before they are gone.",
+    "eyebrow": "Customer retention for repeat-visit businesses",
+    "headline": "Know which regulars are slipping away — before they are gone.",
+    "lede": "Churnary turns Square, Stripe, or CSV activity into a clear daily list of customers who need attention, the reason behind the risk, and a message you control.",
+    "defaultVertical": "cafe",
+    "audienceLabel": "cafés, salons, gyms, and local businesses"
+  },
+  {
+    "key": "coffee",
+    "path": "/coffee-shop-customer-retention",
+    "title": "Coffee Shop Customer Retention Software | Churnary",
+    "description": "Spot coffee-shop regulars whose visit rhythm is changing and approve personal win-back outreach before they disappear.",
+    "eyebrow": "Customer retention for cafés and coffee shops",
+    "headline": "Keep coffee-shop regulars coming back.",
+    "lede": "Churnary reads each guest’s normal visit rhythm, flags meaningful gaps, and drafts a personal message based on the products they actually love.",
+    "defaultVertical": "cafe",
+    "audienceLabel": "independent cafés and coffee shops"
+  },
+  {
+    "key": "salon",
+    "path": "/salon-customer-retention",
+    "title": "Salon Customer Retention Software | Churnary",
+    "description": "Find salon and barbershop clients who are overdue, understand their visit pattern, and approve thoughtful win-back outreach.",
+    "eyebrow": "Customer retention for salons and barbershops",
+    "headline": "See which clients are overdue before their next visit disappears.",
+    "lede": "Churnary compares each client with their own booking rhythm, explains the change in plain English, and prepares outreach for you to approve.",
+    "defaultVertical": "salon",
+    "audienceLabel": "independent salons and barbershops"
+  },
+  {
+    "key": "gym",
+    "path": "/gym-member-retention",
+    "title": "Gym Member Retention Software | Churnary",
+    "description": "Detect gym members whose attendance is fading and approve relevant, timely outreach while there is still time to reconnect.",
+    "eyebrow": "Member retention for gyms and fitness studios",
+    "headline": "Catch fading attendance before a member quietly churns.",
+    "lede": "Churnary spots changes in each member’s attendance pattern, surfaces the people worth contacting today, and drafts a message you control.",
+    "defaultVertical": "fitness",
+    "audienceLabel": "independent gyms and fitness studios"
+  },
+  {
+    "key": "calculator",
+    "path": "/customer-churn-risk-calculator",
+    "title": "Free Customer Churn Risk Calculator | Churnary",
+    "description": "Estimate how many regular customers may be drifting and the monthly revenue connected to them with Churnary’s free calculator.",
+    "eyebrow": "Free customer churn risk calculator",
+    "headline": "Estimate the value of the regulars you may be losing.",
+    "lede": "Use a few simple business inputs to create an illustrative churn-risk estimate, then see how Churnary turns customer-level patterns into action.",
+    "defaultVertical": "cafe",
+    "audienceLabel": "repeat-visit local businesses"
+  }
+]

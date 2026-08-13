@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Spectral:wght@500;600;700&display=swap');
 @import 'tailwindcss';
 
 /* ===== Design System: Coffeehouse Editorial — Pulse ===== */
@@ -30,8 +29,9 @@
   --primary: #B4532A;
   --primary-dark: #A23B1E;
 
-  --font-display: 'Spectral', Georgia, serif;
-  --font-body: 'Hanken Grotesk', system-ui, sans-serif;
+  /* System-local stacks avoid a render-blocking third-party font request. */
+  --font-display: 'New York', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --font-body: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --radius: 18px;
 }
 

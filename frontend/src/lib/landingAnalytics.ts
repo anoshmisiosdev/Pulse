@@ -1,14 +1,26 @@
 import { API_BASE, authHeaders } from "./api";
+import { rememberAcquisition } from "./acquisition";
+import { getMarketingPage } from "./marketingPages";
 import { hasAnalyticsConsent } from "./privacyPreferences";
 
-export type LandingMetric =
+export type LandingPath =
+  | "/"
+  | "/landing"
+  | "/coffee-shop-customer-retention"
+  | "/salon-customer-retention"
+  | "/gym-member-retention"
+  | "/customer-churn-risk-calculator";
+
+type LandingEvent =
   | {
       event: "landing_viewed";
-      path: "/" | "/landing";
+      path: LandingPath;
       referrer_host?: string;
       utm_source?: string;
       utm_medium?: string;
       utm_campaign?: string;
+      utm_content?: string;
+      landing_variant?: string;
     }
   | {
       event: "landing_section_viewed";
@@ -17,13 +29,13 @@ export type LandingMetric =
   | {
       event: "landing_cta_clicked";
       cta: "join_waitlist" | "live_demo" | "sign_in";
-      location: "navbar" | "hero" | "pricing" | "waitlist" | "footer";
+      location: "navbar" | "hero" | "calculator" | "pricing" | "waitlist" | "footer";
       destination: "waitlist" | "demo" | "login";
       plan?: "starter" | "growth" | "pro";
     }
   | {
       event: "landing_demo_interacted";
-      control: "vertical" | "days";
+      control: "vertical" | "regulars" | "monthly_value" | "days";
       vertical: "cafe" | "fitness" | "salon";
       risk_band: "healthy" | "watch" | "needs_attention";
     }
@@ -36,6 +48,11 @@ export type LandingMetric =
       event: "landing_waitlist_submit_failed";
       reason: "request_failed";
     };
+
+export type LandingMetric = LandingEvent & {
+  utm_content?: string;
+  landing_variant?: string;
+};
 
 function boundedParam(params: URLSearchParams, name: string): string | undefined {
   const value = params.get(name)?.trim();
@@ -56,7 +73,7 @@ export function landingViewMetric(): Extract<LandingMetric, { event: "landing_vi
 
   return {
     event: "landing_viewed",
-    path: window.location.pathname === "/landing" ? "/landing" : "/",
+    path: (window.location.pathname || "/") as LandingPath,
     ...(referrerHost ? { referrer_host: referrerHost } : {}),
     ...(boundedParam(params, "utm_source")
       ? { utm_source: boundedParam(params, "utm_source") }
@@ -67,6 +84,11 @@ export function landingViewMetric(): Extract<LandingMetric, { event: "landing_vi
     ...(boundedParam(params, "utm_campaign")
       ? { utm_campaign: boundedParam(params, "utm_campaign") }
       : {}),
+    ...(boundedParam(params, "utm_content")
+      ? { utm_content: boundedParam(params, "utm_content") }
+      : {}),
+    landing_variant:
+      boundedParam(params, "landing_variant") || getMarketingPage(window.location.pathname).key,
   };
 }
 
@@ -74,10 +96,18 @@ export function landingViewMetric(): Extract<LandingMetric, { event: "landing_vi
 export async function trackLandingEvent(metric: LandingMetric): Promise<void> {
   if (!hasAnalyticsConsent()) return;
   try {
+    const acquisition = rememberAcquisition(metric.landing_variant);
+    const enriched = {
+      ...(acquisition.content ? { utm_content: acquisition.content } : {}),
+      ...(acquisition.landing_variant
+        ? { landing_variant: acquisition.landing_variant }
+        : {}),
+      ...metric,
+    };
     await fetch(`${API_BASE}/api/analytics/landing`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(metric),
+      body: JSON.stringify(enriched),
       keepalive: true,
     });
   } catch {

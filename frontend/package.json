@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node scripts/prerender.mjs && node scripts/check-budgets.mjs",
+    "prerender": "node scripts/prerender.mjs",
+    "check:budgets": "node scripts/check-budgets.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "preview:export": "vite build --config vite.preview.config.ts && node scripts/inline-preview.mjs"

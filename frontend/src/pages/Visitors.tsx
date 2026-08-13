@@ -72,6 +72,7 @@ export default function Visitors() {
   const [discordTestMessage, setDiscordTestMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const rb2bKeyConfigured = Boolean(String(import.meta.env.VITE_RB2B_KEY ?? "").trim());
+  const rb2bExplicitlyEnabled = String(import.meta.env.VITE_RB2B_ENABLED ?? "").toLowerCase() === "true";
 
   const filters = useMemo(
     () => ({
@@ -419,8 +420,14 @@ export default function Visitors() {
           <div className="visitor-readiness">
             <ReadinessRow
               label="Consent-gated script"
-              ready={rb2bKeyConfigured}
-              note={rb2bKeyConfigured ? "Key configured" : "Needs VITE_RB2B_KEY"}
+              ready={rb2bKeyConfigured && rb2bExplicitlyEnabled}
+              note={
+                !rb2bKeyConfigured
+                  ? "Needs VITE_RB2B_KEY"
+                  : rb2bExplicitlyEnabled
+                    ? "Explicitly enabled"
+                    : "Disabled by VITE_RB2B_ENABLED"
+              }
             />
             <ReadinessRow
               label="RB2B webhook"

@@ -12,6 +12,7 @@ import httpx
 
 from app.core.config import settings
 from app.models.visitor import VisitorProfile
+from app.models.waitlist import WaitlistSignup
 
 logger = logging.getLogger("pulse.discord")
 DISCORD_API_BASE = "https://discord.com/api/v10"
@@ -62,6 +63,33 @@ class VisitorAlert:
             source_provider=profile.source_provider,
             tags=tuple(profile.tags or []),
             last_seen_at=profile.last_seen_at,
+        )
+
+
+@dataclass(frozen=True)
+class WaitlistAlert:
+    """Detached snapshot used after the signup transaction has committed."""
+
+    signup_id: uuid.UUID
+    email: str
+    name: str | None
+    business_name: str | None
+    vertical: str | None
+    assigned_founder: str
+    first_touch: tuple[tuple[str, str], ...]
+    created_at: datetime
+
+    @classmethod
+    def from_signup(cls, signup: WaitlistSignup) -> WaitlistAlert:
+        return cls(
+            signup_id=signup.id,
+            email=signup.email,
+            name=signup.name,
+            business_name=signup.business_name,
+            vertical=signup.vertical,
+            assigned_founder=signup.assigned_founder or "Churnary team",
+            first_touch=tuple(sorted((signup.first_touch or {}).items())),
+            created_at=signup.created_at,
         )
 
 
@@ -191,6 +219,63 @@ def _alert_payload(alert: VisitorAlert, *, repeat_visitor: bool) -> dict:
     }
 
 
+def _waitlist_alert_payload(alert: WaitlistAlert) -> dict:
+    acquisition = " · ".join(
+        f"{key}: {value}" for key, value in alert.first_touch
+    ) or "Direct / not provided"
+    fields: list[dict[str, object]] = [
+        {
+            "name": "Assigned founder",
+            "value": _bounded(alert.assigned_founder, 80),
+            "inline": True,
+        },
+        {
+            "name": "Vertical",
+            "value": _bounded(alert.vertical or "Not provided", 80),
+            "inline": True,
+        },
+        {
+            "name": "Email",
+            "value": _bounded(alert.email, 320),
+            "inline": False,
+        },
+        {
+            "name": "Acquisition",
+            "value": _bounded(acquisition, 900),
+            "inline": False,
+        },
+    ]
+    if alert.business_name:
+        fields.insert(
+            2,
+            {
+                "name": "Business",
+                "value": _bounded(alert.business_name, 160),
+                "inline": True,
+            },
+        )
+    return {
+        "username": "Churnary Early Access",
+        "allowed_mentions": {"parse": []},
+        "embeds": [
+            {
+                "title": _bounded(
+                    f"New early-access signup · {alert.name or alert.email}",
+                    256,
+                ),
+                "description": (
+                    "Follow up within two business hours. "
+                    "This person explicitly submitted the early-access form."
+                ),
+                "color": 0x0891B2,
+                "fields": fields[:25],
+                "footer": {"text": f"Signup ID · {alert.signup_id}"},
+                "timestamp": alert.created_at.isoformat(),
+            }
+        ],
+    }
+
+
 async def deliver_discord_message(payload: dict) -> str:
     """Deliver a bounded message through a webhook or the configured bot channel."""
     headers = {"User-Agent": "Churnary-Visitor-Bot/1.0"}
@@ -249,6 +334,28 @@ async def send_visitor_alert(alert: VisitorAlert, repeat_visitor: bool = False) 
     logger.info(
         "Discord visitor alert delivered (visitor_id=%s transport=%s)",
         alert.visitor_id,
+        transport,
+    )
+    return True
+
+
+async def send_waitlist_alert(alert: WaitlistAlert) -> bool:
+    """Best-effort private team alert for a newly committed signup."""
+    if not settings.discord_alerts_configured:
+        return False
+    try:
+        transport = await deliver_discord_message(_waitlist_alert_payload(alert))
+    except Exception:
+        # This runs after commit as a FastAPI background task. Provider or
+        # configuration failures must never roll back or mask the conversion.
+        logger.exception(
+            "Discord waitlist alert failed (signup_id=%s)", alert.signup_id
+        )
+        return False
+    logger.info(
+        "Discord waitlist alert delivered (signup_id=%s founder=%s transport=%s)",
+        alert.signup_id,
+        alert.assigned_founder,
         transport,
     )
     return True

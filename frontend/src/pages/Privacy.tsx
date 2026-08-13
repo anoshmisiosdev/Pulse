@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import ChurnaryMark from "../components/ChurnaryMark";
 import { openPrivacyChoices } from "../lib/privacyPreferences";
 
-const EFFECTIVE_DATE = "July 30, 2026";
+const EFFECTIVE_DATE = "August 13, 2026";
 const PRIVACY_EMAIL = "aditya@churnary.ai";
 
 const SECTIONS = [
@@ -194,8 +194,10 @@ export default function Privacy() {
                     <tr>
                       <td>Waitlist information</td>
                       <td>
-                        Name, email address, business name, business type, and any note you choose
-                        to provide.
+                        Email address and, if you choose to add them, name, business name, business
+                        type, and a note. We also attach bounded campaign fields, the landing-page
+                        variant, and the referring hostname (never the full referring URL) so we
+                        can understand which outreach introduced you.
                       </td>
                       <td>Directly from the waitlist form.</td>
                     </tr>
@@ -340,8 +342,8 @@ export default function Privacy() {
                   security, model, search, communications, storage, billing, visitor
                   identification, and support providers process information for us. Depending on
                   the features enabled, examples include Supabase, Vercel, Render, PostHog,
-                  RB2B/Retention.com, AI/model-routing providers, AWS, Perplexity, Google, Resend,
-                  Twilio, Stripe, Square, Buffer, and Discord.
+                  Microsoft Clarity, RB2B/Retention.com, AI/model-routing providers, AWS,
+                  Perplexity, Google, Resend, Twilio, Stripe, Square, Buffer, and Discord.
                 </li>
                 <li>
                   <strong>Services you connect.</strong> We exchange information with a platform
@@ -413,6 +415,22 @@ export default function Privacy() {
                 hostname, campaign parameters, and interactions—to PostHog through our server, and
                 we retain a minimized first-party event history for Churnary&apos;s platform
                 administrators.
+              </p>
+              <p>
+                Separately from optional analytics, Churnary stores bounded campaign source,
+                medium, campaign and content values, the landing-page variant, and only the
+                referring hostname in first-party local storage. This preserves the first and most
+                recent source long enough to attach it to a waitlist submission even when optional
+                analytics is off. We do not store the full referring URL for this purpose, and the
+                attribution is not sent until you submit the form.
+              </p>
+              <p>
+                If configured, Microsoft Clarity also loads only after you select Allow analytics
+                and only on public marketing pages. It may record page interactions, scroll depth,
+                viewport and device details, and a visual session replay to help us diagnose
+                confusing or broken experiences. Churnary explicitly masks both early-access
+                forms and their success states so contact details are excluded from recordings,
+                and Churnary does not load Clarity before consent.
               </p>
               <p>
                 Waitlist names, email addresses, and free-form form contents are stored with the

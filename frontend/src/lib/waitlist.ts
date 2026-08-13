@@ -2,9 +2,10 @@
 // Mirrors backend/app/schemas/waitlist.py.
 
 import { API_BASE as BASE, authHeaders } from "./api";
+import type { AcquisitionContext } from "./acquisition";
 
-export interface WaitlistInput {
-  name: string;
+export interface WaitlistInput extends AcquisitionContext {
+  name?: string;
   email: string;
   business_name?: string;
   vertical?: string;

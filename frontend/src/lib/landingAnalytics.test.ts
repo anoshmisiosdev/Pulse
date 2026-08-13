@@ -45,7 +45,7 @@ describe("landing analytics", () => {
       location: {
         pathname: "/landing",
         search:
-          "?utm_source=newsletter&utm_medium=email&utm_campaign=" + "x".repeat(150),
+          "?utm_source=newsletter&utm_medium=email&utm_content=founder_a&utm_campaign=" + "x".repeat(150),
       },
     });
     vi.stubGlobal("document", {
@@ -61,6 +61,8 @@ describe("landing analytics", () => {
       utm_source: "newsletter",
       utm_medium: "email",
       utm_campaign: "x".repeat(100),
+      utm_content: "founder_a",
+      landing_variant: "general",
     });
   });
 
@@ -71,7 +73,7 @@ describe("landing analytics", () => {
 
     await trackLandingEvent({
       event: "landing_demo_interacted",
-      control: "vertical",
+      control: "monthly_value",
       vertical: "cafe",
       risk_band: "healthy",
     });
@@ -84,9 +86,10 @@ describe("landing analytics", () => {
     expect(options.keepalive).toBe(true);
     expect(body).toEqual({
       event: "landing_demo_interacted",
-      control: "vertical",
+      control: "monthly_value",
       vertical: "cafe",
       risk_band: "healthy",
+      landing_variant: "general",
     });
     expect(body.email).toBeUndefined();
     expect(body.name).toBeUndefined();

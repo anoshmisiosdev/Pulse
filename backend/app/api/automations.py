@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -21,7 +21,14 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser, CurrentUserDep
 from app.core.posthog_client import capture_event
 from app.core.security import decrypt_token
-from app.models import AutomationRule, Business, CampaignSend, Customer, EngagementEvent
+from app.models import (
+    AutomationRule,
+    Business,
+    CampaignSend,
+    Customer,
+    EngagementEvent,
+    WaitlistSignup,
+)
 from app.schemas.api import (
     AutomationRuleIn,
     AutomationRuleOut,
@@ -371,6 +378,25 @@ async def resend_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
         await db.execute(select(CampaignSend).where(CampaignSend.provider_message_id == email_id))
     ).scalar_one_or_none()
     if send is None:
+        waitlist_signup = (
+            await db.execute(
+                select(WaitlistSignup)
+                .where(
+                    or_(
+                        WaitlistSignup.confirmation_provider_message_id == email_id,
+                        WaitlistSignup.useful_followup_provider_message_id == email_id,
+                        WaitlistSignup.pilot_invitation_provider_message_id == email_id,
+                    )
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if waitlist_signup is not None and event_type in (
+            "email.bounced",
+            "email.complained",
+        ):
+            waitlist_signup.email_opted_out_at = datetime.now(UTC)
+            await db.commit()
         return {"ok": True}
 
     detail = None

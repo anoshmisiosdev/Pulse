@@ -69,7 +69,7 @@ export default function PrivacyControls() {
             <p>
               {gpc
                 ? "Optional analytics and visitor identification are off. You can keep that choice or explicitly allow them."
-                : "We use optional analytics to understand interest in Churnary. With permission, an identity provider may also match U.S. business visitors. Essential site functions work either way."}{" "}
+                : "We use optional analytics and consent-gated session insights to improve Churnary. With permission, an identity provider may also match U.S. business visitors. Essential site functions work either way."}{" "}
               <Link to="/privacy#tracking">Learn more</Link>
             </p>
           </div>
@@ -131,8 +131,8 @@ export default function PrivacyControls() {
             <p>
               Essential storage supports sign-in, security, and your explicit
               preferences. Optional analytics connects meaningful website actions
-              across visits. Visitor identification is loaded only after you allow
-              analytics and only when Churnary has configured a provider.
+              across visits. Session recording and visitor identification load only
+              after you allow analytics and only when Churnary has configured the providers.
             </p>
             {gpc && (
               <div className="privacy-gpc-note">
@@ -147,7 +147,7 @@ export default function PrivacyControls() {
                 onClick={() => choose("denied")}
               >
                 <strong>Essential only</strong>
-                <span>No marketing analytics or visitor identification.</span>
+                <span>No marketing analytics, session recording, or visitor identification.</span>
               </button>
               <button
                 type="button"

@@ -18,6 +18,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.logging_setup import setup_logging
+from app.services.waitlist_leads import WaitlistEmailDeliveryError
 
 setup_logging()
 logger = logging.getLogger("pulse.workers")
@@ -191,3 +192,27 @@ def sync_payment_integrations_tick() -> dict:
     errors = sum(row["errors"] for row in results.values() if isinstance(row, dict))
     logger.info("sync_payment_integrations complete: %d synced, %d errors", synced, errors)
     return {"status": "ok", "synced": synced, "errors": errors}
+
+
+@celery.task(
+    autoretry_for=(WaitlistEmailDeliveryError,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    retry_jitter=True,
+    max_retries=3,
+)
+def send_waitlist_email(signup_id: str, stage: str) -> dict[str, str]:
+    """Deliver one idempotent early-access email stage via Resend."""
+    from app.core.database import SessionLocal
+    from app.services.waitlist_leads import deliver_email_stage
+
+    if stage not in {"confirmation", "useful_followup", "pilot_invitation"}:
+        return {"status": "invalid_stage", "stage": stage}
+
+    async def _deliver() -> dict[str, str]:
+        async with SessionLocal() as db:
+            result = await deliver_email_stage(db, uuid.UUID(signup_id), stage)
+            await db.commit()
+            return result
+
+    return asyncio.run(_deliver())

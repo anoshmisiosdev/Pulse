@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
+import ClarityLoader from "./components/ClarityLoader";
 import EmptyState from "./components/EmptyState";
 import ErrorBoundary from "./components/ErrorBoundary";
 import PageSkeleton from "./components/PageSkeleton";
@@ -9,6 +10,7 @@ import Rb2bLoader from "./components/Rb2bLoader";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PulseProvider, usePulse } from "./context/PulseContext";
 import { SETUP_SKIPPED_KEY } from "./lib/api";
+import { MARKETING_PATHS } from "./lib/marketingPages";
 
 // Each page is its own chunk — visitors only download the routes they visit.
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -22,6 +24,9 @@ const Login = lazy(() => import("./pages/Login"));
 const Setup = lazy(() => import("./pages/Setup"));
 const Privacy = lazy(() => import("./pages/Privacy"));
 const Visitors = lazy(() => import("./pages/Visitors"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+
+const ACQUISITION_ROUTES = ["/landing", ...MARKETING_PATHS.filter((path) => path !== "/")];
 
 function Spinner({ label }: { label: string }) {
   return (
@@ -83,7 +88,7 @@ function AuthedApp() {
     <PulseProvider>
       <Routes>
         {/* Marketing page stays reachable in demo mode for local preview */}
-        <Route path="/landing" element={<Landing />} />
+        {ACQUISITION_ROUTES.map((path) => <Route key={path} path={path} element={<Landing />} />)}
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route
@@ -110,6 +115,7 @@ function AuthedApp() {
                 <Route path="/social" element={<SocialHub />} />
                 <Route path="/inbox" element={<Navigate to="/social#inbox" replace />} />
                 <Route path="/brand" element={<Navigate to="/social#brand" replace />} />
+                <Route path="*" element={<NotFound />} />
               </Routes>
             </AppShell>
           }
@@ -124,9 +130,10 @@ function PublicSite() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      {ACQUISITION_ROUTES.map((path) => <Route key={path} path={path} element={<Landing />} />)}
       <Route path="/login" element={<Login />} />
       <Route path="/privacy" element={<Privacy />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }
@@ -145,6 +152,7 @@ export default function App() {
     <ErrorBoundary>
       <AuthProvider>
         <Rb2bLoader />
+        <ClarityLoader />
         <Suspense fallback={<Spinner label="Loading…" />}>
           <Gate />
         </Suspense>

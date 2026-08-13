@@ -1,37 +1,39 @@
 import { useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { acquisitionForSignup } from "../lib/acquisition";
 import { trackLandingEvent } from "../lib/landingAnalytics";
 import { EMAIL_RE, waitlist } from "../lib/waitlist";
 
-/**
- * Public waitlist form.
- *
- * Styled for a dark surface — it lives in the espresso band at the foot of the
- * landing page. Validation mirrors the backend so a mistake is caught before a
- * round trip, and the success state replaces the form rather than sitting
- * beside it, so there's nothing left to re-submit.
- */
-
 const VERTICALS = [
-  "Café / coffee shop",
-  "Salon / barbershop",
-  "Gym / fitness studio",
-  "Med spa",
-  "Yoga / pilates studio",
-  "Something else",
-];
+  ["cafe", "Café / coffee shop"],
+  ["salon", "Salon / barbershop"],
+  ["fitness", "Gym / fitness studio"],
+  ["med_spa", "Med spa"],
+  ["yoga", "Yoga / pilates studio"],
+  ["other", "Something else"],
+] as const;
 
-type Phase = "idle" | "sending" | "done";
+type Phase = "email" | "sending" | "enrich" | "saving" | "done";
 
-export default function WaitlistForm() {
+interface WaitlistFormProps {
+  location: "hero" | "calculator";
+  landingVariant: string;
+  theme?: "light" | "dark";
+}
+
+export default function WaitlistForm({
+  location,
+  landingVariant,
+  theme = "light",
+}: WaitlistFormProps) {
   const uid = useId();
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
   const [business, setBusiness] = useState("");
   const [vertical, setVertical] = useState("");
   const [honey, setHoney] = useState("");
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [again, setAgain] = useState(false);
+  const [phase, setPhase] = useState<Phase>("email");
+  const [alreadyJoined, setAlreadyJoined] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const started = useRef(false);
 
@@ -41,163 +43,187 @@ export default function WaitlistForm() {
     void trackLandingEvent({ event: "landing_waitlist_started" });
   };
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitEmail = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError(null);
-
-    if (!name.trim()) {
-      void trackLandingEvent({
-        event: "landing_waitlist_validation_failed",
-        reason: "missing_name",
-      });
-      return setError("Please add your name.");
-    }
-    if (!EMAIL_RE.test(email.trim())) {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!EMAIL_RE.test(normalizedEmail)) {
       void trackLandingEvent({
         event: "landing_waitlist_validation_failed",
         reason: "invalid_email",
       });
-      return setError("Please add an email we can reach you at.");
+      setError("Enter an email we can reach you at.");
+      return;
     }
-    // A filled honeypot is a bot. Show the success state without sending —
-    // there's nothing to record and nothing to explain.
-    if (honey.trim()) return setPhase("done");
+    if (honey.trim()) {
+      setPhase("done");
+      return;
+    }
 
+    void trackLandingEvent({
+      event: "landing_cta_clicked",
+      cta: "join_waitlist",
+      location,
+      destination: "waitlist",
+    });
     setPhase("sending");
     try {
       const result = await waitlist.join({
-        name: name.trim(),
-        email: email.trim(),
-        business_name: business.trim() || undefined,
-        vertical: vertical || undefined,
+        email: normalizedEmail,
+        ...acquisitionForSignup(landingVariant),
       });
-      setAgain(result.already_joined);
-      setPhase("done");
-    } catch (err) {
+      setAlreadyJoined(result.already_joined);
+      setPhase("enrich");
+    } catch (reason) {
       void trackLandingEvent({
         event: "landing_waitlist_submit_failed",
         reason: "request_failed",
       });
-      setPhase("idle");
-      setError(err instanceof Error ? err.message : "Network error — please try again.");
+      setPhase("email");
+      setError(reason instanceof Error ? reason.message : "Network error — please try again.");
+    }
+  };
+
+  const saveDetails = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!name.trim() && !business.trim() && !vertical) {
+      setPhase("done");
+      return;
+    }
+    setError(null);
+    setPhase("saving");
+    try {
+      await waitlist.join({
+        email: email.trim().toLowerCase(),
+        name: name.trim() || undefined,
+        business_name: business.trim() || undefined,
+        vertical: vertical || undefined,
+        ...acquisitionForSignup(landingVariant),
+      });
+      setPhase("done");
+    } catch (reason) {
+      setPhase("enrich");
+      setError(reason instanceof Error ? reason.message : "We could not save that yet.");
     }
   };
 
   if (phase === "done") {
     return (
-      <div className="lp-wl-done" role="status">
-        <span className="lp-wl-check" aria-hidden>
-          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
-        </span>
-        <h3 className="font-display lp-wl-done-h">
-          {again ? "You're already on the list." : "You're on the list."}
-        </h3>
-        <p className="lp-wl-done-p">
-          {again
-            ? "We've got your details — no need to sign up twice. We'll be in touch as we open seats."
-            : `Thanks${name.trim() ? `, ${name.trim().split(" ")[0]}` : ""}. We'll email you as we open up seats for new businesses.`}
-        </p>
+      <div className={`early-form early-form--${theme} early-form__success`} role="status" data-clarity-mask="true">
+        <span className="early-form__check" aria-hidden>✓</span>
+        <div>
+          <strong>{alreadyJoined ? "You’re already on the list." : "You’re all set."}</strong>
+          <p>Watch your inbox for a confirmation and the next early-access opening.</p>
+        </div>
       </div>
     );
   }
 
+  if (phase === "enrich" || phase === "saving") {
+    return (
+      <form
+        className={`early-form early-form--${theme}`}
+        onSubmit={saveDetails}
+        aria-label="Optional early access details"
+        data-clarity-mask="true"
+      >
+        <div className="early-form__confirmed" role="status">
+          <span aria-hidden>✓</span>
+          <div>
+            <strong>{alreadyJoined ? "Email confirmed — you’re already in." : "You’re on the early-access list."}</strong>
+            <p>Optional: tell us who you are so we can make your first conversation useful.</p>
+          </div>
+        </div>
+        <div className="early-form__details">
+          <label htmlFor={`${uid}-name`}>
+            Name <span>optional</span>
+            <input
+              id={`${uid}-name`}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              maxLength={120}
+              autoComplete="name"
+              placeholder="Dana Okafor"
+            />
+          </label>
+          <label htmlFor={`${uid}-business`}>
+            Business <span>optional</span>
+            <input
+              id={`${uid}-business`}
+              value={business}
+              onChange={(event) => setBusiness(event.target.value)}
+              maxLength={160}
+              autoComplete="organization"
+              placeholder="Bluebird Coffee"
+            />
+          </label>
+          <label htmlFor={`${uid}-vertical`}>
+            Business type <span>optional</span>
+            <select
+              id={`${uid}-vertical`}
+              value={vertical}
+              onChange={(event) => setVertical(event.target.value)}
+            >
+              <option value="">Choose one…</option>
+              {VERTICALS.map(([value, label]) => (
+                <option key={value} value={label}>{label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {error && <p className="early-form__error" role="alert">{error}</p>}
+        <div className="early-form__actions">
+          <button type="submit" disabled={phase === "saving"}>
+            {phase === "saving" ? "Saving…" : "Save optional details"}
+          </button>
+          <button type="button" className="is-quiet" onClick={() => setPhase("done")}>Skip for now</button>
+        </div>
+      </form>
+    );
+  }
+
   return (
-    <form onSubmit={submit} onFocusCapture={markStarted} className="lp-wl-form" noValidate>
-      <div className="lp-wl-grid">
-        <label className="lp-wl-field" htmlFor={`${uid}-name`}>
-          <span className="lp-wl-label">Your name</span>
-          <input
-            id={`${uid}-name`}
-            className="lp-wl-input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={120}
-            autoComplete="name"
-            placeholder="Dana Okafor"
-            required
-          />
-        </label>
-
-        <label className="lp-wl-field" htmlFor={`${uid}-email`}>
-          <span className="lp-wl-label">Email</span>
-          <input
-            id={`${uid}-email`}
-            className="lp-wl-input"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            maxLength={320}
-            autoComplete="email"
-            placeholder="you@yourshop.com"
-            required
-          />
-        </label>
-
-        <label className="lp-wl-field" htmlFor={`${uid}-business`}>
-          <span className="lp-wl-label">
-            Business <span className="lp-wl-opt">optional</span>
-          </span>
-          <input
-            id={`${uid}-business`}
-            className="lp-wl-input"
-            value={business}
-            onChange={(e) => setBusiness(e.target.value)}
-            maxLength={160}
-            autoComplete="organization"
-            placeholder="Bluebird Coffee"
-          />
-        </label>
-
-        <label className="lp-wl-field" htmlFor={`${uid}-vertical`}>
-          <span className="lp-wl-label">
-            What kind <span className="lp-wl-opt">optional</span>
-          </span>
-          <select
-            id={`${uid}-vertical`}
-            className="lp-wl-input lp-wl-select"
-            value={vertical}
-            onChange={(e) => setVertical(e.target.value)}
-          >
-            <option value="">Choose one…</option>
-            {VERTICALS.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
+    <form
+      className={`early-form early-form--${theme}`}
+      onSubmit={submitEmail}
+      onFocusCapture={markStarted}
+      aria-label={`Get early access from the ${location}`}
+      data-clarity-mask="true"
+      noValidate
+    >
+      <div className="early-form__email-row">
+        <label className="sr-only" htmlFor={`${uid}-email`}>Work email</label>
+        <input
+          id={`${uid}-email`}
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          maxLength={320}
+          autoComplete="email"
+          inputMode="email"
+          placeholder="you@yourbusiness.com"
+          aria-describedby={`${uid}-fine`}
+          required
+        />
+        <button type="submit" disabled={phase === "sending"}>
+          {phase === "sending" ? "Joining…" : "Get early access"}
+          {phase !== "sending" && <span aria-hidden> →</span>}
+        </button>
       </div>
-
-      {/* Honeypot: off-screen, not display:none — some bots skip hidden fields. */}
       <input
-        className="lp-wl-honey"
+        className="early-form__honey"
         type="text"
         name="website"
         value={honey}
-        onChange={(e) => setHoney(e.target.value)}
+        onChange={(event) => setHoney(event.target.value)}
         tabIndex={-1}
         autoComplete="off"
         aria-hidden
       />
-
-      {error && (
-        <p className="lp-wl-error" role="alert">
-          {error}
-        </p>
-      )}
-
-      <div className="lp-wl-actions">
-        <button type="submit" className="lp-wl-submit" disabled={phase === "sending"}>
-          {phase === "sending" ? "Joining…" : "Join the waitlist"}
-          {phase !== "sending" && <span aria-hidden> →</span>}
-        </button>
-        <span className="lp-wl-fine">
-          No spam. One email when we open a seat. See our{" "}
-          <Link to="/privacy">Privacy Policy</Link>.
-        </span>
-      </div>
+      {error && <p className="early-form__error" role="alert">{error}</p>}
+      <p className="early-form__fine" id={`${uid}-fine`}>
+        Email first. No card. No spam. <Link to="/privacy">Privacy policy</Link>.
+      </p>
     </form>
   );
 }

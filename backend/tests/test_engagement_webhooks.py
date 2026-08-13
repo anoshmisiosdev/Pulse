@@ -21,7 +21,14 @@ import app.core.database as database_module
 from app.core.config import settings
 from app.core.database import Base, get_db
 from app.main import fastapi_app
-from app.models import Business, Campaign, CampaignSend, Customer, EngagementEvent
+from app.models import (
+    Business,
+    Campaign,
+    CampaignSend,
+    Customer,
+    EngagementEvent,
+    WaitlistSignup,
+)
 from conftest import TEST_DATABASE_URL
 
 SECRET = "whsec_" + base64.b64encode(b"test-signing-key-32-bytes-long!!").decode()
@@ -78,6 +85,17 @@ async def seeded(monkeypatch):
                 status="sent",
                 provider_message_id="resend_email_123",
                 sent_at=datetime.now(UTC),
+            )
+        )
+        db.add(
+            WaitlistSignup(
+                email="lead@example.com",
+                name=None,
+                first_touch={},
+                last_touch={},
+                assigned_founder="Aditya Kolekar",
+                confirmation_provider_message_id="waitlist_email_123",
+                confirmation_sent_at=datetime.now(UTC),
             )
         )
         await db.commit()
@@ -164,3 +182,22 @@ async def test_unknown_email_id_is_ignored_not_errored(seeded):
     with TestClient(fastapi_app) as client:
         resp = _post_event(client, "email.opened", email_id="some-other-email-id")
     assert resp.status_code == 200
+
+
+@pytest.mark.parametrize("event_type", ["email.bounced", "email.complained"])
+async def test_waitlist_bounce_or_complaint_cancels_followups(seeded, event_type):
+    SessionLocal, *_ = seeded
+    with TestClient(fastapi_app) as client:
+        response = _post_event(client, event_type, email_id="waitlist_email_123")
+
+    assert response.status_code == 200
+    async with SessionLocal() as db:
+        signup = (
+            await db.execute(
+                WaitlistSignup.__table__.select().where(
+                    WaitlistSignup.email == "lead@example.com"
+                )
+            )
+        ).first()
+    assert signup is not None
+    assert signup.email_opted_out_at is not None

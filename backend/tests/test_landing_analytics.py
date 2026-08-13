@@ -97,17 +97,101 @@ def test_landing_view_accepts_bounded_attribution(monkeypatch):
         },
         json={
             "event": "landing_viewed",
-            "path": "/landing",
+            "path": "/coffee-shop-customer-retention",
             "referrer_host": "search.example",
             "utm_source": "newsletter",
             "utm_medium": "email",
             "utm_campaign": "summer-launch",
+            "utm_content": "aditya_observation_a",
+            "landing_variant": "coffee_shop",
         },
     )
 
     assert response.status_code == 204
     assert calls[0][1]["properties"]["referrer_host"] == "search.example"
     assert calls[0][1]["properties"]["utm_campaign"] == "summer-launch"
+    assert calls[0][1]["properties"]["utm_content"] == "aditya_observation_a"
+    assert calls[0][1]["properties"]["landing_variant"] == "coffee_shop"
+
+
+def test_funnel_steps_accept_content_and_landing_variant(monkeypatch):
+    calls: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(
+        analytics_api,
+        "capture_event",
+        lambda event, **kwargs: calls.append((event, kwargs)),
+    )
+
+    response = TestClient(app).post(
+        "/api/analytics/landing",
+        headers={
+            POSTHOG_DISTINCT_ID_HEADER: "landing-browser-variant",
+            "x-forwarded-for": "198.51.100.205",
+        },
+        json={
+            "event": "landing_waitlist_started",
+            "utm_content": "pranjal_demo_b",
+            "landing_variant": "gym",
+        },
+    )
+
+    assert response.status_code == 204
+    assert calls[0][1]["properties"]["utm_content"] == "pranjal_demo_b"
+    assert calls[0][1]["properties"]["landing_variant"] == "gym"
+
+
+def test_cta_accepts_post_calculator_location(monkeypatch):
+    calls: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(
+        analytics_api,
+        "capture_event",
+        lambda event, **kwargs: calls.append((event, kwargs)),
+    )
+
+    response = TestClient(app).post(
+        "/api/analytics/landing",
+        headers={
+            POSTHOG_DISTINCT_ID_HEADER: "landing-browser-calculator",
+            "x-forwarded-for": "198.51.100.206",
+        },
+        json={
+            "event": "landing_cta_clicked",
+            "cta": "join_waitlist",
+            "location": "calculator",
+            "destination": "waitlist",
+            "landing_variant": "calculator",
+        },
+    )
+
+    assert response.status_code == 204
+    assert calls[0][1]["properties"]["location"] == "calculator"
+
+
+def test_calculator_accepts_every_public_control(monkeypatch):
+    calls: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(
+        analytics_api,
+        "capture_event",
+        lambda event, **kwargs: calls.append((event, kwargs)),
+    )
+
+    response = TestClient(app).post(
+        "/api/analytics/landing",
+        headers={
+            POSTHOG_DISTINCT_ID_HEADER: "landing-browser-calculator-value",
+            "x-forwarded-for": "198.51.100.207",
+        },
+        json={
+            "event": "landing_demo_interacted",
+            "control": "monthly_value",
+            "vertical": "cafe",
+            "risk_band": "watch",
+            "landing_variant": "calculator_v1",
+        },
+    )
+
+    assert response.status_code == 204
+    assert calls[0][1]["properties"]["control"] == "monthly_value"
 
 
 def test_landing_metric_without_consent_header_is_not_forwarded(monkeypatch):
