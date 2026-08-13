@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from app.scoring import CustomerActivity, SpendEvent, score_customer
 from app.scoring.config import get_vertical_config
+from app.scoring.engine import _count_between
 
 
 def _every_n_days(now, n, span_days, end_days_ago=0):
@@ -131,3 +132,31 @@ def test_score_is_bounded_and_band_consistent(now):
     result = score_customer(activity, vertical=cfg, now=now)
     assert 0 <= result.score <= 100
     assert result.band in ("low", "med", "high")
+
+
+def test_activity_today_counts_toward_the_recent_window():
+    """Regression: the recent window's upper bound is closed. A purchase timestamped
+    exactly at ``now`` used to fall into no window at all, so a customer who bought
+    something today scored as 100% spend decline against their prior quarter."""
+    now = datetime(2026, 8, 13)
+    activity = CustomerActivity(
+        customer_id="today",
+        visit_dates=[now - timedelta(days=d) for d in (0, 30, 60, 90, 120)],
+        spend_events=[
+            SpendEvent(at=now, amount=50.0),
+            SpendEvent(at=now - timedelta(days=120), amount=50.0),
+        ],
+    )
+    result = score_customer(activity, vertical="med_spa", now=now)
+    # Equal spend in each window -> no monetary risk, and certainly not a claim of
+    # total collapse.
+    assert result.signals.get("monetary", 0.0) < 0.5
+    assert not any("down 100%" in r for r in result.reasons)
+
+
+def test_adjacent_windows_never_double_count_a_boundary_date():
+    """The flip side: only the most-recent window is closed, so a visit sitting
+    exactly on an interior boundary belongs to one window, not both."""
+    now = datetime(2026, 8, 13)
+    boundary = now - timedelta(days=30)
+    assert _count_between([boundary], now, 30, 0) + _count_between([boundary], now, 120, 30) == 1
