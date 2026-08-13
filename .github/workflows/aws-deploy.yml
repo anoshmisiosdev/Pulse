@@ -1,8 +1,25 @@
 name: Deploy backend to AWS
 
-# Builds the backend image and pushes it to ECR. App Runner has
-# auto-deployments enabled, so a new :latest image rolls out on its own.
-# Auth is OIDC (role pulse-github-deploy) — no AWS keys stored in GitHub.
+# Builds the backend image, pushes it to ECR, then *drives and verifies* the
+# App Runner rollout.
+#
+# It used to stop after `docker push`, trusting App Runner's auto-deploy to pick
+# the new :latest up. When that didn't happen the job still went green, and the
+# deployed API sat a week behind main — serving responses without the fields the
+# frontend had already shipped against. A deploy that can't tell you whether new
+# code is actually running isn't a deploy, so this now:
+#
+#   1. bakes the commit SHA into the image (Dockerfile APP_REVISION)
+#   2. explicitly calls start-deployment instead of hoping auto-deploy fires
+#   3. waits for the operation to finish
+#   4. polls /api/health until `revision` equals the SHA it just built
+#
+# Step 4 is the one that matters: it fails the job if the running container is
+# still the old one, which is precisely the failure that went unnoticed before.
+#
+# Auth is OIDC (role pulse-github-deploy) — no AWS keys stored in GitHub. The role
+# needs ecr push permissions plus apprunner:ListServices, apprunner:StartDeployment
+# and apprunner:ListOperations.
 
 on:
   push:
@@ -10,6 +27,8 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/aws-deploy.yml"
+  # Lets you redeploy the current main without an empty commit.
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -18,6 +37,7 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECR_REPO: 761018860175.dkr.ecr.us-east-1.amazonaws.com/pulse-api
+  SERVICE_NAME: pulse-api
 
 jobs:
   deploy:
@@ -36,7 +56,79 @@ jobs:
 
       - name: Build and push image
         run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA::7}"
+          echo "SHA=$SHA" >> "$GITHUB_ENV"
           docker build --platform linux/amd64 \
-            -t "$ECR_REPO:latest" -t "$ECR_REPO:${GITHUB_SHA::7}" backend
+            --build-arg "APP_REVISION=$SHA" \
+            -t "$ECR_REPO:latest" -t "$ECR_REPO:$SHA" backend
           docker push "$ECR_REPO:latest"
-          docker push "$ECR_REPO:${GITHUB_SHA::7}"
+          docker push "$ECR_REPO:$SHA"
+
+      - name: Resolve the App Runner service
+        run: |
+          set -euo pipefail
+          # Looked up by name rather than hardcoding an ARN, so recreating the
+          # service doesn't silently break deploys.
+          ARN=$(aws apprunner list-services \
+            --query "ServiceSummaryList[?ServiceName=='${SERVICE_NAME}'].ServiceArn | [0]" \
+            --output text)
+          if [ -z "$ARN" ] || [ "$ARN" = "None" ]; then
+            echo "::error::No App Runner service named '${SERVICE_NAME}' in ${AWS_REGION}."
+            exit 1
+          fi
+          echo "SERVICE_ARN=$ARN" >> "$GITHUB_ENV"
+          URL=$(aws apprunner describe-service --service-arn "$ARN" \
+            --query "Service.ServiceUrl" --output text)
+          echo "SERVICE_URL=https://$URL" >> "$GITHUB_ENV"
+          echo "Service: $ARN"
+          echo "URL:     https://$URL"
+
+      - name: Start the rollout
+        run: |
+          set -euo pipefail
+          OP=$(aws apprunner start-deployment --service-arn "$SERVICE_ARN" \
+            --query "OperationId" --output text)
+          echo "OPERATION_ID=$OP" >> "$GITHUB_ENV"
+          echo "Started deployment $OP"
+
+      - name: Wait for the rollout to finish
+        run: |
+          set -euo pipefail
+          # App Runner has no waiter for start-deployment, so poll the operation.
+          for _ in $(seq 1 60); do   # up to ~15 min
+            STATUS=$(aws apprunner list-operations --service-arn "$SERVICE_ARN" \
+              --query "OperationSummaryList[?Id=='${OPERATION_ID}'].Status | [0]" \
+              --output text)
+            echo "status: $STATUS"
+            case "$STATUS" in
+              SUCCEEDED) exit 0 ;;
+              FAILED|ROLLBACK_IN_PROGRESS|ROLLBACK_SUCCEEDED|ROLLBACK_FAILED)
+                echo "::error::Rollout $OPERATION_ID ended as $STATUS."
+                echo "Check App Runner → Logs → Application logs for the container's traceback."
+                exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "::error::Rollout did not finish within 15 minutes."
+          exit 1
+
+      - name: Verify the running container is the code we just built
+        run: |
+          set -euo pipefail
+          # The check that would have caught the week-long staleness: compare the
+          # revision the live service reports against the SHA built above.
+          for _ in $(seq 1 20); do   # up to ~5 min for the new task to serve traffic
+            BODY=$(curl -fsS --max-time 20 "${SERVICE_URL}/api/health" || echo '{}')
+            LIVE=$(printf '%s' "$BODY" | python3 -c \
+              'import json,sys; print(json.load(sys.stdin).get("revision","")) ' 2>/dev/null || echo "")
+            echo "live revision: '${LIVE}' (want '${SHA}')"
+            if [ "$LIVE" = "$SHA" ]; then
+              echo "Deployed and serving ${SHA}."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::Service is healthy but still reports revision '${LIVE}', not '${SHA}'."
+          echo "The image was pushed but the running container was not replaced."
+          exit 1

@@ -19,6 +19,10 @@ class Settings(BaseSettings):
 
     # Core
     environment: Literal["development", "staging", "production"] = "development"
+    # Commit this build came from, baked in by the Docker build (see Dockerfile)
+    # and reported at /api/health so a rollout can be verified from outside.
+    # Empty when running from source.
+    app_revision: str = ""
     log_level: str = "INFO"
     api_base_url: str = "http://localhost:8000"
     frontend_origin: str = "http://localhost:5173"

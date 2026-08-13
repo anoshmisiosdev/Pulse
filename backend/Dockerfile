@@ -29,6 +29,12 @@ WORKDIR /app
 COPY --from=builder /app /app
 ENV PATH="/app/.venv/bin:$PATH"
 
+# The commit this image was built from, surfaced at /api/health as `revision`.
+# Without it there is no way to tell from outside whether a rollout actually
+# happened — which is how the deployed API sat a week behind main unnoticed.
+ARG APP_REVISION=""
+ENV APP_REVISION=$APP_REVISION
+
 EXPOSE 8000
 # Shell form so $PORT (set by Render/Railway/Fly) is honored. Production never
 # starts on a stale schema; local/offline containers keep the previous soft-fail.

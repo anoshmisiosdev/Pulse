@@ -94,3 +94,19 @@ def test_me_demo_fallback_when_unconfigured(supabase_unconfigured):
     r = client.get("/api/auth/me")
     assert r.status_code == 200
     assert r.json()["business_name"]
+
+
+# ── /api/health ───────────────────────────────────────────────────────────────
+def test_health_reports_the_build_revision(monkeypatch):
+    """The deploy workflow polls this field to confirm a rollout actually replaced
+    the running container — a successful `docker push` is not the same thing as new
+    code serving traffic. Falls back to "unknown" when running from source."""
+    monkeypatch.setattr(settings, "app_revision", "abc1234")
+    body = client.get("/api/health").json()
+    assert body["revision"] == "abc1234"
+    assert body["status"] == "ok"
+
+
+def test_health_revision_is_unknown_when_unset(monkeypatch):
+    monkeypatch.setattr(settings, "app_revision", "")
+    assert client.get("/api/health").json()["revision"] == "unknown"
