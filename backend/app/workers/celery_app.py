@@ -46,6 +46,13 @@ celery.conf.update(
             "task": "app.workers.celery_app.dispatch_automations_tick",
             "schedule": settings.automation_dispatch_interval_seconds,
         },
+        "detect-recoveries": {
+            "task": "app.workers.celery_app.detect_recoveries_tick",
+            # Hourly. Recovery is measured in days-to-weeks, so this only needs to
+            # be frequent enough that the dashboard isn't visibly stale — and it
+            # re-reads the same rows every run, so there's no reason to hammer it.
+            "schedule": 60 * 60.0,
+        },
     },
 )
 
@@ -131,6 +138,37 @@ async def _run_pricing_monitors() -> dict:
                 watch.next_run_at = now + timedelta(hours=watch.interval_hours)
         await db.commit()
     return {"status": "ok", "researched": completed}
+
+
+@celery.task
+def detect_recoveries_tick() -> dict:
+    """Close the loop: credit customers who came back after we contacted them.
+
+    Idempotent by design (see app/services/attribution.py) — a customer already
+    holding a RecoveryAttribution row is excluded from matching, so re-running
+    can't double-count revenue.
+    """
+    from app.services.attribution import detect_recoveries
+
+    async def _detect(db, bid: str) -> dict:
+        summary = await detect_recoveries(db, bid)
+        return {
+            "recoveries_found": summary.recoveries_found,
+            "revenue_recovered": summary.revenue_recovered,
+        }
+
+    results = asyncio.run(_for_every_business(_detect))
+    found = sum(r["recoveries_found"] for r in results.values() if isinstance(r, dict))
+    revenue = sum(r["revenue_recovered"] for r in results.values() if isinstance(r, dict))
+    logger.info(
+        "detect_recoveries_tick complete: %d recoveries, %.2f recovered", found, revenue
+    )
+    return {
+        "status": "ok",
+        "businesses": len(results),
+        "recoveries_found": found,
+        "revenue_recovered": round(revenue, 2),
+    }
 
 
 @celery.task

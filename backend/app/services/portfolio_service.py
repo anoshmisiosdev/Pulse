@@ -17,12 +17,22 @@ from app.services.activity import (
     monthly_revenue_series,
     summarize,
 )
+from app.services.attribution import recovery_totals
 
 
-def to_risk(scored: list[ScoredCustomer]) -> list[CustomerRisk]:
+def to_risk(scored: list[ScoredCustomer], persisted: bool = False) -> list[CustomerRisk]:
+    """Shape scored rows for the API.
+
+    ``persisted=True`` means these came from ``ingest.load_sync``, which sets
+    ``NormalizedCustomer.external_id`` to the ``customers.id`` primary key — the
+    only case where we can hand the UI a real row id (used by the timeline
+    endpoint). The CSV-preview and demo paths score in memory with no DB rows, so
+    they leave it null.
+    """
     rows = [
         CustomerRisk(
             customer_id=s.result.customer_id,
+            db_customer_id=s.customer.external_id if persisted else None,
             name=s.customer.full_name,
             email=s.customer.email,
             phone=s.customer.phone,
@@ -39,6 +49,8 @@ def to_risk(scored: list[ScoredCustomer]) -> list[CustomerRisk]:
             confidence=s.confidence,
             trend_pct=s.trend_pct,
             favorite_item=s.customer.favorite_item,
+            recommended_action=s.recommended_action,
+            action_reason=s.action_reason,
         )
         for s in scored
     ]
@@ -76,11 +88,16 @@ async def build_portfolio(db: AsyncSession, user: CurrentUser) -> PortfolioOut:
 
     scored = build_scored_customers(sync, vertical=vertical)
     summary = summarize(scored, monthly_revenue_series(sync))
+    totals = await recovery_totals(db, user.business_id)
     return PortfolioOut(
         status="ready",
         business_name=name,
         vertical=vertical,
-        summary=PortfolioSummaryOut(**summary.__dict__),
-        customers=to_risk(scored),
+        summary=PortfolioSummaryOut(
+            **summary.__dict__,
+            recovered_count=totals.recovered_count,
+            revenue_recovered=totals.revenue_recovered,
+        ),
+        customers=to_risk(scored, persisted=True),
         connections=connections,
     )

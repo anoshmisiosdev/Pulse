@@ -6,7 +6,14 @@ from pydantic import BaseModel
 
 
 class CustomerRisk(BaseModel):
+    # Dedupe identity (email or phone) — stable across re-imports, and the id the
+    # UI has always keyed rows on. NOT a database id: the CSV-preview and demo
+    # paths score entirely in memory with nothing persisted.
     customer_id: str
+    # The customers.id primary key, present only when this row came from the
+    # tenant's persisted data. Endpoints that need a real row (the timeline) key
+    # off this, and the UI hides those affordances when it's null.
+    db_customer_id: str | None = None
     name: str
     email: str | None = None
     phone: str | None = None
@@ -23,6 +30,9 @@ class CustomerRisk(BaseModel):
     confidence: str = "medium"
     trend_pct: int = 0
     favorite_item: str | None = None
+    # What to do next, and why — see services/activity.recommend_action.
+    recommended_action: str = "email"
+    action_reason: str = ""
 
 
 class PortfolioSummaryOut(BaseModel):
@@ -33,6 +43,27 @@ class PortfolioSummaryOut(BaseModel):
     revenue_at_risk: float
     avg_days_away: float = 0.0
     revenue_series: list[dict] = []
+    # Observed recoveries (services/attribution.py). Zero on the CSV-preview and
+    # demo paths, which have no send history to attribute against.
+    recovered_count: int = 0
+    revenue_recovered: float = 0.0
+
+
+class TimelineEntry(BaseModel):
+    """One dated thing that happened to a customer, from any of the five streams
+    we already persist. ``kind`` drives the icon/colour in the UI."""
+
+    at: str  # ISO 8601
+    kind: str
+    title: str
+    detail: str | None = None
+    amount: float | None = None
+
+
+class CustomerTimelineOut(BaseModel):
+    customer_id: str
+    name: str
+    entries: list[TimelineEntry] = []
 
 
 class CSVPreviewOut(BaseModel):
@@ -116,6 +147,13 @@ class DispatchSummaryOut(BaseModel):
     rules_evaluated: int
     sends_created: int
     skipped: dict[str, int]
+
+
+class RecoverySummaryOut(BaseModel):
+    recoveries_found: int
+    revenue_recovered: float
+    sends_considered: int
+    skipped: dict[str, int] = {}
 
 
 # ── RAG knowledge base (grounds campaign generation in the business's own voice) ──

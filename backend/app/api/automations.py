@@ -27,7 +27,9 @@ from app.schemas.api import (
     AutomationRulePatch,
     CampaignSendOut,
     DispatchSummaryOut,
+    RecoverySummaryOut,
 )
+from app.services.attribution import detect_recoveries
 from app.services.automations import attempt_send, dispatch_automations
 from app.services.ingest import _uuid
 from app.services.webhooks import verify_svix_signature
@@ -213,6 +215,24 @@ async def trigger_dispatch(
     return DispatchSummaryOut(
         rules_evaluated=summary.rules_evaluated,
         sends_created=summary.sends_created,
+        skipped=summary.skipped,
+    )
+
+
+@router.post("/attribute", response_model=RecoverySummaryOut)
+async def trigger_attribution(
+    db: AsyncSession = Depends(get_db), user: CurrentUser = CurrentUserDep
+) -> RecoverySummaryOut:
+    """Run recovery attribution now rather than waiting for the hourly tick.
+
+    Safe to call repeatedly — attribution is idempotent per customer.
+    """
+    summary = await detect_recoveries(db, user.business_id)
+    await db.commit()
+    return RecoverySummaryOut(
+        recoveries_found=summary.recoveries_found,
+        revenue_recovered=summary.revenue_recovered,
+        sends_considered=summary.sends_considered,
         skipped=summary.skipped,
     )
 
