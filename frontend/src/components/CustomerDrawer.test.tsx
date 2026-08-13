@@ -60,6 +60,29 @@ describe("CustomerDrawer", () => {
     expect(html).not.toContain("Loading history");
   });
 
+  it("never renders the string 'undefined' when the API is missing newer fields", () => {
+    // A frontend can outrun its backend: mid-deploy, or pointed at a stale API,
+    // fields added by recent releases are simply absent. That used to surface as
+    // "undefined/100" in the Return likelihood tile.
+    const stale = { ...CUSTOMER };
+    for (const key of [
+      "return_likelihood",
+      "expected_next_visit",
+      "days_overdue",
+      "payment_issue",
+      "recommended_action",
+      "action_reason",
+    ]) {
+      delete (stale as Record<string, unknown>)[key];
+    }
+    const html = render(stale as CustomerRisk);
+    expect(html).not.toContain("undefined");
+    expect(html).not.toContain("NaN");
+    // Still a usable panel rather than a blank one.
+    expect(html).toContain("Dana Reyes");
+    expect(html).toContain("Return likelihood");
+  });
+
   it("falls back to a safe action label if the backend adds a new action", () => {
     const html = render({
       ...CUSTOMER,

@@ -12,8 +12,15 @@ from app.services.competitor_prices.pricing_extraction_service import (
 )
 from app.services.competitor_prices.schemas import DiscoveredCompetitor, DiscoveredSource
 
+# encoding is explicit on purpose: read_text() defaults to the platform encoding,
+# which is cp1252 on Windows. The corpus contains en dashes ("$5.25–$6.25"), so the
+# fixture loaded as mojibake there — the range separator stopped being an en dash,
+# _PRICE_RE matched only the lower bound, and coffee-en-dash-range failed on Windows
+# while passing on Linux CI. The parser was always fine; the loader wasn't.
 CASES = json.loads(
-    (Path(__file__).parent / "fixtures" / "pricing_extraction_cases.json").read_text()
+    (Path(__file__).parent / "fixtures" / "pricing_extraction_cases.json").read_text(
+        encoding="utf-8"
+    )
 )
 
 
