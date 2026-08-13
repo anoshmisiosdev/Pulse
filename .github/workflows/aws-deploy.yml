@@ -37,6 +37,9 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECR_REPO: 761018860175.dkr.ecr.us-east-1.amazonaws.com/pulse-api
+  # Fallbacks for locating the App Runner service when APPRUNNER_SERVICE_ARN
+  # isn't set. SERVICE_HOST is the stable subdomain of the live service URL.
+  SERVICE_HOST: tqcemv39hs
   SERVICE_NAME: pulse-api
 
 jobs:
@@ -68,15 +71,37 @@ jobs:
       - name: Resolve the App Runner service
         run: |
           set -euo pipefail
-          # Looked up by name rather than hardcoding an ARN, so recreating the
-          # service doesn't silently break deploys.
-          ARN=$(aws apprunner list-services \
-            --query "ServiceSummaryList[?ServiceName=='${SERVICE_NAME}'].ServiceArn | [0]" \
-            --output text)
+          # Three ways in, most explicit first, because guessing the service name
+          # is what broke this step on its first run:
+          #   1. the APPRUNNER_SERVICE_ARN repo variable, if set
+          #   2. the service whose URL matches SERVICE_HOST (stable per service)
+          #   3. a service literally named $SERVICE_NAME
+          ARN="${{ vars.APPRUNNER_SERVICE_ARN }}"
+
+          if [ -z "$ARN" ]; then
+            if ! SERVICES=$(aws apprunner list-services \
+                  --query "ServiceSummaryList[].[ServiceName,ServiceUrl,ServiceArn]" \
+                  --output text 2>&1); then
+              echo "::error::Cannot list App Runner services. The OIDC role needs"
+              echo "apprunner:ListServices (plus DescribeService, StartDeployment,"
+              echo "ListOperations), or set the APPRUNNER_SERVICE_ARN repo variable."
+              echo "aws said: $SERVICES"
+              exit 1
+            fi
+            echo "Services visible in ${AWS_REGION}:"
+            printf '%s\n' "$SERVICES" | sed 's/^/  /'
+            ARN=$(printf '%s\n' "$SERVICES" | awk -v h="$SERVICE_HOST" '$2 ~ h {print $3; exit}')
+            [ -n "$ARN" ] || ARN=$(printf '%s\n' "$SERVICES" \
+              | awk -v n="$SERVICE_NAME" '$1 == n {print $3; exit}')
+          fi
+
           if [ -z "$ARN" ] || [ "$ARN" = "None" ]; then
-            echo "::error::No App Runner service named '${SERVICE_NAME}' in ${AWS_REGION}."
+            echo "::error::Could not identify the App Runner service. Set the"
+            echo "APPRUNNER_SERVICE_ARN repo variable (Settings → Secrets and"
+            echo "variables → Actions → Variables) to the service's ARN."
             exit 1
           fi
+
           echo "SERVICE_ARN=$ARN" >> "$GITHUB_ENV"
           URL=$(aws apprunner describe-service --service-arn "$ARN" \
             --query "Service.ServiceUrl" --output text)
