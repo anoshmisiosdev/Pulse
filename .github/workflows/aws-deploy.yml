@@ -82,9 +82,13 @@ jobs:
             if ! SERVICES=$(aws apprunner list-services \
                   --query "ServiceSummaryList[].[ServiceName,ServiceUrl,ServiceArn]" \
                   --output text 2>&1); then
-              echo "::error::Cannot list App Runner services. The OIDC role needs"
-              echo "apprunner:ListServices (plus DescribeService, StartDeployment,"
-              echo "ListOperations), or set the APPRUNNER_SERVICE_ARN repo variable."
+              echo "::error::Cannot list App Runner services, so the rollout can't be"
+              echo "driven. Two ways to fix, either is enough:"
+              echo "  (a) set the APPRUNNER_SERVICE_ARN repo variable (Settings →"
+              echo "      Secrets and variables → Actions → Variables) — then this"
+              echo "      step needs only apprunner:DescribeService, StartDeployment"
+              echo "      and ListOperations, not ListServices; or"
+              echo "  (b) grant apprunner:ListServices to the pulse-github-deploy role."
               echo "aws said: $SERVICES"
               exit 1
             fi
@@ -103,11 +107,22 @@ jobs:
           fi
 
           echo "SERVICE_ARN=$ARN" >> "$GITHUB_ENV"
-          URL=$(aws apprunner describe-service --service-arn "$ARN" \
-            --query "Service.ServiceUrl" --output text)
+          read -r URL IMAGE AUTO < <(aws apprunner describe-service --service-arn "$ARN" \
+            --query "Service.[ServiceUrl,SourceConfiguration.ImageRepository.ImageIdentifier,SourceConfiguration.AutoDeploymentsEnabled]" \
+            --output text)
           echo "SERVICE_URL=https://$URL" >> "$GITHUB_ENV"
-          echo "Service: $ARN"
-          echo "URL:     https://$URL"
+          echo "Service:      $ARN"
+          echo "URL:          https://$URL"
+          # These two lines explain a "successful" deploy that changes nothing: if
+          # the image identifier is pinned to a tag other than :latest, every
+          # rollout re-pulls the same build forever.
+          echo "Image URI:    $IMAGE"
+          echo "Auto-deploy:  $AUTO"
+          case "$IMAGE" in
+            *:latest) ;;
+            *) echo "::warning::Service pulls '$IMAGE', not ':latest'. Pushing a new"
+               echo "::warning:::latest will never reach it — repoint the service's image URI." ;;
+          esac
 
       - name: Start the rollout
         run: |
