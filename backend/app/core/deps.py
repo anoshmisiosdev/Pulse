@@ -42,12 +42,25 @@ def _tenant_from_claims(claims: dict) -> CurrentUser:
     )
 
 
+def demo_tenant_allowed() -> bool:
+    """Whether an unauthenticated request may fall back to the demo tenant.
+
+    Two ways in, both dev-only: Supabase simply isn't configured, or it is but
+    ``AUTH_DISABLED=true`` asks us to ignore it for a local run. Production is
+    excluded twice — here, and by the settings validator that refuses to boot
+    with ``AUTH_DISABLED`` set.
+    """
+    if settings.is_production:
+        return False
+    return settings.auth_disabled or not settings.auth_configured
+
+
 async def get_current_user(
     authorization: str | None = Header(default=None),
 ) -> CurrentUser:
     """Resolve the caller from a Supabase Bearer token, or a demo user in dev."""
     if not authorization:
-        if not settings.is_production and not settings.auth_configured:
+        if demo_tenant_allowed():
             return CurrentUser(
                 user_id="demo-user",
                 email="demo@pulse.app",

@@ -22,6 +22,11 @@ from app.scoring.config import get_vertical_config
 SEGMENTS = ("needs_attention", "slipping_away", "keep_an_eye_on", "regulars", "new")
 # Churn patterns shown in "Why They Leave".
 PATTERNS = ("fading_away", "stopped_suddenly", "group_left", "not_enough_data")
+# What we think the owner should actually *do*, in escalation order. Not every
+# at-risk customer wants an email: the owner's time is the scarcest resource, so
+# spend it on the ones where a phone call pays for itself and explicitly tell them
+# who to leave alone.
+ACTIONS = ("wait", "watch", "welcome", "email", "offer", "owner_call")
 
 
 @dataclass
@@ -42,6 +47,11 @@ class ScoredCustomer:
     expected_next_visit: str | None
     days_overdue: int
     payment_issue: bool
+    # Set in a second pass by build_scored_customers — "owner_call" is relative to
+    # the rest of the portfolio, so it can't be decided one customer at a time.
+    # Defaulted, so these stay last: the fields above are required.
+    recommended_action: str = "email"
+    action_reason: str = ""
 
 
 @dataclass
@@ -162,6 +172,98 @@ def _confidence(visit_count: int) -> str:
     return "low"
 
 
+def _high_value_threshold(values: list[float]) -> float:
+    """75th percentile of annual value, used to decide who is worth the owner's
+    own phone call. Relative to *this* portfolio on purpose — "high value" at a
+    corner cafe and at a med spa are different numbers, and hardcoding one would
+    be wrong for everybody."""
+    positive = sorted(v for v in values if v > 0)
+    if not positive:
+        return 0.0
+    return positive[int(0.75 * (len(positive) - 1))]
+
+
+def recommend_action(scored: ScoredCustomer, high_value_threshold: float) -> tuple[str, str]:
+    """Pick the single next action for one customer. Returns ``(action, reason)``.
+
+    Pure and deterministic — no LLM. The reason is shown to the owner verbatim, so
+    it must cite real numbers from this customer's record (same rule as the scoring
+    engine's ``reasons``): never a generic platitude, never an invented fact.
+
+    First match wins; ordering encodes the product opinion.
+    """
+    band = scored.result.band
+    value = scored.estimated_annual_value
+    days = scored.days_since_last_visit
+
+    # ── evidence guards first ────────────────────────────────────────────────
+    # Both of these mean "the value estimate isn't trustworthy", so they have to
+    # precede owner_call: estimated_annual_value is extrapolated from the observed
+    # span, which for a two-week-old customer annualizes a fortnight into a year and
+    # can nominate them as your most valuable client.
+    if scored.segment == "new":
+        return (
+            "welcome",
+            f"Joined recently with {scored.visit_count} "
+            f"visit{'s' if scored.visit_count != 1 else ''} so far — a warm welcome "
+            "beats a win-back offer.",
+        )
+
+    # Genuinely no evidence: a single visit row *and* no recorded spend. Note this
+    # deliberately does NOT fire on thin visit history alone — an aggregate CSV
+    # (the main onboarding path) synthesizes exactly one visit per customer from
+    # their last_visit date, yet still carries tenure and lifetime spend. Gating on
+    # visit_count alone marked every customer from an uploaded CSV "just watch",
+    # which is the whole portfolio for most new accounts.
+    if scored.visit_count < 2 and scored.total_spend <= 0:
+        return (
+            "watch",
+            "One recorded visit and no spend on file, so the risk score is a guess — "
+            "worth watching, not worth spending an offer on.",
+        )
+
+    # ── then act, most-expensive intervention first ──────────────────────────
+    if band == "high" and high_value_threshold > 0 and value >= high_value_threshold:
+        away = f"{days} days" if days is not None else "a while"
+        return (
+            "owner_call",
+            f"Worth about ${value:,.0f}/yr and away {away} — one of your most "
+            "valuable at-risk customers. A call from you personally will land "
+            "better than an email.",
+        )
+
+    # An incentive is the move for someone who still shows up but has traded down —
+    # not for someone who vanished. Both look identical on the monetary signal alone
+    # (a lapsed customer's recent spend is also zero), so this also requires that
+    # they're still visiting. Without the recency check the reason below asserts
+    # "still coming in" about a customer not seen in months, which is exactly the
+    # kind of fabricated claim these reasons must never make.
+    #
+    # This sits ABOVE the low-band check on purpose. Churn risk is recency-weighted
+    # (0.40) far more than spend (0.15), so a customer who still turns up on cadence
+    # while their ticket collapses scores *low* — and "leave them alone" is the wrong
+    # call on someone quietly taking their money elsewhere. Low churn risk is not the
+    # same as no revenue risk.
+    monetary_risk = scored.result.signals.get("monetary", 0.0)
+    still_visiting = scored.result.signals.get("recency", 1.0) < 0.5
+    if monetary_risk >= 0.5 and still_visiting:
+        return (
+            "offer",
+            f"Still coming in, but spending {int(round(monetary_risk * 100))}% less "
+            "than they used to — a small incentive is the cheapest way to reset that.",
+        )
+
+    if band == "low":
+        return "wait", "Visiting on their normal cadence — no outreach needed right now."
+
+    away = f"{days} days" if days is not None else "longer than usual"
+    return (
+        "email",
+        f"Away {away} with no other complicating signal — a personal win-back "
+        "email is the right first touch.",
+    )
+
+
 def build_scored_customers(
     sync: SyncResult, vertical: str | None = None, now: datetime | None = None
 ) -> list[ScoredCustomer]:
@@ -251,6 +353,11 @@ def build_scored_customers(
                 payment_issue=failed_payment,
             )
         )
+
+    # Second pass: "worth the owner's own call" is a portfolio-relative judgement.
+    threshold = _high_value_threshold([s.estimated_annual_value for s in scored])
+    for s in scored:
+        s.recommended_action, s.action_reason = recommend_action(s, threshold)
     return scored
 
 

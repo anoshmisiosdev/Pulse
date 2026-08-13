@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { usePulse } from "../context/PulseContext";
 import { relativeDays, type CustomerRisk } from "../lib/api";
-import { urgencyOf } from "../lib/segments";
+import { ACTIONS, urgencyOf } from "../lib/segments";
 import CustomerDrawer from "../components/CustomerDrawer";
 
 export default function Retention() {
@@ -160,6 +160,7 @@ export default function Retention() {
 function UrgentRow({ rank, customer, done, onAct, onUndo }: {
   rank: number; customer: CustomerRisk; done: boolean; onAct: () => void; onUndo: () => void;
 }) {
+  const action = ACTIONS[customer.recommended_action] ?? ACTIONS.email;
   return (
     <div
       className="flex items-center gap-4 rounded-2xl border px-5 py-4 transition-all"
@@ -182,15 +183,15 @@ function UrgentRow({ rank, customer, done, onAct, onUndo }: {
           {!done && (
             <span
               className="rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase"
-              style={{ background: "#F7E3DC", color: "#A23B1E", letterSpacing: "0.04em" }}
+              style={{ background: action.bg, color: action.color, letterSpacing: "0.04em" }}
             >
-              Urgent
+              {action.icon} {action.label}
             </span>
           )}
         </p>
         <p className="mt-0.5 truncate text-[13px]" style={{ color: "var(--muted)" }}>
-          Last visited {relativeDays(customer.days_since_last_visit)}
-          {customer.favorite_item && ` · Loves ${customer.favorite_item}`}
+          {customer.action_reason ||
+            `Last visited ${relativeDays(customer.days_since_last_visit)}`}
         </p>
       </div>
       {done ? (

@@ -40,6 +40,14 @@ AGENTS.md
 outputs/
 backend/celerybeat-schedule
 
+# Throwaway local SQLite databases (the no-Docker dev path — see README).
+*.db
+*.db-journal
+
+# Generated test fixtures. Not committed on purpose: scoring is recency-based, so
+# absolute dates rot — regenerate with app.scripts.make_test_data instead.
+testdata/
+
 # Standalone landing-page export (npm run preview:export) — build output
 frontend/.preview-dist/
 churnary-landing-preview.html

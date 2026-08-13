@@ -29,8 +29,22 @@ export type Pattern =
   | "not_enough_data"
   | null;
 
+/** What Churnary thinks the owner should actually do next. Deterministic, derived
+ * from the customer's own signals — see backend services/activity.recommend_action. */
+export type RecommendedAction =
+  | "wait"
+  | "watch"
+  | "welcome"
+  | "email"
+  | "offer"
+  | "owner_call";
+
 export interface CustomerRisk {
+  /** Dedupe identity (email/phone). Stable, but NOT a database id. */
   customer_id: string;
+  /** The real customers.id row — null on the demo/CSV-preview paths, which
+   * persist nothing. Endpoints needing a row (the timeline) require this. */
+  db_customer_id: string | null;
   name: string;
   email: string | null;
   phone: string | null;
@@ -52,6 +66,8 @@ export interface CustomerRisk {
   expected_next_visit: string | null;
   days_overdue: number;
   payment_issue: boolean;
+  recommended_action: RecommendedAction;
+  action_reason: string;
 }
 
 export interface PortfolioSummary {
@@ -62,6 +78,38 @@ export interface PortfolioSummary {
   revenue_at_risk: number;
   avg_days_away: number;
   revenue_series: { month: string; amount: number }[];
+  /** Observed recoveries, attributed server-side. Zero on the demo path. */
+  recovered_count: number;
+  revenue_recovered: number;
+}
+
+export type TimelineKind =
+  | "visit"
+  | "purchase"
+  | "engagement"
+  | "risk_change"
+  | "outreach"
+  | "recovered";
+
+export interface TimelineEntry {
+  at: string;
+  kind: TimelineKind;
+  title: string;
+  detail: string | null;
+  amount: number | null;
+}
+
+export interface CustomerTimeline {
+  customer_id: string;
+  name: string;
+  entries: TimelineEntry[];
+}
+
+export interface RecoverySummary {
+  recoveries_found: number;
+  revenue_recovered: number;
+  sends_considered: number;
+  skipped: Record<string, number>;
 }
 
 export interface Connection {
@@ -995,6 +1043,24 @@ export const api = {
       headers: authHeaders(),
     });
     return asJson<DispatchSummary>(res);
+  },
+
+  /** Everything that happened to one customer, newest first. Takes the
+   * `db_customer_id` from a CustomerRisk row, not `customer_id`. */
+  async customerTimeline(dbCustomerId: string, limit = 100): Promise<CustomerTimeline> {
+    return getJson<CustomerTimeline>(
+      `/api/customers/${dbCustomerId}/timeline?limit=${limit}`
+    );
+  },
+
+  /** Run recovery attribution now instead of waiting for the hourly worker tick.
+   * Idempotent server-side, so calling it twice can't double-count revenue. */
+  async runAttribution(): Promise<RecoverySummary> {
+    const res = await fetch(`${BASE}/api/automations/attribute`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<RecoverySummary>(res);
   },
 };
 

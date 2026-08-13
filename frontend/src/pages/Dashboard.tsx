@@ -15,7 +15,7 @@ const VISIT_BUCKETS = [
 
 /** 0→1 mount progress, easeOutCubic over 1s — drives count-ups. */
 export default function Dashboard() {
-  const { customers, portfolio, currency, revenueRecovered } = usePulse();
+  const { customers, portfolio, currency, revenueRecovered, recoveredCount } = usePulse();
   const s = portfolio?.summary;
   const p = useMountProgress();
   const [queueSort, setQueueSort] = useState<"risk" | "value">("risk");
@@ -117,7 +117,11 @@ export default function Dashboard() {
           tone="positive"
           label="Revenue retained"
           value={formatCurrency(revenueRecovered * p, false, currency)}
-          sub={revenueRecovered > 0 ? "Recovered through outreach" : "Ready to start recovering"}
+          sub={
+            recoveredCount > 0
+              ? `Observed from ${recoveredCount} customer${recoveredCount === 1 ? "" : "s"} who came back`
+              : "Ready to start recovering"
+          }
         />
       </section>
 

@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = ""
     supabase_service_role_key: str = ""  # server-only admin ops (optional)
 
+    # Local dev only: serve the built-in demo tenant instead of requiring a Bearer
+    # token, even though Supabase *is* configured in .env. Exists because the
+    # alternative — blanking SUPABASE_URL for one process — isn't portable:
+    # PowerShell deletes an env var when you assign "" to it, so the override
+    # silently falls back to the .env value and every request 401s. Rejected
+    # outright when ENVIRONMENT=production (see _validate_production_secrets).
+    auth_disabled: bool = False
+
     # Secrets at rest
     fernet_key: str = ""
 
@@ -281,6 +289,9 @@ class Settings(BaseSettings):
         """Fail fast in production if critical secrets are missing or weak."""
         if not self.is_production:
             return self
+        if self.auth_disabled:
+            # A dev convenience that would be an open door in production.
+            raise ValueError("AUTH_DISABLED must not be set in production")
         missing: list[str] = []
         if not self.fernet_key:
             missing.append("FERNET_KEY")

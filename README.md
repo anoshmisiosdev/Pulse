@@ -35,13 +35,60 @@ docker compose up --build     # postgres, redis, api, worker, frontend
 - API:       http://localhost:8000  (docs at `/docs`)
 - Frontend:  http://localhost:5173
 
-## Quick start (backend only, no Docker)
+## Quick start (no Docker — full stack on SQLite)
+
+Docker isn't required to run the whole product locally. Postgres is only needed
+for pgvector (RAG retrieval, which degrades to "no context" without it), so a
+throwaway SQLite file is enough for everything else.
+
+**Windows / PowerShell** — `.\dev.ps1` wraps the env setup:
+
+```powershell
+# terminal 1 — API on :8000
+cd backend
+.\dev.ps1                                 # add -Fresh to wipe dev.db first
+
+# terminal 2 — frontend on :5173
+cd frontend
+npm install
+npm run dev
+```
+
+`uv` is not required if `backend\.venv` already exists — `dev.ps1` calls that
+venv's Python directly.
+
+**macOS / Linux / Git Bash:**
 
 ```bash
+# terminal 1
 cd backend
-uv sync                       # creates .venv, installs deps (pins Python 3.12)
-uv run uvicorn app.main:app --reload
-uv run pytest                 # scoring engine + adapter tests
+uv sync                                   # creates .venv, installs deps (Python 3.12)
+AUTH_DISABLED=true DATABASE_URL="sqlite+aiosqlite:///./dev.db" \
+  uv run uvicorn app.main:app --reload
+
+# terminal 2
+cd frontend && npm install && npm run dev
+```
+
+Two settings do the work:
+
+- **`AUTH_DISABLED=true`** (dev only) — serves the built-in demo tenant instead of
+  requiring a Bearer token, so no login is needed. Without it, a `.env` that has
+  `SUPABASE_URL` set while the frontend has no `VITE_SUPABASE_*` means the browser
+  sends no token and every call 401s. The app refuses to boot with this set when
+  `ENVIRONMENT=production`. Don't try to blank `SUPABASE_URL` instead —
+  PowerShell deletes an env var when you assign `""`, so the override silently
+  disappears and `.env` wins.
+- **`DATABASE_URL`** pointing at SQLite — skips `alembic upgrade head` (`CREATE
+  EXTENSION vector` isn't supported there); the app's `create_all` on startup
+  covers the schema. Postgres-only connect args (`DB_USE_PGBOUNCER`, `DB_SSL`) are
+  ignored automatically for non-Postgres URLs, so they need no override.
+
+`frontend/.env.local` already blanks `VITE_API_BASE_URL` so the browser calls
+`/api` on the Vite dev server, which proxies to :8000 (`vite.config.ts`).
+
+```bash
+cd backend && uv run pytest   # or: .\.venv\Scripts\python.exe -m pytest
 ```
 
 Deployments run `uv run alembic upgrade head` before the API starts. When the
@@ -81,6 +128,53 @@ verification.
 The ranked product opportunities unlocked by richer payment, order, catalog,
 loyalty, and campaign-outcome data are in
 [docs/payment-data-product-opportunities.md](docs/payment-data-product-opportunities.md).
+
+Note the **"try sample data" button persists nothing** — it scores in memory, so
+customers have no database row and the timeline and recovery features stay empty.
+Upload a CSV through `/setup` to exercise those.
+
+### Richer test data (one cohort per recommended action)
+
+`sample_customers.csv` is customer-level: one row each, so every customer collapses
+to a single visit and most scoring signals stay switched off. For data that
+exercises the frequency/spend signals, the timeline and the full action ladder:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m app.scripts.make_test_data
+```
+
+Writes `testdata/{cafe,salon,med_spa}_customers.csv` — 32 customers and ~460 visit
+rows each, with a purpose-built cohort per action. The cohort is the customer's
+**last name**, so you can check intent against result at a glance: everyone called
+"Owner-Call" should be recommended for a personal call, everyone called "Regular"
+should be left alone. Upload one through `/setup` with the matching vertical.
+
+Regenerate if they age — dates are emitted relative to the run date, because
+recency-based scoring makes absolute dates rot.
+
+### Seeing a recovery locally
+
+Recovery attribution only credits sends that actually went out, and local dev has
+no Resend key (approving a send marks it `failed`), so the loop can't be closed
+through the UI alone. This fakes the delivery + return, then runs real attribution:
+
+```powershell
+# PowerShell
+cd backend
+$env:DATABASE_URL = "sqlite+aiosqlite:///./dev.db"
+.\.venv\Scripts\python.exe -m app.scripts.demo_recovery
+```
+
+```bash
+# bash
+cd backend
+DATABASE_URL="sqlite+aiosqlite:///./dev.db" uv run python -m app.scripts.demo_recovery
+```
+
+It refuses to run against a non-local `DATABASE_URL` without `--force`, because it
+writes fabricated sends, visits and transactions. Re-running is safe — attribution
+is idempotent per customer.
 
 ## Competitor price research
 

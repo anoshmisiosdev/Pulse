@@ -89,19 +89,31 @@ def _median_interval_days(visits: list[datetime], cfg: VerticalConfig) -> float:
     return max(1.0, statistics.median(gaps))
 
 
-def _count_between(dates: list[datetime], now: datetime, start_days: float, end_days: float) -> int:
-    """Count dates in the window [now - start_days, now - end_days)."""
-    lo = now.timestamp() - start_days * 86400
+def _in_window(at: datetime, now: datetime, start_days: float, end_days: float) -> bool:
+    """Whether ``at`` falls in ``[now - start_days, now - end_days)``.
+
+    Adjacent windows are half-open so a date on the boundary is counted once, never
+    twice — except the most recent window (``end_days == 0``), whose upper bound is
+    *closed* so that activity landing exactly on ``now`` still counts as "the last N
+    days". Without that, an event timestamped at ``now`` belongs to no window at
+    all: a customer who bought something today read as zero recent spend against a
+    non-zero prior quarter, i.e. "spend down 100%" — a fabricated claim about a
+    customer standing at the counter. Date-only imports (every timestamp midnight)
+    collide with a midnight ``now`` routinely, so this is not hypothetical.
+    """
+    ts, lo = at.timestamp(), now.timestamp() - start_days * 86400
     hi = now.timestamp() - end_days * 86400
-    return sum(1 for d in dates if lo <= d.timestamp() < hi)
+    return lo <= ts <= hi if end_days == 0 else lo <= ts < hi
+
+
+def _count_between(dates: list[datetime], now: datetime, start_days: float, end_days: float) -> int:
+    return sum(1 for d in dates if _in_window(d, now, start_days, end_days))
 
 
 def _sum_between(
     events: list[SpendEvent], now: datetime, start_days: float, end_days: float
 ) -> float:
-    lo = now.timestamp() - start_days * 86400
-    hi = now.timestamp() - end_days * 86400
-    return sum(e.amount for e in events if lo <= e.at.timestamp() < hi)
+    return sum(e.amount for e in events if _in_window(e.at, now, start_days, end_days))
 
 
 # ── individual signals ───────────────────────────────────────────────────────

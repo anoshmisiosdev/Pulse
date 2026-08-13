@@ -29,7 +29,13 @@ interface PulseCtx {
   contactedIds: Set<string>;
   markContacted: (id: string) => void;
   markWonBack: (c: CustomerRisk) => void;
+  /** Revenue actually observed from customers who returned after outreach,
+   * attributed server-side (backend services/attribution.py). This used to be a
+   * local counter that summed `estimated_annual_value` on every "Won back" click
+   * — an annualized projection presented as money in the bank, and it reset on
+   * refresh. It now reflects only spend we really saw. */
   revenueRecovered: number;
+  recoveredCount: number;
   wonBackCount: number;
 }
 
@@ -41,7 +47,6 @@ export function PulseProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [wonBackIds, setWonBackIds] = useState<Set<string>>(new Set());
   const [contactedIds, setContactedIds] = useState<Set<string>>(new Set());
-  const [revenueRecovered, setRevenueRecovered] = useState(0);
 
   // Load THIS tenant's persisted data. "empty" routes the owner to /setup.
   const refresh = useCallback(async () => {
@@ -63,7 +68,6 @@ export function PulseProvider({ children }: { children: ReactNode }) {
     setStatus(p.status === "empty" ? "empty" : "ready");
     setWonBackIds(new Set());
     setContactedIds(new Set());
-    setRevenueRecovered(0);
   }, []);
 
   // Ephemeral sample data — lets an owner explore before connecting anything.
@@ -98,9 +102,11 @@ export function PulseProvider({ children }: { children: ReactNode }) {
     setContactedIds((prev) => new Set(prev).add(id));
   }, []);
 
+  /** Owner-asserted "I got this one back" — clears the row from today's working
+   * list. Deliberately does NOT touch revenueRecovered: what we report as
+   * recovered revenue is what attribution observed, not what was clicked. */
   const markWonBack = useCallback((c: CustomerRisk) => {
     setWonBackIds((prev) => new Set(prev).add(c.customer_id));
-    setRevenueRecovered((prev) => prev + c.estimated_annual_value);
   }, []);
 
   const customers = useMemo(
@@ -125,7 +131,8 @@ export function PulseProvider({ children }: { children: ReactNode }) {
     contactedIds,
     markContacted,
     markWonBack,
-    revenueRecovered,
+    revenueRecovered: portfolio?.summary.revenue_recovered ?? 0,
+    recoveredCount: portfolio?.summary.recovered_count ?? 0,
     wonBackCount: wonBackIds.size,
   };
 

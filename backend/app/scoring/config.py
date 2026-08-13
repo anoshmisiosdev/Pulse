@@ -37,21 +37,34 @@ class VerticalConfig:
     failed_payment_boost: float = 20.0
     cancel_pending_boost: float = 30.0
 
+    # How long after outreach a returning customer still counts as recovered
+    # (app/services/attribution.py). Scaled to the vertical's cadence: crediting a
+    # med-spa client who books 5 months later is fair, crediting a cafe regular
+    # 5 months later is just claiming a coincidence.
+    attribution_window_days: int = 45
+
     # Band cutoffs on the final 0–100 score.
     band_med: float = 40.0
     band_high: float = 70.0
 
 
 VERTICALS: dict[str, VerticalConfig] = {
-    "cafe": VerticalConfig(name="cafe", expected_interval_days=4.0),
-    "fitness": VerticalConfig(name="fitness", expected_interval_days=5.0),
-    "salon": VerticalConfig(name="salon", expected_interval_days=35.0),
+    "cafe": VerticalConfig(
+        name="cafe", expected_interval_days=4.0, attribution_window_days=30
+    ),
+    "fitness": VerticalConfig(
+        name="fitness", expected_interval_days=5.0, attribution_window_days=30
+    ),
+    "salon": VerticalConfig(
+        name="salon", expected_interval_days=35.0, attribution_window_days=60
+    ),
     "med_spa": VerticalConfig(
         name="med_spa",
         expected_interval_days=120.0,
         # Long, lumpy cadence — be slower to alarm.
         recency_yellow_ratio=1.6,
         recency_red_ratio=2.75,
+        attribution_window_days=180,
     ),
     "other": VerticalConfig(name="other", expected_interval_days=30.0),
 }

@@ -15,6 +15,7 @@ from app.api import (
     automations,
     campaigns,
     competitor_prices,
+    customers,
     discord_bot,
     health,
     integrations,
@@ -98,6 +99,7 @@ fastapi_app.include_router(health.router, prefix=API_PREFIX)
 fastapi_app.include_router(auth.router, prefix=API_PREFIX)
 fastapi_app.include_router(integrations.router, prefix=API_PREFIX)
 fastapi_app.include_router(portfolio.router, prefix=API_PREFIX)
+fastapi_app.include_router(customers.router, prefix=API_PREFIX)
 fastapi_app.include_router(campaigns.router, prefix=API_PREFIX)
 fastapi_app.include_router(competitor_prices.router, prefix=API_PREFIX)
 fastapi_app.include_router(knowledge.router, prefix=API_PREFIX)
