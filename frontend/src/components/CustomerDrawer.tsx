@@ -1,6 +1,13 @@
-import { useState } from "react";
-import { api, formatCurrency, relativeDays, type CustomerRisk, type GeneratedCopy } from "../lib/api";
-import { SEGMENTS, PATTERNS } from "../lib/segments";
+import { useEffect, useState } from "react";
+import {
+  api,
+  formatCurrency,
+  relativeDays,
+  type CustomerRisk,
+  type GeneratedCopy,
+  type TimelineEntry,
+} from "../lib/api";
+import { ACTIONS, SEGMENTS, PATTERNS } from "../lib/segments";
 import { usePulse } from "../context/PulseContext";
 
 type Channel = "email" | "phone" | "offer";
@@ -30,6 +37,7 @@ export default function CustomerDrawer({
   const meta = SEGMENTS[customer.segment];
   const contacted = contactedIds.has(customer.customer_id);
   const firstName = customer.name.split(" ")[0];
+  const action = ACTIONS[customer.recommended_action] ?? ACTIONS.email;
 
   async function generate(c: Channel) {
     setChannel(c);
@@ -124,6 +132,22 @@ export default function CustomerDrawer({
             </div>
           </div>
 
+          {/* What Churnary recommends — the action, and why this one */}
+          <div
+            className="mt-5 rounded-[14px] p-4"
+            style={{ background: action.bg, border: `1px solid ${action.color}33` }}
+          >
+            <p className="eyebrow mb-1.5" style={{ color: action.color, letterSpacing: "0.12em", fontSize: 11 }}>
+              Recommended
+            </p>
+            <p className="font-display text-[17px] font-bold" style={{ color: action.color }}>
+              {action.icon} {action.label}
+            </p>
+            <p className="mt-1.5 text-[13px] leading-relaxed" style={{ color: "var(--ink-strong)" }}>
+              {customer.action_reason}
+            </p>
+          </div>
+
           {/* Take action */}
           <p className="eyebrow mt-6 mb-3" style={{ color: "var(--muted-2)", letterSpacing: "0.08em", fontSize: 12 }}>
             Take action
@@ -165,6 +189,8 @@ export default function CustomerDrawer({
             </div>
           )}
 
+          <Timeline dbCustomerId={customer.db_customer_id} />
+
           <div className="mt-5 grid grid-cols-2 gap-3">
             <button
               onClick={() => markContacted(customer.customer_id)}
@@ -187,6 +213,117 @@ export default function CustomerDrawer({
           </div>
         </div>
       </aside>
+    </div>
+  );
+}
+
+const TIMELINE_STYLE: Record<string, { dot: string; label: string }> = {
+  visit: { dot: "#5C8A4A", label: "Visit" },
+  purchase: { dot: "#4F7A40", label: "Purchase" },
+  engagement: { dot: "#D99A4E", label: "Engagement" },
+  risk_change: { dot: "#A23B1E", label: "Risk" },
+  outreach: { dot: "#B4532A", label: "Outreach" },
+  recovered: { dot: "#5C8A4A", label: "Recovered" },
+};
+
+function formatEntryDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** The customer's history, merged server-side from visits, purchases, email
+ * engagement, risk changes, outreach and recoveries. Hidden entirely when there's
+ * no persisted row to read (the demo and CSV-preview paths score in memory). */
+function Timeline({ dbCustomerId }: { dbCustomerId: string | null }) {
+  const [entries, setEntries] = useState<TimelineEntry[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!dbCustomerId) return;
+    let active = true;
+    setEntries(null);
+    setError(null);
+    api
+      .customerTimeline(dbCustomerId)
+      .then((t) => active && setEntries(t.entries))
+      .catch((e) => active && setError(e instanceof Error ? e.message : "Couldn't load history"));
+    return () => {
+      active = false;
+    };
+  }, [dbCustomerId]);
+
+  if (!dbCustomerId) return null;
+
+  const shown = expanded ? entries ?? [] : (entries ?? []).slice(0, 6);
+
+  return (
+    <div className="mt-6">
+      <p
+        className="eyebrow mb-3"
+        style={{ color: "var(--muted-2)", letterSpacing: "0.08em", fontSize: 12 }}
+      >
+        History
+      </p>
+
+      {entries === null && !error && (
+        <p className="text-[13px]" style={{ color: "var(--muted-2)" }}>
+          Loading history…
+        </p>
+      )}
+      {error && (
+        <p className="text-[13px]" style={{ color: "var(--accent-dark)" }}>
+          {error}
+        </p>
+      )}
+      {entries !== null && entries.length === 0 && (
+        <p className="text-[13px]" style={{ color: "var(--muted-2)" }}>
+          Nothing recorded for this customer yet.
+        </p>
+      )}
+
+      {shown.length > 0 && (
+        <ol className="flex flex-col">
+          {shown.map((e, i) => {
+            const style = TIMELINE_STYLE[e.kind] ?? { dot: "var(--muted-2)", label: e.kind };
+            const last = i === shown.length - 1;
+            return (
+              <li key={`${e.at}-${e.kind}-${i}`} className="flex gap-3">
+                <div className="flex flex-col items-center pt-1.5">
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ background: style.dot }}
+                  />
+                  {!last && <span className="w-px flex-1" style={{ background: "var(--border)" }} />}
+                </div>
+                <div className={last ? "pb-0" : "pb-4"}>
+                  <p className="text-[13.5px] font-semibold" style={{ color: "var(--ink)" }}>
+                    {e.title}
+                    {e.amount !== null && e.amount > 0 && (
+                      <span style={{ color: style.dot }}> · {formatCurrency(e.amount)}</span>
+                    )}
+                  </p>
+                  <p className="text-[12px]" style={{ color: "var(--muted-2)" }}>
+                    {formatEntryDate(e.at)}
+                    {e.detail && ` · ${e.detail}`}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {entries !== null && entries.length > 6 && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-2 text-[13px] underline"
+          style={{ color: "var(--muted)" }}
+        >
+          {expanded ? "Show less" : `Show all ${entries.length} events`}
+        </button>
+      )}
     </div>
   );
 }

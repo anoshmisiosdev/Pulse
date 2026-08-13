@@ -1,4 +1,4 @@
-import type { Pattern, Segment } from "./api";
+import type { Pattern, RecommendedAction, Segment } from "./api";
 
 export interface SegmentMeta {
   label: string;
@@ -63,6 +63,23 @@ export const PATTERNS: Record<Exclude<Pattern, null>, string> = {
 
 // Warm ramp used for the "Why They Leave" bars, by rank.
 export const PATTERN_BAR_COLORS = ["#B4532A", "#C76B3A", "#D99A4E", "#C9B39A"];
+
+export interface ActionMeta {
+  /** Imperative and specific — this is the owner's to-do item, not a category. */
+  label: string;
+  icon: string;
+  color: string;
+  bg: string;
+}
+
+export const ACTIONS: Record<RecommendedAction, ActionMeta> = {
+  owner_call: { label: "Call them yourself", icon: "☎", color: "#A23B1E", bg: "#F7E3DC" },
+  offer: { label: "Send a small offer", icon: "🎁", color: "#A9781F", bg: "#F4EAD1" },
+  email: { label: "Send a win-back email", icon: "✉", color: "#C0632F", bg: "#F7E6DA" },
+  welcome: { label: "Send a welcome note", icon: "👋", color: "#4F7A40", bg: "#E6EFDF" },
+  watch: { label: "Just keep watching", icon: "👁", color: "#8A7565", bg: "#EFE6D8" },
+  wait: { label: "Leave them alone", icon: "✓", color: "#4F7A40", bg: "#E6EFDF" },
+};
 
 // Urgency tiers used by the retention queue.
 export function urgencyOf(segment: Segment): "urgent" | "at_risk" | "watching" | null {
