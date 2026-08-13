@@ -420,14 +420,32 @@ export default function Landing() {
 /* ── Nav — transparent over the dark hero, cream once past it ── */
 function Nav() {
   const [solid, setSolid] = useState(false);
+  const [open, setOpen] = useState(false);
   const active = useActiveSection(NAV_LINKS.map(([id]) => id));
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   useRafScroll(() => setSolid(window.scrollY > window.innerHeight * 0.7));
+
+  // Escape closes the mobile panel and hands focus back to the toggle —
+  // no full focus trap needed since the panel is a simple link list, not a
+  // modal, but leaving keyboard users stranded inside it would be broken.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      toggleRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const closeMenu = () => setOpen(false);
 
   return (
     <header className={`lp-nav${solid ? " is-solid" : ""}`}>
       <div className="lp-nav-inner">
-        <a href="#top" className="lp-brand" aria-label="Churnary, top of page">
+        <a href="#top" className="lp-brand" aria-label="Churnary, top of page" onClick={closeMenu}>
           {/* Tile only once the nav turns cream — over the dark hero the mark's
               own espresso tile would disappear into the background. */}
           <ChurnaryMark size={30} tile={solid} className="lp-brand-mark" />
@@ -474,8 +492,66 @@ function Nav() {
           >
             Join the waitlist
           </a>
+          <button
+            type="button"
+            ref={toggleRef}
+            className={`lp-nav-toggle${open ? " is-open" : ""}`}
+            aria-expanded={open}
+            aria-controls="lp-mobile-menu"
+            aria-label={open ? "Close menu" : "Menu"}
+            onClick={() => setOpen((o) => !o)}
+          >
+            <span className="lp-nav-toggle-bar" />
+            <span className="lp-nav-toggle-bar" />
+            <span className="lp-nav-toggle-bar" />
+          </button>
         </div>
       </div>
+      <nav id="lp-mobile-menu" className={`lp-nav-mobile${open ? " is-open" : ""}`} aria-label="Mobile">
+        {NAV_LINKS.map(([id, label]) => (
+          <a
+            key={id}
+            href={`#${id}`}
+            className={active === id ? "is-active" : ""}
+            aria-current={active === id ? "true" : undefined}
+            onClick={closeMenu}
+          >
+            {label}
+          </a>
+        ))}
+        <div className="lp-nav-mobile-cta">
+          <Link
+            to="/login"
+            className="lp-nav-signin"
+            onClick={() => {
+              closeMenu();
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "sign_in",
+                location: "navbar",
+                destination: "login",
+              });
+            }}
+          >
+            Sign in
+          </Link>
+          <a
+            href="#waitlist"
+            className="lp-btn lp-btn-primary lp-btn-sm"
+            onClick={() => {
+              closeMenu();
+              void trackLandingEvent({
+                event: "landing_cta_clicked",
+                cta: "join_waitlist",
+                location: "navbar",
+                destination: "waitlist",
+              });
+            }}
+          >
+            Join the waitlist
+          </a>
+        </div>
+      </nav>
     </header>
   );
 }
@@ -1589,6 +1665,50 @@ const LP_CSS = `
   .lp-nav-signin:hover { color: var(--cream-text); }
   .lp-nav.is-solid .lp-nav-signin { color: var(--ink-strong); }
   .lp-nav.is-solid .lp-nav-signin:hover { color: var(--accent); }
+
+  /* ── nav — mobile toggle + panel (same breakpoint as .lp-nav-links) ── */
+  .lp-nav-toggle {
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 5px; width: 34px; height: 34px; padding: 0; margin-left: 4px;
+    border: 0; border-radius: 6px; background: none; cursor: pointer; flex: none;
+  }
+  .lp-nav-toggle:hover { background: rgba(244,236,224,.09); }
+  .lp-nav.is-solid .lp-nav-toggle:hover { background: var(--surface-2); }
+  @media (min-width: 920px) { .lp-nav-toggle { display: none; } }
+  .lp-nav-toggle-bar {
+    width: 19px; height: 2px; border-radius: 1px; background: var(--cream-text);
+    transition: transform .2s ease, opacity .2s ease;
+  }
+  .lp-nav.is-solid .lp-nav-toggle-bar { background: var(--ink); }
+  .lp-nav-toggle.is-open .lp-nav-toggle-bar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+  .lp-nav-toggle.is-open .lp-nav-toggle-bar:nth-child(2) { opacity: 0; }
+  .lp-nav-toggle.is-open .lp-nav-toggle-bar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+  .lp-nav-mobile {
+    position: absolute; top: 100%; left: 0; right: 0;
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 10px var(--lp-gutter) 18px;
+    background: rgba(251,246,238,.98); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--lp-rule);
+    opacity: 0; visibility: hidden; transform: translateY(-6px); pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
+  }
+  .lp-nav-mobile.is-open {
+    opacity: 1; visibility: visible; transform: translateY(0); pointer-events: auto;
+    transition: opacity .18s ease, transform .18s ease, visibility 0s linear 0s;
+  }
+  @media (min-width: 920px) { .lp-nav-mobile { display: none !important; } }
+  .lp-nav-mobile a {
+    padding: 10px 4px; border-radius: 5px; font-size: 15px; font-weight: 600; color: var(--muted);
+  }
+  .lp-nav-mobile a:hover { color: var(--ink); background: var(--surface-2); }
+  .lp-nav-mobile a.is-active { color: var(--accent); }
+  .lp-nav-mobile-cta {
+    display: flex; align-items: center; gap: 10px; margin-top: 8px; padding-top: 12px;
+    border-top: 1px solid var(--lp-rule);
+  }
+  .lp-nav-mobile-cta .lp-nav-signin { color: var(--ink-strong); }
+  .lp-nav-mobile-cta .lp-nav-signin:hover { color: var(--accent); }
 
   /* ── hero ── */
   .lp-hero {
