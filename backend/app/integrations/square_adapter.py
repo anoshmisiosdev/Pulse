@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 
+from app.core.config import settings
 from app.core.http_retry import retry_transient
 from app.integrations.base import DataSourceAdapter, IntegrationError
 from app.schemas.normalized import (
@@ -29,7 +30,7 @@ _HOSTS = {
 _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 _PAGE_SIZE = 100
 _MAX_PAGES = 100
-_SQUARE_VERSION = "2024-01-18"
+_SQUARE_VERSION = "2026-07-15"
 
 _ZERO_DECIMAL = {"JPY", "KRW", "VND", "CLP", "PYG", "XAF", "XOF", "BIF", "DJF",
                  "GNF", "KMF", "MGA", "RWF", "UGX", "VUV", "XPF"}
@@ -49,29 +50,53 @@ def parse_square_customer(obj: dict[str, Any]) -> NormalizedCustomer:
 
 
 def parse_square_payment(obj: dict[str, Any]) -> NormalizedTransaction | None:
-    """COMPLETED payments only; amount from minor units."""
-    if obj.get("status") != "COMPLETED":
+    """Normalize completed, failed, pending, canceled, and refunded payments."""
+    if not obj.get("id"):
         return None
     money = obj.get("amount_money") or {}
     currency = (money.get("currency") or "USD").upper()
     minor = Decimal(money.get("amount", 0))
     refunded = Decimal((obj.get("refunded_money") or {}).get("amount", 0) or 0)
-    net = minor - refunded
-    amount = net if currency in _ZERO_DECIMAL else net / 100
-    if amount <= 0:
-        return None
+    net = max(Decimal("0"), minor - refunded)
+    divisor = Decimal("1") if currency in _ZERO_DECIMAL else Decimal("100")
+    raw_status = (obj.get("status") or "PENDING").upper()
+    if raw_status == "FAILED":
+        status = "failed"
+        amount = Decimal("0")
+    elif raw_status == "CANCELED":
+        status = "canceled"
+        amount = Decimal("0")
+    elif raw_status != "COMPLETED":
+        status = "pending"
+        amount = Decimal("0")
+    elif refunded >= minor and minor > 0:
+        status = "refunded"
+        amount = Decimal("0")
+    elif refunded > 0:
+        status = "partially_refunded"
+        amount = net / divisor
+    else:
+        status = "completed"
+        amount = net / divisor
     created = obj.get("created_at")
+    updated = obj.get("updated_at")
     return NormalizedTransaction(
         external_id=obj.get("id"),
         source="square",
         customer_external_id=obj.get("customer_id"),
         customer_email=obj.get("buyer_email_address"),
         amount=amount,
+        gross_amount=minor / divisor,
+        refunded_amount=refunded / divisor,
         currency=currency,
+        status=status,
         occurred_at=(
             datetime.fromisoformat(created.replace("Z", "+00:00"))
             if created
             else datetime.now(UTC)
+        ),
+        updated_at=(
+            datetime.fromisoformat(updated.replace("Z", "+00:00")) if updated else None
         ),
     )
 
@@ -82,7 +107,17 @@ class SquareAdapter(DataSourceAdapter):
     def __init__(self, access_token: str | None = None, environment: str = "production") -> None:
         self._access_token = access_token
         self._environment = environment if environment in _HOSTS else "production"
+        self._account_id: str | None = None
+        self._location_ids: list[str] = []
         self._tx_cache: tuple[datetime | None, list[NormalizedTransaction]] | None = None
+
+    @property
+    def account_id(self) -> str | None:
+        return self._account_id
+
+    @property
+    def environment(self) -> str:
+        return self._environment
 
     def _headers(self) -> dict:
         return {
@@ -95,12 +130,10 @@ class SquareAdapter(DataSourceAdapter):
     async def _get(self, client: httpx.AsyncClient, path: str, **params) -> dict:
         base = _HOSTS[self._environment]
         resp = await client.get(f"{base}{path}", params=params, headers=self._headers())
-        if resp.status_code >= 500:
+        if resp.status_code == 429 or resp.status_code >= 500:
             resp.raise_for_status()  # transient — retried by the decorator
         if resp.status_code == 401:
             raise IntegrationError("Square rejected the access token (401)")
-        if resp.status_code == 429:
-            raise IntegrationError("Square rate limit hit — try again in a minute")
         if resp.status_code >= 400:
             raise IntegrationError(f"Square error {resp.status_code}: {resp.text[:200]}")
         return resp.json()
@@ -130,17 +163,24 @@ class SquareAdapter(DataSourceAdapter):
             self._environment = "production"
         if not self._access_token:
             raise IntegrationError("Square access token required")
-        # Validate with a cheap call; auto-fall back to sandbox for sandbox tokens.
+        # Validate and capture the merchant id; auto-fall back for sandbox tokens.
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 try:
-                    await self._get(client, "/v2/locations")
+                    merchant = await self._get(client, "/v2/merchants/me")
                 except IntegrationError:
                     if self._environment == "production":
                         self._environment = "sandbox"
-                        await self._get(client, "/v2/locations")
+                        merchant = await self._get(client, "/v2/merchants/me")
                     else:
                         raise
+                self._account_id = (merchant.get("merchant") or {}).get("id")
+                locations = await self._get(client, "/v2/locations")
+                self._location_ids = [
+                    location["id"]
+                    for location in locations.get("locations", [])
+                    if location.get("id") and location.get("status") != "INACTIVE"
+                ]
         except httpx.HTTPError as exc:
             raise IntegrationError(f"Could not reach Square: {exc}") from exc
 
@@ -155,8 +195,31 @@ class SquareAdapter(DataSourceAdapter):
             return self._tx_cache[1]
         params: dict = {}
         if since:
-            params["begin_time"] = since.astimezone(UTC).isoformat().replace("+00:00", "Z")
-        rows = await self._paginate("/v2/payments", "payments", **params)
+            # Square supports an updated-at cursor. This is important for refunds
+            # and delayed/offline payments whose creation time predates this sync.
+            params["updated_at_begin_time"] = (
+                since.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            )
+            params["sort_field"] = "UPDATED_AT"
+            params["sort_order"] = "ASC"
+        else:
+            from datetime import timedelta
+
+            start = datetime.now(UTC) - timedelta(days=settings.payment_history_lookback_days)
+            params["begin_time"] = start.isoformat().replace("+00:00", "Z")
+        # ListPayments defaults to a merchant's main location. Query every
+        # active location explicitly so multi-location businesses do not get a
+        # deceptively incomplete retention history.
+        rows: list[dict] = []
+        location_ids: list[str | None] = self._location_ids or [None]
+        for location_id in location_ids:
+            location_params = dict(params)
+            if location_id:
+                location_params["location_id"] = location_id
+            rows.extend(
+                await self._paginate("/v2/payments", "payments", **location_params)
+            )
+        rows = list({row.get("id"): row for row in rows if row.get("id")}.values())
         txs = [t for o in rows if (t := parse_square_payment(o)) is not None]
         self._tx_cache = (since, txs)
         return txs
@@ -172,4 +235,5 @@ class SquareAdapter(DataSourceAdapter):
                 occurred_at=t.occurred_at,
             )
             for t in await self.sync_transactions(since)
+            if t.is_revenue
         ]

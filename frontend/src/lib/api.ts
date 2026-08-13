@@ -47,6 +47,11 @@ export interface CustomerRisk {
   confidence: string;
   trend_pct: number;
   favorite_item: string | null;
+  /** Explainable inverse of churn risk; not a calibrated probability. */
+  return_likelihood: number;
+  expected_next_visit: string | null;
+  days_overdue: number;
+  payment_issue: boolean;
 }
 
 export interface PortfolioSummary {
@@ -63,11 +68,14 @@ export interface Connection {
   source: string;
   status: string;
   last_synced_at: string | null;
+  environment: "production" | "sandbox";
+  last_error: string | null;
 }
 
 export interface Portfolio {
   business_name: string;
   vertical: string;
+  currency: string;
   summary: PortfolioSummary;
   customers: CustomerRisk[];
   warnings: string[];
@@ -763,6 +771,19 @@ export const api = {
     return asJson<Portfolio>(res);
   },
 
+  /** Import the bundled, attributed CC BY 4.0 UCI transaction sample. */
+  async importUciSample(vertical: string, businessName: string): Promise<Portfolio> {
+    const qs = new URLSearchParams({
+      vertical,
+      business_name: businessName || "UCI Online Retail Demo",
+    });
+    const res = await fetch(
+      `${BASE}/api/integrations/samples/uci-online-retail/import?${qs}`,
+      { method: "POST", headers: authHeaders() }
+    );
+    return asJson<Portfolio>(res);
+  },
+
   /** Which providers can show a "Connect with …" button. */
   async oauthAvailability(): Promise<{ stripe: boolean; square: boolean }> {
     return getJson("/api/integrations/oauth/availability");
@@ -977,10 +998,10 @@ export const api = {
   },
 };
 
-export function formatCurrency(n: number, withCents = false): string {
+export function formatCurrency(n: number, withCents = false, currency = "USD"): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency: currency.toUpperCase(),
     maximumFractionDigits: withCents ? 2 : 0,
   }).format(n);
 }

@@ -23,6 +23,11 @@ class CustomerRisk(BaseModel):
     confidence: str = "medium"
     trend_pct: int = 0
     favorite_item: str | None = None
+    # Explainable score inverse, not a statistically calibrated probability.
+    return_likelihood: int = 0
+    expected_next_visit: str | None = None
+    days_overdue: int = 0
+    payment_issue: bool = False
 
 
 class PortfolioSummaryOut(BaseModel):
@@ -38,6 +43,7 @@ class PortfolioSummaryOut(BaseModel):
 class CSVPreviewOut(BaseModel):
     business_name: str = "Your Business"
     vertical: str = "other"
+    currency: str = "USD"
     summary: PortfolioSummaryOut
     customers: list[CustomerRisk]
     warnings: list[str] = []
@@ -154,6 +160,8 @@ class ConnectionOut(BaseModel):
     source: str
     status: str
     last_synced_at: str | None = None
+    environment: str = "production"
+    last_error: str | None = None
 
 
 class SyncRunOut(BaseModel):

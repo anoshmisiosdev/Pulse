@@ -17,12 +17,13 @@ from app.models.competitor_price import (
 )
 from app.models.customer import (
     Customer,
+    CustomerIdentity,
     EngagementEvent,
     RiskScore,
     Transaction,
     Visit,
 )
-from app.models.integration import IntegrationConnection, SyncRun
+from app.models.integration import IntegrationConnection, ProviderWebhookEvent, SyncRun
 from app.models.knowledge import BusinessKnowledge
 from app.models.social import (
     BrandKitVersion,
@@ -48,10 +49,12 @@ __all__ = [
     "IntegrationConnection",
     "SyncRun",
     "Customer",
+    "CustomerIdentity",
     "Transaction",
     "Visit",
     "EngagementEvent",
     "RiskScore",
+    "ProviderWebhookEvent",
     "Campaign",
     "CampaignSend",
     "AutomationRule",

@@ -6,7 +6,11 @@ import base64
 import hashlib
 import hmac
 
-from app.services.webhooks import verify_svix_signature
+from app.services.webhooks import (
+    verify_square_signature,
+    verify_stripe_signature,
+    verify_svix_signature,
+)
 
 SECRET = "whsec_" + base64.b64encode(b"test-signing-key-32-bytes-long!!").decode()
 
@@ -81,3 +85,27 @@ def test_multiple_signatures_in_header_one_matches():
     assert verify_svix_signature(
         SECRET, payload, svix_id=svix_id, svix_timestamp=ts, svix_signature=header, now=1750000000
     )
+
+
+def test_stripe_signature_and_replay_window():
+    payload = b'{"id":"evt_123"}'
+    timestamp = 1_750_000_000
+    secret = "whsec_stripe_test"
+    digest = hmac.new(
+        secret.encode(), f"{timestamp}.".encode() + payload, hashlib.sha256
+    ).hexdigest()
+    header = f"t={timestamp},v1=bogus,v1={digest}"
+    assert verify_stripe_signature(payload, header, secret, now=timestamp)
+    assert not verify_stripe_signature(payload + b" ", header, secret, now=timestamp)
+    assert not verify_stripe_signature(payload, header, secret, now=timestamp + 301)
+
+
+def test_square_signature_includes_exact_notification_url():
+    payload = b'{"event_id":"square-event"}'
+    key = "square-signature-key"
+    url = "https://api.example.com/api/integrations/webhooks/square"
+    signature = base64.b64encode(
+        hmac.new(key.encode(), url.encode() + payload, hashlib.sha256).digest()
+    ).decode()
+    assert verify_square_signature(payload, signature, key, url)
+    assert not verify_square_signature(payload, signature, key, url + "/")

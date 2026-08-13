@@ -29,6 +29,15 @@ class DataSourceAdapter(ABC):
 
     source: str  # short slug, e.g. "csv", "square"
 
+    @property
+    def account_id(self) -> str | None:
+        """Provider account/merchant id used to route webhook events."""
+        return None
+
+    @property
+    def environment(self) -> str:
+        return "production"
+
     @abstractmethod
     async def connect(self, auth_payload: dict) -> None:
         """Validate credentials / establish a session. Raise IntegrationError on failure."""

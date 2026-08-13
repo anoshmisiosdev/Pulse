@@ -1,7 +1,7 @@
 """Retry preset for outbound HTTP calls.
 
-3 attempts, exponential backoff, transient failures only (network errors and
-5xx). 4xx are never retried — they're the caller's bug or the user's input.
+3 attempts, exponential backoff, transient failures only (network errors, 429,
+and 5xx). Other 4xx responses are never retried.
 
 Usage: decorate a small inner coroutine that makes exactly one request and
 raises ``HTTPStatusError`` on 5xx (``resp.raise_for_status()``).
@@ -16,7 +16,9 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 def _is_transient(exc: BaseException) -> bool:
     if isinstance(exc, httpx.TransportError):  # connect/read timeout, DNS, reset
         return True
-    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500
+    return isinstance(exc, httpx.HTTPStatusError) and (
+        exc.response.status_code == 429 or exc.response.status_code >= 500
+    )
 
 
 retry_transient = retry(
