@@ -107,6 +107,26 @@ Note the **"try sample data" button persists nothing** — it scores in memory, 
 customers have no database row and the timeline and recovery features stay empty.
 Upload a CSV through `/setup` to exercise those.
 
+### Richer test data (one cohort per recommended action)
+
+`sample_customers.csv` is customer-level: one row each, so every customer collapses
+to a single visit and most scoring signals stay switched off. For data that
+exercises the frequency/spend signals, the timeline and the full action ladder:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m app.scripts.make_test_data
+```
+
+Writes `testdata/{cafe,salon,med_spa}_customers.csv` — 32 customers and ~460 visit
+rows each, with a purpose-built cohort per action. The cohort is the customer's
+**last name**, so you can check intent against result at a glance: everyone called
+"Owner-Call" should be recommended for a personal call, everyone called "Regular"
+should be left alone. Upload one through `/setup` with the matching vertical.
+
+Regenerate if they age — dates are emitted relative to the run date, because
+recency-based scoring makes absolute dates rot.
+
 ### Seeing a recovery locally
 
 Recovery attribution only credits sends that actually went out, and local dev has
