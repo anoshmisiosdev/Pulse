@@ -11,7 +11,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "20260812_0008"
 down_revision: str | None = "20260804_0007"
@@ -19,15 +19,63 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+_OFFLINE_BASE_TABLES = {
+    "businesses",
+    "customers",
+    "integration_connections",
+    "transactions",
+    "visits",
+}
+_OFFLINE_CREATED_TABLES = {"customer_identities", "provider_webhook_events"}
+_OFFLINE_ADDED_COLUMNS = {
+    "integration_connections": {
+        "environment",
+        "last_error",
+        "provider_account_id",
+        "token_expires_at",
+    },
+    "transactions": {
+        "failure_code",
+        "gross_amount",
+        "provider_updated_at",
+        "refunded_amount",
+        "status",
+    },
+}
+_OFFLINE_ADDED_INDEXES = {
+    "integration_connections": {
+        "ix_integration_connections_provider_account",
+        "uq_integration_connections_business_source",
+        "uq_integration_connections_source_provider_account",
+    },
+    "transactions": {
+        "ix_transactions_customer_occurred",
+        "ix_transactions_status",
+        "uq_transactions_business_source_external",
+    },
+    "visits": {"uq_visits_business_source_external"},
+}
+_offline_downgrade = False
+
+
 def _tables() -> set[str]:
+    if context.is_offline_mode():
+        tables = set(_OFFLINE_BASE_TABLES)
+        if _offline_downgrade:
+            tables.update(_OFFLINE_CREATED_TABLES)
+        return tables
     return set(sa.inspect(op.get_bind()).get_table_names())
 
 
 def _columns(table: str) -> set[str]:
+    if context.is_offline_mode():
+        return set(_OFFLINE_ADDED_COLUMNS.get(table, ())) if _offline_downgrade else set()
     return {column["name"] for column in sa.inspect(op.get_bind()).get_columns(table)}
 
 
 def _indexes(table: str) -> set[str]:
+    if context.is_offline_mode():
+        return set(_OFFLINE_ADDED_INDEXES.get(table, ())) if _offline_downgrade else set()
     inspector = sa.inspect(op.get_bind())
     names = {index["name"] for index in inspector.get_indexes(table)}
     names.update(constraint["name"] for constraint in inspector.get_unique_constraints(table))
@@ -40,6 +88,8 @@ def _add_column(table: str, column: sa.Column) -> None:
 
 
 def upgrade() -> None:
+    global _offline_downgrade
+    _offline_downgrade = False
     tables = _tables()
 
     if {"businesses", "customers"}.issubset(tables) and "customer_identities" not in tables:
@@ -261,6 +311,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    global _offline_downgrade
+    _offline_downgrade = True
     tables = _tables()
     if "provider_webhook_events" in tables:
         op.drop_table("provider_webhook_events")
