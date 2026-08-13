@@ -47,30 +47,57 @@ function useReducedMotion(): boolean {
 }
 
 /**
+ * Module-level scroll scheduler backing useRafScroll below: one "scroll"/
+ * "resize" listener and one requestAnimationFrame chain for the whole page,
+ * shared by every call site instead of one pair per component instance —
+ * that per-instance fan-out (Nav, the hero curtain, 9x ScrubWords headline)
+ * was what previously turned a single wheel spin into 11 forced layout
+ * passes per frame and froze the tab on a fast scroll.
+ */
+const rafScrollCallbacks = new Set<() => void>();
+let rafScrollHandle = 0;
+let rafScrollBound = false;
+
+function runRafScrollCallbacks() {
+  rafScrollHandle = 0;
+  rafScrollCallbacks.forEach((cb) => cb());
+}
+
+function scheduleRafScroll() {
+  if (!rafScrollHandle) rafScrollHandle = requestAnimationFrame(runRafScrollCallbacks);
+}
+
+/**
+ * Add a callback to the shared scroll scheduler, binding the page-wide
+ * "scroll"/"resize" listener on first use. Exported (only) so a test can
+ * assert the listener fan-out doesn't regress without rendering the page.
+ */
+export function subscribeRafScroll(cb: () => void): () => void {
+  if (!rafScrollBound) {
+    rafScrollBound = true;
+    window.addEventListener("scroll", scheduleRafScroll, { passive: true });
+    window.addEventListener("resize", scheduleRafScroll);
+  }
+  rafScrollCallbacks.add(cb);
+  scheduleRafScroll();
+  return () => rafScrollCallbacks.delete(cb);
+}
+
+/**
  * Subscribe to scroll, coalesced to one callback per frame.
  *
- * Every scroll-driven effect on this page shares this so a fast wheel spin
- * costs one rAF, not one layout pass per listener.
+ * Every scroll-driven effect on this page shares one listener/rAF chain (see
+ * the module-level scheduler above) so a fast wheel spin costs one rAF, not
+ * one layout pass per listener.
  */
 function useRafScroll(onScroll: () => void, enabled = true) {
+  const onScrollRef = useRef(onScroll);
+  onScrollRef.current = onScroll;
+
   useEffect(() => {
     if (!enabled) return;
-    let raf = 0;
-    const tick = () => {
-      raf = 0;
-      onScroll();
-    };
-    const schedule = () => {
-      if (!raf) raf = requestAnimationFrame(tick);
-    };
-    schedule();
-    window.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
-    return () => {
-      window.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
-      if (raf) cancelAnimationFrame(raf);
-    };
+    const cb = () => onScrollRef.current();
+    return subscribeRafScroll(cb);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
 }
