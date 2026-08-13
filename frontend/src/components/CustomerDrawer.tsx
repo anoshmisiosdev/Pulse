@@ -105,7 +105,19 @@ export default function CustomerDrawer({
               valueColor="#A23B1E"
             />
             <Tile label="Last seen" value={relativeDays(customer.days_since_last_visit)} />
-            <Tile label="Return likelihood" value={`${customer.return_likelihood}/100`} valueColor="#4F7A40" />
+            {/* Guarded because a frontend can outrun its backend: during a deploy
+                (or against a stale API) this field is simply absent, and the
+                template literal rendered the string "undefined/100" at the owner.
+                Degrades to the same "Learning" wording as the sibling tile. */}
+            <Tile
+              label="Return likelihood"
+              value={
+                typeof customer.return_likelihood === "number"
+                  ? `${customer.return_likelihood}/100`
+                  : "Learning"
+              }
+              valueColor="#4F7A40"
+            />
             <Tile
               label="Expected return"
               value={customer.days_overdue > 0 ? `${customer.days_overdue}d overdue` : customer.expected_next_visit ?? "Learning"}
