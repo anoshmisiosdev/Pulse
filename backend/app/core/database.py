@@ -17,10 +17,22 @@ from sqlalchemy.pool import NullPool
 from app.core.config import settings
 
 
+def is_postgres(url: str | None = None) -> bool:
+    return (url or settings.database_url).startswith("postgresql")
+
+
 def engine_connect_args() -> dict:
     """asyncpg connect args. Supabase's pooler needs the statement cache off, and
-    remote Postgres needs SSL (``sslmode`` in the URL isn't understood by asyncpg)."""
+    remote Postgres needs SSL (``sslmode`` in the URL isn't understood by asyncpg).
+
+    Both are asyncpg-only. They're skipped for any other driver so that pointing
+    ``DATABASE_URL`` at SQLite for local dev works on its own, without also having
+    to unset ``DB_USE_PGBOUNCER``/``DB_SSL`` — passing ``statement_cache_size`` to
+    aiosqlite raises a TypeError that says nothing about the real cause.
+    """
     args: dict = {}
+    if not is_postgres():
+        return args
     if settings.db_use_pgbouncer:
         args["statement_cache_size"] = 0
     if settings.db_ssl:
@@ -31,7 +43,7 @@ def engine_connect_args() -> dict:
 # Supabase's transaction pooler (pgBouncer) doesn't do server-side pooling, so use
 # a NullPool and let pgBouncer pool.
 _engine_kwargs: dict = {"echo": False, "pool_pre_ping": True}
-if settings.db_use_pgbouncer:
+if settings.db_use_pgbouncer and is_postgres():
     _engine_kwargs["poolclass"] = NullPool
 _connect_args = engine_connect_args()
 if _connect_args:

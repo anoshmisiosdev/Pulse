@@ -40,12 +40,12 @@ Docker isn't required to run the whole product locally. Postgres is only needed
 for pgvector (RAG retrieval, which degrades to "no context" without it), so a
 throwaway SQLite file is enough for everything else.
 
-```bash
+**Windows / PowerShell** — `.\dev.ps1` wraps the env setup:
+
+```powershell
 # terminal 1 — API on :8000
 cd backend
-uv sync                                   # creates .venv, installs deps (Python 3.12)
-SUPABASE_URL= DATABASE_URL="sqlite+aiosqlite:///./dev.db" DB_USE_PGBOUNCER=false DB_SSL= \
-  uv run uvicorn app.main:app --reload
+.\dev.ps1                                 # add -Fresh to wipe dev.db first
 
 # terminal 2 — frontend on :5173
 cd frontend
@@ -53,21 +53,41 @@ npm install
 npm run dev
 ```
 
-Two env overrides matter, and both are why a half-configured setup 401s:
+`uv` is not required if `backend\.venv` already exists — `dev.ps1` calls that
+venv's Python directly.
 
-- **`SUPABASE_URL=`** — with Supabase Auth unconfigured *and* `ENVIRONMENT` not
-  `production`, the API serves a built-in demo tenant instead of demanding a
-  Bearer token (`app/core/deps.py`). If `SUPABASE_URL` is set in `.env` but the
-  frontend has no `VITE_SUPABASE_*`, the browser sends no token and every call
-  fails with 401 — blank it locally, or configure both sides.
-- **`DATABASE_URL`** — SQLite skips `alembic upgrade head` (`CREATE EXTENSION
-  vector` isn't supported); the app's `create_all` on startup covers the schema.
+**macOS / Linux / Git Bash:**
+
+```bash
+# terminal 1
+cd backend
+uv sync                                   # creates .venv, installs deps (Python 3.12)
+AUTH_DISABLED=true DATABASE_URL="sqlite+aiosqlite:///./dev.db" \
+  uv run uvicorn app.main:app --reload
+
+# terminal 2
+cd frontend && npm install && npm run dev
+```
+
+Two settings do the work:
+
+- **`AUTH_DISABLED=true`** (dev only) — serves the built-in demo tenant instead of
+  requiring a Bearer token, so no login is needed. Without it, a `.env` that has
+  `SUPABASE_URL` set while the frontend has no `VITE_SUPABASE_*` means the browser
+  sends no token and every call 401s. The app refuses to boot with this set when
+  `ENVIRONMENT=production`. Don't try to blank `SUPABASE_URL` instead —
+  PowerShell deletes an env var when you assign `""`, so the override silently
+  disappears and `.env` wins.
+- **`DATABASE_URL`** pointing at SQLite — skips `alembic upgrade head` (`CREATE
+  EXTENSION vector` isn't supported there); the app's `create_all` on startup
+  covers the schema. Postgres-only connect args (`DB_USE_PGBOUNCER`, `DB_SSL`) are
+  ignored automatically for non-Postgres URLs, so they need no override.
 
 `frontend/.env.local` already blanks `VITE_API_BASE_URL` so the browser calls
 `/api` on the Vite dev server, which proxies to :8000 (`vite.config.ts`).
 
 ```bash
-cd backend && uv run pytest   # scoring engine + adapter tests
+cd backend && uv run pytest   # or: .\.venv\Scripts\python.exe -m pytest
 ```
 
 Deployments run `uv run alembic upgrade head` before the API starts. When the
@@ -93,7 +113,15 @@ Recovery attribution only credits sends that actually went out, and local dev ha
 no Resend key (approving a send marks it `failed`), so the loop can't be closed
 through the UI alone. This fakes the delivery + return, then runs real attribution:
 
+```powershell
+# PowerShell
+cd backend
+$env:DATABASE_URL = "sqlite+aiosqlite:///./dev.db"
+.\.venv\Scripts\python.exe -m app.scripts.demo_recovery
+```
+
 ```bash
+# bash
 cd backend
 DATABASE_URL="sqlite+aiosqlite:///./dev.db" uv run python -m app.scripts.demo_recovery
 ```
