@@ -34,13 +34,40 @@ docker compose up --build     # postgres, redis, api, worker, frontend
 - API:       http://localhost:8000  (docs at `/docs`)
 - Frontend:  http://localhost:5173
 
-## Quick start (backend only, no Docker)
+## Quick start (no Docker — full stack on SQLite)
+
+Docker isn't required to run the whole product locally. Postgres is only needed
+for pgvector (RAG retrieval, which degrades to "no context" without it), so a
+throwaway SQLite file is enough for everything else.
 
 ```bash
+# terminal 1 — API on :8000
 cd backend
-uv sync                       # creates .venv, installs deps (pins Python 3.12)
-uv run uvicorn app.main:app --reload
-uv run pytest                 # scoring engine + adapter tests
+uv sync                                   # creates .venv, installs deps (Python 3.12)
+SUPABASE_URL= DATABASE_URL="sqlite+aiosqlite:///./dev.db" DB_USE_PGBOUNCER=false DB_SSL= \
+  uv run uvicorn app.main:app --reload
+
+# terminal 2 — frontend on :5173
+cd frontend
+npm install
+npm run dev
+```
+
+Two env overrides matter, and both are why a half-configured setup 401s:
+
+- **`SUPABASE_URL=`** — with Supabase Auth unconfigured *and* `ENVIRONMENT` not
+  `production`, the API serves a built-in demo tenant instead of demanding a
+  Bearer token (`app/core/deps.py`). If `SUPABASE_URL` is set in `.env` but the
+  frontend has no `VITE_SUPABASE_*`, the browser sends no token and every call
+  fails with 401 — blank it locally, or configure both sides.
+- **`DATABASE_URL`** — SQLite skips `alembic upgrade head` (`CREATE EXTENSION
+  vector` isn't supported); the app's `create_all` on startup covers the schema.
+
+`frontend/.env.local` already blanks `VITE_API_BASE_URL` so the browser calls
+`/api` on the Vite dev server, which proxies to :8000 (`vite.config.ts`).
+
+```bash
+cd backend && uv run pytest   # scoring engine + adapter tests
 ```
 
 Deployments run `uv run alembic upgrade head` before the API starts. When the
@@ -55,6 +82,25 @@ cd backend && uv run python -m app.scripts.seed   # ~300-customer fake fitness s
 
 Then upload `backend/app/scripts/sample_customers.csv` via the onboarding screen,
 or hit `POST /api/integrations/csv/preview`.
+
+Note the **"try sample data" button persists nothing** — it scores in memory, so
+customers have no database row and the timeline and recovery features stay empty.
+Upload a CSV through `/setup` to exercise those.
+
+### Seeing a recovery locally
+
+Recovery attribution only credits sends that actually went out, and local dev has
+no Resend key (approving a send marks it `failed`), so the loop can't be closed
+through the UI alone. This fakes the delivery + return, then runs real attribution:
+
+```bash
+cd backend
+DATABASE_URL="sqlite+aiosqlite:///./dev.db" uv run python -m app.scripts.demo_recovery
+```
+
+It refuses to run against a non-local `DATABASE_URL` without `--force`, because it
+writes fabricated sends, visits and transactions. Re-running is safe — attribution
+is idempotent per customer.
 
 ## Competitor price research
 
