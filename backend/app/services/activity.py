@@ -192,11 +192,17 @@ def recommend_action(scored: ScoredCustomer, high_value_threshold: float) -> tup
             "beats a win-back offer.",
         )
 
-    if scored.visit_count < 2:
+    # Genuinely no evidence: a single visit row *and* no recorded spend. Note this
+    # deliberately does NOT fire on thin visit history alone — an aggregate CSV
+    # (the main onboarding path) synthesizes exactly one visit per customer from
+    # their last_visit date, yet still carries tenure and lifetime spend. Gating on
+    # visit_count alone marked every customer from an uploaded CSV "just watch",
+    # which is the whole portfolio for most new accounts.
+    if scored.visit_count < 2 and scored.total_spend <= 0:
         return (
             "watch",
-            "Only one recorded visit, so the risk score is a guess — worth watching, "
-            "not worth spending an offer on.",
+            "One recorded visit and no spend on file, so the risk score is a guess — "
+            "worth watching, not worth spending an offer on.",
         )
 
     if band == "high" and high_value_threshold > 0 and value >= high_value_threshold:
