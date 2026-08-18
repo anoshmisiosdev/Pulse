@@ -8,7 +8,11 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     dockerCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    preDeployCommand: uv run alembic upgrade head
+    # Bootstrap the base schema first: on a brand-new database, Alembic's
+    # incremental ALTERs (from 20260709_0001 on) fail with UndefinedTableError
+    # because create_all — normally run by app/main.py's lifespan — hasn't
+    # run yet at preDeploy time (the app itself hasn't started).
+    preDeployCommand: uv run python -m app.scripts.bootstrap_schema && uv run alembic upgrade head
     healthCheckPath: /api/health
     plan: starter
     envVars:
