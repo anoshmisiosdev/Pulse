@@ -38,6 +38,9 @@ ENV APP_REVISION=$APP_REVISION
 EXPOSE 8000
 # Shell form so $PORT (set by Render/Railway/Fly) is honored. Production never
 # starts on a stale schema; local/offline containers keep the previous soft-fail.
-CMD if [ "$ENVIRONMENT" = "production" ]; then alembic upgrade head; \
-    else alembic upgrade head || echo "alembic skipped — no database?"; fi && \
+# migrate.py wraps `alembic upgrade head` in a Postgres advisory lock — a
+# platform that boots more than one instance per deploy (App Runner does)
+# would otherwise run migrations concurrently and one instance loses the race.
+CMD if [ "$ENVIRONMENT" = "production" ]; then uv run python -m app.scripts.migrate; \
+    else uv run python -m app.scripts.migrate || echo "alembic skipped — no database?"; fi && \
     uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

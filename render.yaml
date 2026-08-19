@@ -12,7 +12,7 @@ services:
     # incremental ALTERs (from 20260709_0001 on) fail with UndefinedTableError
     # because create_all — normally run by app/main.py's lifespan — hasn't
     # run yet at preDeploy time (the app itself hasn't started).
-    preDeployCommand: uv run python -m app.scripts.bootstrap_schema && uv run alembic upgrade head
+    preDeployCommand: uv run python -m app.scripts.bootstrap_schema && uv run python -m app.scripts.migrate
     healthCheckPath: /api/health
     plan: starter
     envVars:
