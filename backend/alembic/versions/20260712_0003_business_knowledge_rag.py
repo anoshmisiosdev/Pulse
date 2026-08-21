@@ -12,7 +12,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "20260712_0003"
 down_revision: str | None = "20260709_0002"
@@ -25,6 +25,14 @@ EMBEDDING_DIM = 1536
 
 
 def upgrade() -> None:
+    # Adopt databases that already got this table via create_all() (see
+    # 20260709_0001's comment for the same pattern) — just ensure the
+    # extension it needs is there and let later revisions add anything else.
+    if not context.is_offline_mode():
+        if "business_knowledge" in set(sa.inspect(op.get_bind()).get_table_names()):
+            op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            return
+
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.create_table(
         "business_knowledge",

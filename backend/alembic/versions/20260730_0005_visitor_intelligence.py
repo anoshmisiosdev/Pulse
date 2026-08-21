@@ -11,15 +11,23 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "20260730_0005"
 down_revision: str | None = "20260728_0004"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+_TABLES = {"visitor_profiles", "visitor_identifiers", "visitor_events"}
+
 
 def upgrade() -> None:
+    # Adopt databases that already got these three tables via create_all()
+    # (see 20260709_0001's comment for the same pattern).
+    if not context.is_offline_mode():
+        if _TABLES.issubset(set(sa.inspect(op.get_bind()).get_table_names())):
+            return
+
     op.create_table(
         "visitor_profiles",
         sa.Column("primary_email", sa.String(length=320), nullable=True),

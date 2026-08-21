@@ -11,7 +11,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "20260728_0004"
 # Chains onto the merge revision, not 20260712_0003 — branching off an older
@@ -23,6 +23,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # Adopt databases that already got this table via create_all() (see
+    # 20260709_0001's comment for the same pattern).
+    if not context.is_offline_mode():
+        if "waitlist_signups" in set(sa.inspect(op.get_bind()).get_table_names()):
+            return
+
     op.create_table(
         "waitlist_signups",
         sa.Column("email", sa.String(length=320), nullable=False),
