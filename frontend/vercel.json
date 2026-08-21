@@ -4,7 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://tqcemv39hs.us-east-1.awsapprunner.com/api/$1" },
+    { "source": "/api/(.*)", "destination": "https://pu-9d359543d350445fb3829e06958d4d84.ecs.us-east-1.on.aws/api/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
