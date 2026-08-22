@@ -90,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
-            --force-new-deployment --output none
+            --force-new-deployment > /dev/null
           echo "Forced a new deployment of $ECS_SERVICE"
 
       - name: Wait for the rollout to finish
