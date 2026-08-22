@@ -1,25 +1,28 @@
 name: Deploy backend to AWS
 
 # Builds the backend image, pushes it to ECR, then *drives and verifies* the
-# App Runner rollout.
+# ECS Express Mode rollout.
 #
-# It used to stop after `docker push`, trusting App Runner's auto-deploy to pick
-# the new :latest up. When that didn't happen the job still went green, and the
-# deployed API sat a week behind main — serving responses without the fields the
-# frontend had already shipped against. A deploy that can't tell you whether new
-# code is actually running isn't a deploy, so this now:
+# Previously drove App Runner. Migrated to ECS Express Mode (pulse-api-express)
+# because App Runner stopped accepting new customers on this account and had
+# become unreliable besides. Unlike App Runner, ECS never auto-deploys a new
+# :latest image on its own — pushing one just sits in ECR until something
+# tells the service to pick it up, so this still:
 #
 #   1. bakes the commit SHA into the image (Dockerfile APP_REVISION)
-#   2. explicitly calls start-deployment instead of hoping auto-deploy fires
-#   3. waits for the operation to finish
+#   2. explicitly forces a new deployment instead of hoping something notices
+#   3. waits for the rollout to reach a terminal state
 #   4. polls /api/health until `revision` equals the SHA it just built
 #
 # Step 4 is the one that matters: it fails the job if the running container is
-# still the old one, which is precisely the failure that went unnoticed before.
+# still the old one. A full rollout (new task healthy + old task's ALB
+# deregistration drain) takes ~10 minutes in practice — the wait step is sized
+# for that, not for App Runner's faster in-place swap.
 #
-# Auth is OIDC (role pulse-github-deploy) — no AWS keys stored in GitHub. The role
-# needs ecr push permissions plus apprunner:ListServices, apprunner:StartDeployment
-# and apprunner:ListOperations.
+# Auth is OIDC (role pulse-github-deploy) — no AWS keys stored in GitHub. The
+# role needs ECR push permissions plus ecs:UpdateService, ecs:DescribeServices
+# and ecs:DescribeExpressGatewayService, scoped to the pulse-api-express
+# service ARN.
 
 on:
   push:
@@ -37,10 +40,9 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECR_REPO: 761018860175.dkr.ecr.us-east-1.amazonaws.com/pulse-api
-  # Fallbacks for locating the App Runner service when APPRUNNER_SERVICE_ARN
-  # isn't set. SERVICE_HOST is the stable subdomain of the live service URL.
-  SERVICE_HOST: tqcemv39hs
-  SERVICE_NAME: pulse-api
+  ECS_CLUSTER: default
+  ECS_SERVICE: pulse-api-express
+  ECS_SERVICE_ARN: arn:aws:ecs:us-east-1:761018860175:service/default/pulse-api-express
 
 jobs:
   deploy:
@@ -68,96 +70,59 @@ jobs:
           docker push "$ECR_REPO:latest"
           docker push "$ECR_REPO:$SHA"
 
-      - name: Resolve the App Runner service
+      - name: Resolve the service endpoint
         run: |
           set -euo pipefail
-          # Three ways in, most explicit first, because guessing the service name
-          # is what broke this step on its first run:
-          #   1. the APPRUNNER_SERVICE_ARN repo variable, if set
-          #   2. the service whose URL matches SERVICE_HOST (stable per service)
-          #   3. a service literally named $SERVICE_NAME
-          ARN="${{ vars.APPRUNNER_SERVICE_ARN }}"
-
-          if [ -z "$ARN" ]; then
-            if ! SERVICES=$(aws apprunner list-services \
-                  --query "ServiceSummaryList[].[ServiceName,ServiceUrl,ServiceArn]" \
-                  --output text 2>&1); then
-              echo "::error::Cannot list App Runner services, so the rollout can't be"
-              echo "driven. Two ways to fix, either is enough:"
-              echo "  (a) set the APPRUNNER_SERVICE_ARN repo variable (Settings →"
-              echo "      Secrets and variables → Actions → Variables) — then this"
-              echo "      step needs only apprunner:DescribeService, StartDeployment"
-              echo "      and ListOperations, not ListServices; or"
-              echo "  (b) grant apprunner:ListServices to the pulse-github-deploy role."
-              echo "aws said: $SERVICES"
-              exit 1
-            fi
-            echo "Services visible in ${AWS_REGION}:"
-            printf '%s\n' "$SERVICES" | sed 's/^/  /'
-            ARN=$(printf '%s\n' "$SERVICES" | awk -v h="$SERVICE_HOST" '$2 ~ h {print $3; exit}')
-            [ -n "$ARN" ] || ARN=$(printf '%s\n' "$SERVICES" \
-              | awk -v n="$SERVICE_NAME" '$1 == n {print $3; exit}')
-          fi
-
-          if [ -z "$ARN" ] || [ "$ARN" = "None" ]; then
-            echo "::error::Could not identify the App Runner service. Set the"
-            echo "APPRUNNER_SERVICE_ARN repo variable (Settings → Secrets and"
-            echo "variables → Actions → Variables) to the service's ARN."
+          ENDPOINT=$(aws ecs describe-express-gateway-service \
+            --service-arn "$ECS_SERVICE_ARN" \
+            --query "service.activeConfigurations[0].ingressPaths[0].endpoint" \
+            --output text)
+          if [ -z "$ENDPOINT" ] || [ "$ENDPOINT" = "None" ]; then
+            echo "::error::Could not resolve the ECS Express service endpoint."
+            echo "Check that ECS_SERVICE_ARN still points at a live service."
             exit 1
           fi
-
-          echo "SERVICE_ARN=$ARN" >> "$GITHUB_ENV"
-          read -r URL IMAGE AUTO < <(aws apprunner describe-service --service-arn "$ARN" \
-            --query "Service.[ServiceUrl,SourceConfiguration.ImageRepository.ImageIdentifier,SourceConfiguration.AutoDeploymentsEnabled]" \
-            --output text)
-          echo "SERVICE_URL=https://$URL" >> "$GITHUB_ENV"
-          echo "Service:      $ARN"
-          echo "URL:          https://$URL"
-          # These two lines explain a "successful" deploy that changes nothing: if
-          # the image identifier is pinned to a tag other than :latest, every
-          # rollout re-pulls the same build forever.
-          echo "Image URI:    $IMAGE"
-          echo "Auto-deploy:  $AUTO"
-          case "$IMAGE" in
-            *:latest) ;;
-            *) echo "::warning::Service pulls '$IMAGE', not ':latest'. Pushing a new"
-               echo "::warning:::latest will never reach it — repoint the service's image URI." ;;
-          esac
+          echo "SERVICE_URL=https://$ENDPOINT" >> "$GITHUB_ENV"
+          echo "Service:  $ECS_SERVICE_ARN"
+          echo "Endpoint: https://$ENDPOINT"
 
       - name: Start the rollout
         run: |
           set -euo pipefail
-          OP=$(aws apprunner start-deployment --service-arn "$SERVICE_ARN" \
-            --query "OperationId" --output text)
-          echo "OPERATION_ID=$OP" >> "$GITHUB_ENV"
-          echo "Started deployment $OP"
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+            --force-new-deployment --output none
+          echo "Forced a new deployment of $ECS_SERVICE"
 
       - name: Wait for the rollout to finish
         run: |
           set -euo pipefail
-          # App Runner has no waiter for start-deployment, so poll the operation.
-          for _ in $(seq 1 60); do   # up to ~15 min
-            STATUS=$(aws apprunner list-operations --service-arn "$SERVICE_ARN" \
-              --query "OperationSummaryList[?Id=='${OPERATION_ID}'].Status | [0]" \
+          # No dedicated waiter for Express Mode rollouts, so poll the PRIMARY
+          # deployment's rolloutState. Observed real duration ~10 min (new
+          # task healthy, then the old task's 300s ALB deregistration drain) —
+          # sized generously above that, same spirit as App Runner's ~15 min.
+          for _ in $(seq 1 80); do   # up to ~20 min
+            STATUS=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+              --query "services[0].deployments[?status=='PRIMARY'].rolloutState | [0]" \
               --output text)
-            echo "status: $STATUS"
+            echo "rollout state: $STATUS"
             case "$STATUS" in
-              SUCCEEDED) exit 0 ;;
-              FAILED|ROLLBACK_IN_PROGRESS|ROLLBACK_SUCCEEDED|ROLLBACK_FAILED)
-                echo "::error::Rollout $OPERATION_ID ended as $STATUS."
-                echo "Check App Runner → Logs → Application logs for the container's traceback."
+              COMPLETED) exit 0 ;;
+              FAILED)
+                echo "::error::Rollout of $ECS_SERVICE failed."
+                echo "Check ECS → Clusters → $ECS_CLUSTER → $ECS_SERVICE → Logs for the task's traceback."
                 exit 1 ;;
             esac
             sleep 15
           done
-          echo "::error::Rollout did not finish within 15 minutes."
+          echo "::error::Rollout did not finish within 20 minutes."
           exit 1
 
       - name: Verify the running container is the code we just built
         run: |
           set -euo pipefail
-          # The check that would have caught the week-long staleness: compare the
-          # revision the live service reports against the SHA built above.
+          # The check that would have caught App Runner's week-long staleness:
+          # compare the revision the live service reports against the SHA
+          # built above.
           for _ in $(seq 1 20); do   # up to ~5 min for the new task to serve traffic
             BODY=$(curl -fsS --max-time 20 "${SERVICE_URL}/api/health" || echo '{}')
             LIVE=$(printf '%s' "$BODY" | python3 -c \
