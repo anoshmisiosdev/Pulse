@@ -350,6 +350,14 @@ const TEAM: Member[] = [
     photo: adityaPhoto,
     focus: "center 26%",
   },
+  {
+    name: "Asim Siddiqui",
+    study: "Data Science · San José State",
+    bio: "The team's core marketer, pairing go-to-market instincts with hands-on experience building AI software.",
+    email: "asim@churnary.ai",
+    linkedin: "https://www.linkedin.com/in/asim-siddiqui-5b8385319/",
+    initials: "AS",
+  },
 ];
 
 /** Plan names and features only — the monthly figures were removed on purpose. */
@@ -1241,11 +1249,11 @@ function Team() {
   return (
     <section className="chn-wrap chn-team-section" id="team">
       <div className="chn-head-pair">
-        <h2 className="chn-h2">Four Fremont friends, one shared obsession</h2>
+        <h2 className="chn-h2">Old friends, one shared obsession</h2>
         <p className="chn-body">
           We met at American High School in Fremont, California, and kept building
-          together. Churnary brings our backgrounds in AI, product, computer engineering
-          and aerospace systems to one goal: help local businesses keep the customers they
+          together. Churnary brings our backgrounds in AI, product, marketing, computer
+          engineering and aerospace systems to one goal: help local businesses keep the customers they
           worked hard to earn.
         </p>
       </div>
@@ -1727,7 +1735,7 @@ const LP_CSS = `
 
 /* ── team ────────────────────────────────────────────────────────────── */
 .chn-team-section { padding: 130px 40px; }
-.chn-team { display: grid; grid-template-columns: repeat(4, 1fr); gap: 30px; margin-top: 70px; }
+.chn-team { display: grid; grid-template-columns: repeat(5, 1fr); gap: 30px; margin-top: 70px; }
 .chn-team-frame {
   aspect-ratio: 4 / 5; border-radius: 14px; overflow: hidden;
   background: var(--cream-alt); display: grid; place-items: center;
