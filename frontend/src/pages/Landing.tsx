@@ -1253,9 +1253,9 @@ function Team() {
       <div className="chn-head-pair">
         <h2 className="chn-h2">Old friends, one shared obsession</h2>
         <p className="chn-body">
-          We met at American High School in Fremont, California, and kept building
-          together. Churnary brings our backgrounds in AI, product, marketing, computer
-          engineering and aerospace systems to one goal: help local businesses keep the customers they
+          We're a group of friends who never stopped building together. Churnary
+          brings our backgrounds in AI, product, marketing, computer engineering and
+          aerospace systems to one goal: help local businesses keep the customers they
           worked hard to earn.
         </p>
       </div>
