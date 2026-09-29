@@ -20,7 +20,11 @@ BUSINESS_ID = uuid.uuid4()
 
 
 @pytest.fixture
-async def client(tmp_path):
+async def client(tmp_path, monkeypatch):
+    # attempt_send holds SMS during TCPA quiet hours based on the wall clock,
+    # which made SMS approvals 409 whenever CI ran 8pm-9am Eastern. Quiet
+    # hours themselves are covered with fixed times in test_compliance.py.
+    monkeypatch.setattr("app.services.automations.is_quiet_hours", lambda *a, **k: False)
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}", poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
