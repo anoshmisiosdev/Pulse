@@ -1423,7 +1423,8 @@ const LP_CSS = `
   color: var(--cream);
 }
 /* The 512² icon has square white corners; 23% clips them to the mark. */
-.chn-nav-brand img, .chn-footer-brand img, /* Dashed connectors from the input cards into the icon, and out of it to the
+.chn-nav-brand img, .chn-footer-brand img, .chn-flow-icon { border-radius: 23%; display: block; }
+/* Dashed connectors from the input cards into the icon, and out of it to the
    output cards. Each path is drawn in its direction of travel, so one keyframe
    moves every dash the right way. The dasharray period (5+11) matches the
    dashoffset travel exactly, or the loop would visibly jump. */
@@ -1443,7 +1444,6 @@ const LP_CSS = `
 .chn-flow-lines .is-green { stroke: var(--green); }
 @keyframes chn-flow-dash { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -16; } }
 
-.chn-flow-icon { border-radius: 23%; display: block; }
 .chn-nav-brand:hover { color: var(--cream); }
 .chn-nav-links { display: flex; gap: 30px; font-size: 14px; }
 .chn-nav-links a { color: color-mix(in srgb, var(--cream) 62%, transparent); }
