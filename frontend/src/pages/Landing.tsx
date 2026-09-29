@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import icon from "../assets/icon.png";
 import adityaPhoto from "../assets/team/aditya-kolekar.jpg";
 import pranjalPhoto from "../assets/team/pranjal-mishra.jpg";
+import riyanPhoto from "../assets/team/riyan-anosh.jpg";
 import sohamPhoto from "../assets/team/soham-dogra.jpg";
 import WaitlistForm from "../components/WaitlistForm";
 import { landingViewMetric, trackLandingEvent } from "../lib/landingAnalytics";
@@ -330,7 +331,7 @@ const TEAM: Member[] = [
     bio: "A hands-on builder with a soft spot for homelabs, hardware and turning ambitious AI ideas into working prototypes.",
     email: "riyan@churnary.ai",
     linkedin: "https://www.linkedin.com/in/riyan-anosh-0aba9434b/",
-    initials: "RA",
+    photo: riyanPhoto,
   },
   {
     name: "Pranjal Mishra",
