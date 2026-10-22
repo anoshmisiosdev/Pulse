@@ -540,6 +540,17 @@ def test_subscription_endpoint_reports_the_trial(client):
     assert {m["key"] for m in body["meters"]} == {"customers", "integrations"}
 
 
+def test_a_publishable_key_means_billing_is_not_configured(monkeypatch):
+    """A pk_ key can't create a Checkout Session, so the UI must say "billing
+    isn't set up" rather than offering a button that fails with an opaque
+    Stripe auth error."""
+    monkeypatch.setattr(settings, "stripe_secret_key", "pk_test_abc")
+    monkeypatch.setattr(settings, "stripe_price_growth", "price_real")
+    assert settings.billing_configured is False
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_abc")
+    assert settings.billing_configured is True
+
+
 def test_checkout_without_stripe_configured_is_a_503_not_a_500(client, monkeypatch):
     monkeypatch.setattr(settings, "stripe_secret_key", "")
     resp = client.post("/api/billing/checkout", json={"tier": "growth"})

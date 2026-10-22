@@ -59,6 +59,11 @@ async def lifespan(app: FastAPI):
             "POSTHOG_PROJECT_TOKEN is configured"
         )
 
+    # A publishable key pasted into the secret slot fails every Stripe call
+    # with an opaque auth error. Say so once, loudly, at boot.
+    if settings.stripe_key_problem:
+        logger.warning(settings.stripe_key_problem)
+
     # Ensure tables exist (idempotent) for brand-new databases. Schema *changes*
     # to existing tables live in Alembic (`alembic upgrade head` runs in the
     # container entrypoint) — create_all never ALTERs.

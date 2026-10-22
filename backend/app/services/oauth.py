@@ -31,7 +31,7 @@ _SQUARE_VERSION = "2026-07-15"
 def availability() -> dict[str, bool]:
     """Which providers have OAuth app credentials configured."""
     return {
-        "stripe": bool(settings.stripe_connect_client_id and settings.stripe_secret_key),
+        "stripe": bool(settings.stripe_connect_client_id and settings.stripe_secret_key_usable),
         "square": bool(settings.square_app_id and settings.square_app_secret),
     }
 
@@ -55,16 +55,21 @@ def authorize_url(provider: str, state: str) -> str:
         return f"https://connect.stripe.com/oauth/authorize?{params}"
     if provider == "square":
         host = _SQUARE_HOSTS[settings.square_environment]
-        params = urlencode(
-            {
-                "client_id": settings.square_app_id,
-                "scope": _SQUARE_SCOPES,
-                "session": "false",
-                "state": state,
-                "redirect_uri": redirect_uri("square"),
-            }
-        )
-        return f"{host}/oauth2/authorize?{params}"
+        query = {
+            "client_id": settings.square_app_id,
+            "scope": _SQUARE_SCOPES,
+            "state": state,
+            "redirect_uri": redirect_uri("square"),
+        }
+        # Production: force an explicit sign-in (Square's recommendation), so a
+        # shared browser can't silently connect whichever seller is logged in.
+        # Sandbox: Square's docs say "Only session=true (default) is
+        # supported" -- sending session=false there leaves the authorize page
+        # hanging, which is exactly how this broke. So the parameter is only
+        # sent where it's valid.
+        if settings.square_environment == "production":
+            query["session"] = "false"
+        return f"{host}/oauth2/authorize?{urlencode(query)}"
     raise IntegrationError(f"OAuth not supported for {provider!r}")
 
 

@@ -308,9 +308,41 @@ class Settings(BaseSettings):
         return (self.billing_return_base_url or self.frontend_origin).rstrip("/")
 
     @property
+    def stripe_secret_key_usable(self) -> bool:
+        """Whether STRIPE_SECRET_KEY can authenticate server-side calls.
+
+        A publishable key (``pk_...``) in this slot is an easy paste mistake --
+        the dashboard shows both keys side by side -- and it fails every server
+        call with an auth error that surfaces to the owner as a vague "Stripe
+        couldn't complete that". Treating it as unconfigured means the UI says
+        "billing isn't set up" instead, and the startup log names the problem.
+        Secret (``sk_``) and restricted (``rk_``) keys both work server-side.
+        """
+        key = self.stripe_secret_key.strip()
+        return key.startswith(("sk_", "rk_"))
+
+    @property
+    def stripe_key_problem(self) -> str | None:
+        """A human-readable description of a misconfigured key, or None."""
+        key = self.stripe_secret_key.strip()
+        if not key or self.stripe_secret_key_usable:
+            return None
+        if key.startswith("pk_"):
+            return (
+                "STRIPE_SECRET_KEY holds a *publishable* key (pk_...). Server calls "
+                "need the secret key (sk_test_... / sk_live_...) from Stripe "
+                "Dashboard -> Developers -> API keys. Billing and Connect are "
+                "disabled until it's fixed."
+            )
+        return (
+            "STRIPE_SECRET_KEY doesn't look like a Stripe secret key (expected "
+            "sk_... or rk_...). Billing and Connect are disabled until it's fixed."
+        )
+
+    @property
     def billing_configured(self) -> bool:
-        """Checkout is possible: a secret key plus at least one price."""
-        return bool(self.stripe_secret_key) and any(
+        """Checkout is possible: a usable secret key plus at least one price."""
+        return self.stripe_secret_key_usable and any(
             (self.stripe_price_starter, self.stripe_price_growth, self.stripe_price_pro)
         )
 

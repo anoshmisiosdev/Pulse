@@ -40,7 +40,7 @@ class CheckoutSession:
 
 
 def stripe_configured() -> bool:
-    return bool(settings.stripe_secret_key)
+    return settings.stripe_secret_key_usable
 
 
 def price_id_for(tier: TierName, *, annual: bool = False) -> str:
@@ -86,7 +86,7 @@ def _stripe():
         import stripe
     except ImportError as exc:  # pragma: no cover - dependency is declared
         raise BillingError("Billing is unavailable: the Stripe SDK isn't installed.") from exc
-    if not settings.stripe_secret_key:
+    if not settings.stripe_secret_key_usable:
         raise BillingError("Billing isn't configured yet.")
     stripe.api_key = settings.stripe_secret_key
     return stripe

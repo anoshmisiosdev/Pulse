@@ -92,6 +92,59 @@ def test_authorize_url_stripe(monkeypatch):
     assert redirect_uri("stripe").endswith("/api/integrations/oauth/stripe/callback")
 
 
+def test_square_sandbox_omits_session_false(monkeypatch):
+    """Regression: Square's docs say "Only session=true (default) is supported"
+    in the Sandbox. We sent session=false unconditionally, which left the
+    sandbox authorize page hanging with no error."""
+    monkeypatch.setattr(settings, "square_app_id", "sandbox-sq0idb-test")
+    monkeypatch.setattr(settings, "square_environment", "sandbox")
+    url = authorize_url("square", "STATE")
+    query = parse_qs(urlparse(url).query)
+    assert url.startswith("https://connect.squareupsandbox.com/oauth2/authorize?")
+    assert "session" not in query
+
+
+def test_square_production_forces_explicit_sign_in(monkeypatch):
+    """Production keeps session=false — Square recommends it, so a shared
+    browser can't silently connect whichever seller happens to be logged in."""
+    monkeypatch.setattr(settings, "square_app_id", "sq0idp-test")
+    monkeypatch.setattr(settings, "square_environment", "production")
+    query = parse_qs(urlparse(authorize_url("square", "STATE")).query)
+    assert query["session"] == ["false"]
+
+
+@pytest.mark.parametrize(
+    ("key", "usable"),
+    [
+        ("sk_test_abc", True),
+        ("sk_live_abc", True),
+        ("rk_test_abc", True),  # restricted keys work server-side too
+        ("pk_test_abc", False),  # the paste mistake this guards against
+        ("pk_live_abc", False),
+        ("", False),
+        ("garbage", False),
+    ],
+)
+def test_only_secret_keys_count_as_usable(monkeypatch, key, usable):
+    monkeypatch.setattr(settings, "stripe_secret_key", key)
+    assert settings.stripe_secret_key_usable is usable
+
+
+def test_a_publishable_key_disables_stripe_connect_with_a_clear_reason(monkeypatch):
+    """Regression: a pk_ key in STRIPE_SECRET_KEY made "Connect with Stripe" look
+    available, then fail after the consent screen at token exchange. It now
+    reads as unconfigured up front, and the startup log names the cause."""
+    monkeypatch.setattr(settings, "stripe_connect_client_id", "ca_test")
+    monkeypatch.setattr(settings, "stripe_secret_key", "pk_test_abc")
+    assert availability()["stripe"] is False
+    assert "publishable" in settings.stripe_key_problem
+    assert "sk_test_" in settings.stripe_key_problem
+
+    monkeypatch.setattr(settings, "stripe_secret_key", "sk_test_abc")
+    assert availability()["stripe"] is True
+    assert settings.stripe_key_problem is None
+
+
 # ── callback error paths (no provider round-trip needed) ─────────────────────
 
 
