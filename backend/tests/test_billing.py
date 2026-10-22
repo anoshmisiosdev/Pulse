@@ -30,7 +30,7 @@ from app.core.config import settings
 from app.core.database import Base, get_db
 from app.core.deps import CurrentUser, get_current_user
 from app.main import app, fastapi_app
-from app.models import Business, Customer, IntegrationConnection, Subscription
+from app.models import Business, Customer, IntegrationConnection
 
 BUSINESS_ID = uuid.uuid4()
 

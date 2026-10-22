@@ -8,6 +8,7 @@ the I/O and degrades gracefully so a missing key or a flaky model never blocks a
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 
 from app.campaigns.templates import fallback_email, fallback_sms
@@ -44,6 +45,25 @@ class GeneratedCopy:
     subject: str | None = None
     generated_by: str = "claude"  # "claude" | "fallback"
     model: str | None = None
+
+
+@dataclass
+class GenerationTrace:
+    """Everything the audit log needs about one generation attempt sequence.
+
+    CLAUDE.md requires logging prompt + output + model version for every
+    generation, and the prompt is built inside this module — so rather than
+    rebuilding it at the call site (which would risk logging a prompt that
+    isn't the one that was sent), generation hands the trace back.
+    """
+
+    system_prompt: str
+    user_prompt: str
+    raw_output: str | None = None
+    model: str | None = None
+    attempts: int = 1
+    latency_ms: int | None = None
+    error: str | None = None
 
 
 def parse_model_json(raw: str, channel: str) -> GeneratedCopy:
@@ -118,25 +138,45 @@ def _fallback(ctx: CampaignContext) -> GeneratedCopy:
     return GeneratedCopy(body=body, subject=subject, generated_by="fallback")
 
 
-async def generate_campaign(ctx: CampaignContext) -> GeneratedCopy:
-    """Generate copy via Token Router, degrading to a static template on any failure."""
+async def generate_campaign_traced(
+    ctx: CampaignContext,
+) -> tuple[GeneratedCopy, GenerationTrace]:
+    """``generate_campaign``, plus the prompts/outcome for the audit log."""
     if not settings.llm_configured:
-        return _fallback(ctx)
+        return _fallback(ctx), GenerationTrace(
+            system_prompt="",
+            user_prompt="",
+            attempts=0,
+            error="llm_not_configured",
+        )
 
     system, user = _build_prompt(ctx)
     model = active_model()
+    trace = GenerationTrace(system_prompt=system, user_prompt=user, model=model)
+    started = time.monotonic()
 
     for attempt in (1, 2):  # generate, then one retry on parse failure
+        trace.attempts = attempt
         try:
             raw = await complete_text(system, user, max_tokens=700)
+            trace.raw_output = raw
             copy = parse_model_json(raw, ctx.channel)
             copy.model = model
+            trace.latency_ms = int((time.monotonic() - started) * 1000)
             logger.info("campaign generated", extra={"channel": ctx.channel, "attempt": attempt})
-            return copy
+            return copy, trace
         except Exception as exc:  # network, parse, or API error — never blocks the send
             logger.warning("generation attempt %s failed: %s", attempt, exc)
+            trace.error = f"{type(exc).__name__}: {exc}"
 
-    return _fallback(ctx)
+    trace.latency_ms = int((time.monotonic() - started) * 1000)
+    return _fallback(ctx), trace
+
+
+async def generate_campaign(ctx: CampaignContext) -> GeneratedCopy:
+    """Generate copy via Token Router, degrading to a static template on any failure."""
+    copy, _trace = await generate_campaign_traced(ctx)
+    return copy
 
 
 # Caps prompt/response size for one call: 6 customers' worth of context stays

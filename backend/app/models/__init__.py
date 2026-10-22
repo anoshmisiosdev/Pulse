@@ -8,6 +8,7 @@ from app.models.campaign import (
     CampaignSend,
     RecoveryAttribution,
 )
+from app.models.chat import ChatConversation, ChatMessage
 from app.models.competitor_price import (
     CompetitorPriceCompetitor,
     CompetitorPriceObservation,
@@ -23,6 +24,7 @@ from app.models.customer import (
     Transaction,
     Visit,
 )
+from app.models.generation import AuditLog, GenerationLog
 from app.models.integration import IntegrationConnection, ProviderWebhookEvent, SyncRun
 from app.models.knowledge import BusinessKnowledge
 from app.models.social import (
@@ -37,6 +39,10 @@ from app.models.visitor import VisitorEvent, VisitorIdentifier, VisitorProfile
 from app.models.waitlist import WaitlistSignup
 
 __all__ = [
+    "AuditLog",
+    "GenerationLog",
+    "ChatConversation",
+    "ChatMessage",
     "BusinessKnowledge",
     "BrandKitVersion",
     "CompanyContextItem",

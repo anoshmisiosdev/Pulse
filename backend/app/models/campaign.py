@@ -30,6 +30,12 @@ class Campaign(UUIDMixin, Base):
     # draft | pending_approval | approved | sending | sent | failed
     status: Mapped[str] = mapped_column(String(24), default="draft")
     incentive: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # A/B: when true, sends are split across two generated variants and
+    # recovery attribution is reported per variant (app/campaigns/experiments.py).
+    ab_test: Mapped[bool] = mapped_column(default=False)
+    # The second variant's incentive, when the test is varying the offer rather
+    # than just the copy. Null means both variants share ``incentive``.
+    variant_b_incentive: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class CampaignSend(UUIDMixin, Base):
@@ -58,6 +64,10 @@ class CampaignSend(UUIDMixin, Base):
     # Twilio MessageSid / Resend email id — lets delivery-status webhooks find this row.
     provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # "A" / "B" on an A/B campaign, null otherwise. Assigned at queue time and
+    # never reassigned — a customer who moved between variants mid-test would
+    # make the result unreadable.
+    variant: Mapped[str | None] = mapped_column(String(1), nullable=True)
 
 
 class AutomationRule(UUIDMixin, Base):
