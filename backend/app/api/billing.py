@@ -122,7 +122,6 @@ async def checkout(
             email=user.email,
             tier=payload.tier,
             annual=payload.annual,
-            coupon=payload.coupon,
             success_url=f"{base}/billing?checkout=success",
             cancel_url=f"{base}/billing?checkout=canceled",
         )
@@ -134,11 +133,7 @@ async def checkout(
     capture_event(
         "billing_checkout_started",
         distinct_id=user.user_id,
-        properties={
-            "tier": payload.tier,
-            "annual": payload.annual,
-            "has_coupon": bool(payload.coupon),
-        },
+        properties={"tier": payload.tier, "annual": payload.annual},
     )
     return CheckoutOut(url=session.url, session_id=session.session_id)
 

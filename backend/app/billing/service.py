@@ -104,7 +104,6 @@ def _create_checkout_sync(
     success_url: str,
     cancel_url: str,
     trial_days: int | None,
-    coupon: str | None,
 ) -> CheckoutSession:
     stripe = _stripe()
     params: dict = {
@@ -118,6 +117,12 @@ def _create_checkout_sync(
         # client_reference_id can still be routed to the right tenant.
         "subscription_data": {"metadata": {"business_id": business_id}},
         "client_reference_id": business_id,
+        # Stripe's own promotion-code box on the hosted page. This is the only
+        # discount path: a promotion code is the customer-facing token and
+        # carries max_redemptions / expires_at / first_time_transaction, which
+        # a bare coupon id does not. Never replace this with a client-supplied
+        # `discounts` value -- that hands every tenant every coupon in the
+        # account.
         "allow_promotion_codes": True,
     }
     if trial_days:
@@ -126,11 +131,6 @@ def _create_checkout_sync(
         params["customer"] = stripe_customer_id
     elif email:
         params["customer_email"] = email
-    if coupon:
-        # An explicit coupon and the promotion-code field can't both be set.
-        params.pop("allow_promotion_codes", None)
-        params["discounts"] = [{"coupon": coupon}]
-
     try:
         session = stripe.checkout.Session.create(**params)
     except Exception as exc:
@@ -151,7 +151,6 @@ async def start_checkout(
     email: str | None,
     tier: TierName,
     annual: bool = False,
-    coupon: str | None = None,
     success_url: str,
     cancel_url: str,
 ) -> CheckoutSession:
@@ -172,7 +171,6 @@ async def start_checkout(
         success_url=success_url,
         cancel_url=cancel_url,
         trial_days=trial_days,
-        coupon=coupon,
     )
 
 

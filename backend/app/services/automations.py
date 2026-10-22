@@ -16,6 +16,8 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.billing.limits import automation_denial, channel_denial
+from app.billing.store import entitlements
 from app.campaigns.generator import CampaignContext, GeneratedCopy, generate_campaigns_batch
 from app.core.config import settings
 from app.core.security import encrypt_token
@@ -124,6 +126,26 @@ async def dispatch_automations(
         .scalars()
         .all()
     )
+    if not rules:
+        return summary
+
+    # Entitlements are enforced here rather than only in the API layer. The
+    # scheduled tick (app/workers/celery_app.py::dispatch_automations_tick) is
+    # the path that actually runs in production, and it called straight into
+    # this function — so gating only POST /automations/dispatch left a tenant
+    # who downgraded from Growth to Starter still sending automated SMS on the
+    # beat schedule. One check, both callers.
+    ent = await entitlements(db, business_id=business_id)
+    allowed_rules = []
+    for rule in rules:
+        if rule.mode == "auto" and automation_denial(ent):
+            summary.skip("automation_not_in_plan")
+            continue
+        if channel_denial(ent, rule.channel):
+            summary.skip(f"{rule.channel}_not_in_plan")
+            continue
+        allowed_rules.append(rule)
+    rules = allowed_rules
     if not rules:
         return summary
 

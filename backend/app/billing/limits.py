@@ -118,11 +118,43 @@ def evaluate(
     )
 
 
+def _inactive_denial(ent: Entitlements, feature: str) -> str | None:
+    """Why nothing can be sent at all, or None if the plan is live.
+
+    ``active`` was previously computed and only displayed, which meant
+    cancelling in the Stripe portal — or simply letting the auto-created
+    14-day trial lapse — revoked nothing: ``tier`` stays put when
+    ``status`` becomes ``canceled``, so the tier-only gates kept passing
+    forever.
+
+    Note which statuses count as active: ``past_due`` does, deliberately. A
+    failed card is a billing problem, not a reason to cut off outreach
+    mid-campaign, and Stripe's dunning does the chasing. Only ``canceled`` and
+    ``trial_expired`` stop sending. Reading, exporting and deleting data are
+    never gated on this — a lapsed tenant must still be able to get their data
+    out.
+    """
+    if ent.active:
+        return None
+    if ent.status == "trial_expired":
+        return (
+            f"Your trial has ended, so {feature} is paused. "
+            "Pick a plan to start sending again — your data is all still here."
+        )
+    return (
+        f"Your subscription is {ent.status}, so {feature} is paused. "
+        "Restart a plan to send again — your data is all still here."
+    )
+
+
 def channel_denial(ent: Entitlements, channel: str) -> str | None:
     """Why this channel can't be used, or None if it can.
 
     A hard gate, unlike the volume meters — see the module docstring.
     """
+    inactive = _inactive_denial(ent, "sending" if channel == "email" else f"{channel} sending")
+    if inactive:
+        return inactive
     if channel in ent.channels:
         return None
     if channel == "sms":
@@ -134,6 +166,9 @@ def channel_denial(ent: Entitlements, channel: str) -> str | None:
 
 def automation_denial(ent: Entitlements) -> str | None:
     """Why automation rules can't run, or None if they can."""
+    inactive = _inactive_denial(ent, "automation")
+    if inactive:
+        return inactive
     if ent.automation:
         return None
     return (

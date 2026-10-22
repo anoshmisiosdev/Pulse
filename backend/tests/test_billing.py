@@ -32,6 +32,7 @@ from app.core.database import Base, get_db
 from app.core.deps import CurrentUser, get_current_user
 from app.main import app, fastapi_app
 from app.models import Business, Customer, IntegrationConnection
+from app.schemas.billing import CheckoutIn
 
 BUSINESS_ID = uuid.uuid4()
 
@@ -126,6 +127,33 @@ def test_past_due_keeps_the_product_usable():
 @pytest.mark.parametrize("status", ["canceled", "trial_expired", "nonsense"])
 def test_inactive_statuses_are_reported_inactive(status):
     assert not _ent(status=status).active
+
+
+def test_a_cancelled_subscription_stops_all_sending():
+    """Security regression: `active` used to be computed and only displayed, so
+    cancelling in the Stripe portal revoked nothing — `tier` stays put when
+    `status` becomes canceled, and the tier-only gates kept passing forever."""
+    ent = _ent(tier="growth", status="canceled")
+    assert not ent.active
+    assert "paused" in channel_denial(ent, "email")
+    assert "paused" in channel_denial(ent, "sms")
+    assert "paused" in automation_denial(ent)
+
+
+def test_an_expired_trial_stops_sending_and_says_data_is_safe():
+    ent = _ent(tier="growth", status="trial_expired")
+    denial = channel_denial(ent, "email")
+    assert "trial has ended" in denial
+    assert "data is all still here" in denial
+
+
+def test_a_failed_card_does_not_stop_sending():
+    """past_due is active on purpose: a failed card is a billing problem, not a
+    reason to cut off outreach mid-campaign. Stripe's dunning does the chasing."""
+    ent = _ent(tier="growth", status="past_due")
+    assert channel_denial(ent, "email") is None
+    assert channel_denial(ent, "sms") is None
+    assert automation_denial(ent) is None
 
 
 def test_sms_is_denied_on_starter_and_allowed_on_growth():
@@ -527,6 +555,45 @@ def test_portal_before_any_checkout_explains_itself(client):
 
 def test_an_unknown_tier_is_rejected_by_validation(client):
     assert client.post("/api/billing/checkout", json={"tier": "enterprise"}).status_code == 422
+
+
+def test_a_client_supplied_coupon_is_refused(client, monkeypatch):
+    """Security regression: the coupon id used to be passed straight to Stripe's
+    `discounts`, so any tenant could apply any coupon in the account — including
+    `founders_rate`, which is hardcoded in tiers.py — and pay a price they were
+    never offered. Discounts now go through Stripe's promotion-code field, which
+    carries redemption limits.
+    """
+    monkeypatch.setattr(settings, "stripe_secret_key", "")
+    resp = client.post(
+        "/api/billing/checkout", json={"tier": "pro", "coupon": "founders_rate"}
+    )
+    # extra="forbid" isn't set on this model, so the field is ignored rather
+    # than 422'd; what matters is that nothing can carry it to Stripe.
+    assert "coupon" not in CheckoutIn.model_fields
+    assert resp.status_code == 503  # unconfigured Stripe, not a discounted session
+
+
+async def test_a_cancelled_tenant_cannot_send(client, sessions):
+    await _set_tier(sessions, "growth")
+    async with sessions() as db:
+        sub = await ensure_subscription(db, business_id=str(BUSINESS_ID))
+        sub.status = "canceled"
+        await db.commit()
+
+    resp = client.post(
+        "/api/campaigns/generate",
+        json={
+            "business_name": "Hayward Coffee Co.",
+            "business_type": "cafe",
+            "customer_name": "Dana",
+            "channel": "email",
+            "risk_reasons": [],
+        },
+    )
+    assert resp.status_code == 402
+    assert "paused" in resp.json()["detail"]
+    assert client.post("/api/automations/dispatch").status_code == 402
 
 
 def test_webhook_rejects_an_unsigned_delivery(client, monkeypatch):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class TierOut(BaseModel):
@@ -58,7 +58,13 @@ class PlansOut(BaseModel):
 class CheckoutIn(BaseModel):
     tier: Literal["starter", "growth", "pro"]
     annual: bool = False
-    coupon: str | None = Field(default=None, max_length=64)
+    # Deliberately no `coupon` field. A raw Stripe coupon id is a
+    # server-trusted identifier: it carries none of the redemption limits,
+    # expiry or first-time-transaction restrictions a promotion code does, so
+    # accepting one from the client let any tenant apply any coupon in the
+    # account (including `founders_rate`) and pay a price they were never
+    # offered. Discounts now go through Stripe's promotion-code field on the
+    # hosted Checkout page, where Stripe enforces eligibility.
 
 
 class CheckoutOut(BaseModel):

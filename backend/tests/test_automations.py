@@ -11,6 +11,7 @@ from datetime import datetime
 import pytest
 from sqlalchemy import select
 
+from app.billing.store import ensure_subscription
 from app.models import AutomationRule, CampaignSend, Customer
 from app.scripts.demo_data import generate_sync
 from app.services import automations, ingest
@@ -150,3 +151,83 @@ async def test_approve_mode_still_generates_copy(db):
     sends = (await db.execute(select(CampaignSend))).scalars().all()
     assert all(s.body for s in sends)
     assert all(s.generated_by != "suggested" for s in sends)
+
+
+# ── Entitlement enforcement in the dispatcher itself ─────────────────────────
+#
+# These matter more than the API-layer gates: `dispatch_automations_tick`
+# (app/workers/celery_app.py) is the path that actually runs in production,
+# every few minutes, and it calls straight into `dispatch_automations`. Gating
+# only POST /automations/dispatch left a downgraded tenant sending automated
+# SMS on the beat schedule forever.
+
+
+async def _set_plan(db, tier: str, status: str = "active") -> None:
+    sub = await ensure_subscription(db, business_id=BUSINESS_ID)
+    sub.tier = tier
+    sub.status = status
+    await db.flush()
+
+
+async def test_the_dispatcher_skips_an_sms_rule_the_plan_does_not_include(db):
+    await _seed(db)
+    await _set_plan(db, "starter")  # email only
+    # approve mode, so the automation gate doesn't fire first and this
+    # isolates the channel entitlement.
+    await _make_rule(db, channel="sms", mode="approve")
+
+    summary = await automations.dispatch_automations(db, BUSINESS_ID, now=NOW)
+    await db.commit()
+
+    assert summary.sends_created == 0
+    assert summary.skipped == {"sms_not_in_plan": 1}
+    assert (await db.execute(select(CampaignSend))).scalars().all() == []
+
+
+async def test_the_dispatcher_skips_auto_mode_without_the_automation_entitlement(db):
+    await _seed(db)
+    await _set_plan(db, "starter")
+    await _make_rule(db, channel="email", mode="auto")
+
+    summary = await automations.dispatch_automations(db, BUSINESS_ID, now=NOW)
+    await db.commit()
+
+    assert summary.sends_created == 0
+    assert summary.skipped == {"automation_not_in_plan": 1}
+
+
+async def test_the_dispatcher_still_runs_approve_mode_on_starter(db):
+    """Approve-to-send is included on every plan — only hands-off auto is gated."""
+    await _seed(db)
+    await _set_plan(db, "starter")
+    await _make_rule(db, channel="email", mode="approve")
+
+    summary = await automations.dispatch_automations(db, BUSINESS_ID, now=NOW)
+    await db.commit()
+
+    assert summary.sends_created > 0
+
+
+async def test_the_dispatcher_stops_entirely_for_a_cancelled_subscription(db):
+    await _seed(db)
+    await _set_plan(db, "growth", status="canceled")
+    await _make_rule(db, channel="email", mode="auto")
+
+    summary = await automations.dispatch_automations(db, BUSINESS_ID, now=NOW)
+    await db.commit()
+
+    assert summary.sends_created == 0
+    assert (await db.execute(select(CampaignSend))).scalars().all() == []
+
+
+async def test_a_failed_card_does_not_stop_the_dispatcher(db):
+    """past_due keeps running on purpose — Stripe's dunning chases the card,
+    we don't cut off a campaign mid-flight."""
+    await _seed(db)
+    await _set_plan(db, "growth", status="past_due")
+    await _make_rule(db, channel="email", mode="approve")
+
+    summary = await automations.dispatch_automations(db, BUSINESS_ID, now=NOW)
+    await db.commit()
+
+    assert summary.sends_created > 0
