@@ -34,6 +34,7 @@ fernet.key
 # Docker volumes (local)
 .postgres-data/
 .redis-data/
+.n8n-data/
 
 # Local workspace/runtime artifacts
 AGENTS.md

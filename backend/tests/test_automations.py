@@ -12,9 +12,11 @@ import pytest
 from sqlalchemy import select
 
 from app.billing.store import ensure_subscription
+from app.core.config import settings
 from app.models import AutomationRule, CampaignSend, Customer
 from app.scripts.demo_data import generate_sync
 from app.services import automations, ingest
+from app.services import n8n as n8n_service
 
 # Anchored to the real clock: dispatch/scoring compare against datetime.now().
 NOW = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -136,6 +138,73 @@ async def test_suggest_mode_creates_empty_sends_without_generating_copy(db, monk
     assert all(s.status == "pending" for s in sends)
     assert all(s.body == "" for s in sends)
     assert all(s.generated_by == "suggested" for s in sends)
+
+
+async def test_approve_mode_notifies_n8n_once_for_the_batch(db, monkeypatch):
+    calls = []
+
+    async def _fake_notify(webhook_url, event, payload):
+        calls.append((webhook_url, event, payload))
+        return True
+
+    monkeypatch.setattr(n8n_service, "notify", _fake_notify)
+    monkeypatch.setattr(settings, "n8n_approval_webhook_url", "https://n8n.example/hook")
+
+    await _seed(db)
+    calls.clear()  # _seed's own persist_sync fires a riskscore.band_changed notify
+    await _make_rule(db, mode="approve")
+
+    summary = await automations.dispatch_automations(db, BUSINESS_ID, now=NOW)
+    await db.commit()
+
+    assert len(calls) == 1
+    webhook_url, event, payload = calls[0]
+    assert webhook_url == "https://n8n.example/hook"
+    assert event == "send.needs_approval"
+    assert len(payload["sends"]) == summary.sends_created
+    assert all(not s["needs_message"] for s in payload["sends"])
+
+
+async def test_suggest_mode_notifies_n8n_with_needs_message_true(db, monkeypatch):
+    calls = []
+
+    async def _fake_notify(webhook_url, event, payload):
+        calls.append((webhook_url, event, payload))
+        return True
+
+    monkeypatch.setattr(n8n_service, "notify", _fake_notify)
+    monkeypatch.setattr(settings, "n8n_approval_webhook_url", "https://n8n.example/hook")
+
+    await _seed(db)
+    calls.clear()  # _seed's own persist_sync fires a riskscore.band_changed notify
+    await _make_rule(db, mode="suggest")
+
+    await automations.dispatch_automations(db, BUSINESS_ID, now=NOW)
+    await db.commit()
+
+    assert len(calls) == 1
+    assert all(s["needs_message"] for s in calls[0][2]["sends"])
+
+
+async def test_auto_mode_does_not_notify_n8n_for_approval(db, monkeypatch):
+    calls = []
+
+    async def _fake_notify(webhook_url, event, payload):
+        calls.append((webhook_url, event, payload))
+        return True
+
+    monkeypatch.setattr(n8n_service, "notify", _fake_notify)
+    monkeypatch.setattr(settings, "n8n_approval_webhook_url", "https://n8n.example/hook")
+
+    await _seed(db)
+    calls.clear()  # _seed's own persist_sync fires a riskscore.band_changed notify
+    await _make_rule(db, mode="auto")
+
+    await automations.dispatch_automations(db, BUSINESS_ID, now=NOW)
+    await db.commit()
+
+    # Nothing to approve — auto mode sends immediately, no human in the loop.
+    assert calls == []
 
 
 async def test_approve_mode_still_generates_copy(db):

@@ -1,0 +1,51 @@
+{
+  "name": "Pulse — approvals via Slack",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pulse-approval",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Pulse: send.needs_approval",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "pulse-approval"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.sends",
+        "options": {}
+      },
+      "id": "split",
+      "name": "One item per pending send",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": "",
+        "text": "={{ $json.needs_message ? `✏️ *${$json.customer_name}* needs a message written (${$json.channel}) — write one in Pulse, this rule doesn't draft copy.` : `📨 *${$json.customer_name}* (${$json.channel}): \"${$json.body}\" — reply APPROVE ${$json.send_id} to send it.` }}",
+        "otherOptions": {}
+      },
+      "id": "slack",
+      "name": "Post to Slack (configure credentials)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [440, 0]
+    }
+  ],
+  "connections": {
+    "Pulse: send.needs_approval": {
+      "main": [[{ "node": "One item per pending send", "type": "main", "index": 0 }]]
+    },
+    "One item per pending send": {
+      "main": [[{ "node": "Post to Slack (configure credentials)", "type": "main", "index": 0 }]]
+    }
+  }
+}

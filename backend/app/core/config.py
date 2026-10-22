@@ -422,6 +422,13 @@ class Settings(BaseSettings):
     discord_alert_min_intent_score: int = 25
     discord_include_email: bool = False
 
+    # n8n workflow triggers — operator's own n8n instance, one URL per workflow.
+    # Best-effort outbound notifications only; n8n never decides who's contactable
+    # (that stays in compliance.py) and never receives anything it wasn't sent.
+    n8n_approval_webhook_url: str = ""
+    n8n_band_change_webhook_url: str = ""
+    n8n_sync_failure_webhook_url: str = ""
+
     @property
     def visitor_admin_email_set(self) -> set[str]:
         return {

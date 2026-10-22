@@ -1,7 +1,7 @@
 """generation + audit logs, assistant conversations, campaign A/B columns
 
 Revision ID: 20261021_0009
-Revises: 20260812_0008
+Revises: 20260822_0009
 Create Date: 2026-10-21
 """
 
@@ -15,7 +15,9 @@ from sqlalchemy.dialects import postgresql
 from alembic import context, op
 
 revision: str = "20261021_0009"
-down_revision: str | None = "20260812_0008"
+# Chained after 20260822_0009 (review_request_enabled/review_link, from the
+# n8n review-request experiment) so there is a single head.
+down_revision: str | None = "20260822_0009"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

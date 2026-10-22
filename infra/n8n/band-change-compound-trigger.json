@@ -1,0 +1,60 @@
+{
+  "name": "Pulse — compound risk-band triggers",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pulse-band-change",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Pulse: riskscore.band_changed",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "pulse-band-change"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.changes",
+        "options": {}
+      },
+      "id": "split",
+      "name": "One item per customer",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.band }}",
+              "rightValue": "high",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-high",
+      "name": "Build your compound condition here",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [440, 0],
+      "notes": "Starter: band == high. Add more conditions (e.g. score, reasons text) to compose the multi-condition triggers the Pulse rule engine can't express as one AutomationRule."
+    }
+  ],
+  "connections": {
+    "Pulse: riskscore.band_changed": {
+      "main": [[{ "node": "One item per customer", "type": "main", "index": 0 }]]
+    },
+    "One item per customer": {
+      "main": [[{ "node": "Build your compound condition here", "type": "main", "index": 0 }]]
+    }
+  }
+}

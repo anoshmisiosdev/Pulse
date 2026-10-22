@@ -172,7 +172,7 @@ async def queue_review_requests(
     now = now or datetime.now(UTC)
     bid = uuid.UUID(business_id)
     business = await db.get(Business, bid)
-    if business is None or not business.review_requests_enabled or not business.review_url:
+    if business is None or not business.review_request_enabled or not business.review_link:
         return summary
 
     channel = business.review_request_channel or "email"
@@ -228,7 +228,7 @@ async def queue_review_requests(
         subject, body = review_copy(
             business_name=business.name,
             first_name=customer.first_name,
-            review_url=business.review_url,
+            review_url=business.review_link,
             channel=channel,
             unsubscribe=(
                 unsubscribe_url(business_id, str(customer.id)) if channel == "email" else ""

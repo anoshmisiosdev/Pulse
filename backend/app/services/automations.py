@@ -22,7 +22,7 @@ from app.campaigns.generator import CampaignContext, GeneratedCopy, generate_cam
 from app.core.config import settings
 from app.core.security import encrypt_token
 from app.models import AutomationRule, Business, Campaign, CampaignSend, Customer, EngagementEvent
-from app.services import ingest
+from app.services import ingest, n8n
 from app.services.activity import build_scored_customers
 from app.services.compliance import can_contact, is_quiet_hours
 from app.services.ingest import _uuid
@@ -245,6 +245,7 @@ async def dispatch_automations(
         else:
             copies = await generate_campaigns_batch([ctx for _, ctx in eligible])
 
+        needs_approval: list[dict] = []
         for (customer, _ctx), copy in zip(eligible, copies, strict=True):
             campaign = await _get_or_create_campaign(db, rule)
             send = CampaignSend(
@@ -264,7 +265,29 @@ async def dispatch_automations(
 
             if rule.mode == "auto":
                 await attempt_send(db, send, customer, biz)
+            else:
+                # suggest/approve both wait on a human — that's the flow an
+                # n8n Slack/SMS "reply YES" workflow hooks into, via the same
+                # POST /api/automations/sends/{id}/approve endpoint the
+                # dashboard button uses.
+                needs_approval.append(
+                    {
+                        "send_id": str(send.id),
+                        "customer_name": customer.first_name,
+                        "channel": send.channel,
+                        "subject": send.subject,
+                        "body": send.body,
+                        "needs_message": send.generated_by == "suggested",
+                    }
+                )
 
             await db.flush()
+
+        if needs_approval:
+            await n8n.notify(
+                settings.n8n_approval_webhook_url,
+                "send.needs_approval",
+                {"business_id": business_id, "sends": needs_approval},
+            )
 
     return summary

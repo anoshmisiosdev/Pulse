@@ -20,11 +20,13 @@ class Business(UUIDMixin, Base):
     timezone: Mapped[str] = mapped_column(String(64), default="America/New_York")
     # Multi-location readiness without a multi-location product yet.
     location_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
-
-    # Review requests: after a customer is recovered, ask them for a review.
-    # Off by default -- it messages real people, so it's an explicit opt-in.
-    review_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    review_requests_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Review requests: after a customer is recovered, ask them for a review
+    # (app/campaigns/reviews.py). Off by default -- it messages real people, so
+    # it's an explicit opt-in. These two columns came from the earlier
+    # n8n-backed version (migration 20260822_0009) and were kept as-is so any
+    # owner's saved setting carries over.
+    review_request_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    review_link: Mapped[str | None] = mapped_column(String(500), nullable=True)
     review_request_channel: Mapped[str] = mapped_column(String(8), default="email")
     # Days after the recovering visit before asking. Asking at the till feels
     # transactional; a couple of days later reads as genuine.

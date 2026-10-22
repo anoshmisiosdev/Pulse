@@ -1,0 +1,37 @@
+{
+  "name": "Pulse — sync failure alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pulse-sync-failed",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Pulse: sync.failed",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "pulse-sync-failed"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": "",
+        "text": "=🔴 Sync failed — business `{{ $json.body.business_id }}`, source *{{ $json.body.source }}*: {{ $json.body.error }}",
+        "otherOptions": {}
+      },
+      "id": "slack",
+      "name": "Post to Slack (configure credentials)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [220, 0]
+    }
+  ],
+  "connections": {
+    "Pulse: sync.failed": {
+      "main": [[{ "node": "Post to Slack (configure credentials)", "type": "main", "index": 0 }]]
+    }
+  }
+}

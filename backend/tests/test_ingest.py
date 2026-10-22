@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import uuid
 
-from app.models import Customer, SyncRun
+from app.core.config import settings
+from app.models import Customer, IntegrationConnection, SyncRun
 from app.schemas.normalized import (
     NormalizedCustomer,
     NormalizedTransaction,
@@ -15,6 +16,7 @@ from app.schemas.normalized import (
     SyncResult,
 )
 from app.services import ingest
+from app.services import n8n as n8n_service
 
 BUSINESS_ID = str(uuid.uuid4())
 
@@ -94,6 +96,54 @@ async def test_scores_are_written_after_persist(db, now):
     scored = [r for r in rows if r.current_score is not None]
     assert scored, "expected denormalized scores on customer rows"
     assert all(r.current_band in ("low", "med", "high") for r in scored)
+
+
+async def test_band_change_notifies_n8n_once_for_the_whole_batch(db, now, monkeypatch):
+    calls = []
+
+    async def _fake_notify(webhook_url, event, payload):
+        calls.append((webhook_url, event, payload))
+        return True
+
+    monkeypatch.setattr(n8n_service, "notify", _fake_notify)
+    monkeypatch.setattr(settings, "n8n_band_change_webhook_url", "https://n8n.example/hook")
+
+    await ingest.ensure_business(db, BUSINESS_ID, "Test Cafe", "cafe")
+    await ingest.persist_sync(db, BUSINESS_ID, "stripe", _sample_sync(now))
+
+    # First score for every customer is a "change" from None -> a real band,
+    # so one batched call covering both seeded customers.
+    assert len(calls) == 1
+    webhook_url, event, payload = calls[0]
+    assert webhook_url == "https://n8n.example/hook"
+    assert event == "riskscore.band_changed"
+    assert len(payload["changes"]) == 2
+
+
+async def test_record_sync_error_notifies_n8n(db, now, monkeypatch):
+    calls = []
+
+    async def _fake_notify(webhook_url, event, payload):
+        calls.append((webhook_url, event, payload))
+        return True
+
+    monkeypatch.setattr(n8n_service, "notify", _fake_notify)
+    monkeypatch.setattr(settings, "n8n_sync_failure_webhook_url", "https://n8n.example/hook")
+
+    await ingest.ensure_business(db, BUSINESS_ID, "Test Cafe", "cafe")
+    connection = IntegrationConnection(business_id=ingest._uuid(BUSINESS_ID), source="square")
+    db.add(connection)
+    await db.flush()
+
+    run = await ingest.record_sync_error(db, connection, "token expired")
+
+    assert run.status == "error"
+    assert len(calls) == 1
+    webhook_url, event, payload = calls[0]
+    assert webhook_url == "https://n8n.example/hook"
+    assert event == "sync.failed"
+    assert payload["source"] == "square"
+    assert payload["error"] == "token expired"
 
 
 async def test_wipe_business_data(db, now):

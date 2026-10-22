@@ -89,8 +89,8 @@ def test_a_long_link_shortens_the_text_but_never_cuts_the_link():
 
 async def _seed(db, *, enabled=True, channel="email", delay=2, tier="growth"):
     biz = await ingest.ensure_business(db, BUSINESS_ID, "Hayward Coffee Co.", "cafe")
-    biz.review_requests_enabled = enabled
-    biz.review_url = REVIEW_URL
+    biz.review_request_enabled = enabled
+    biz.review_link = REVIEW_URL
     biz.review_request_channel = channel
     biz.review_request_delay_days = delay
     db.add(Subscription(business_id=biz.id, tier=tier, status="active"))
@@ -282,5 +282,5 @@ async def test_a_business_row_must_exist(db):
 
 def test_business_model_defaults_keep_the_feature_off():
     """It messages real people, so it has to be an explicit opt-in."""
-    column = Business.__table__.c.review_requests_enabled
+    column = Business.__table__.c.review_request_enabled
     assert column.default.arg is False

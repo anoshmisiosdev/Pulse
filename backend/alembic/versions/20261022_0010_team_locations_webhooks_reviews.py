@@ -149,10 +149,6 @@ def upgrade() -> None:
         )
 
     business_columns = (
-        sa.Column("review_url", sa.String(length=500), nullable=True),
-        sa.Column(
-            "review_requests_enabled", sa.Boolean(), nullable=False, server_default=sa.false()
-        ),
         sa.Column(
             "review_request_channel", sa.String(length=8), nullable=False, server_default="email"
         ),
@@ -169,8 +165,6 @@ def downgrade() -> None:
     for name in (
         "review_request_delay_days",
         "review_request_channel",
-        "review_requests_enabled",
-        "review_url",
     ):
         if _offline() or _has_column("businesses", name):
             op.drop_column("businesses", name)

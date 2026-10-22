@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.models import Campaign, CampaignSend, Customer, RecoveryAttribution, Transaction, Visit
 from app.services import ingest
+from app.services import n8n as n8n_service
 from app.services.attribution import (
     ReturnEvent,
     SendRecord,
@@ -129,8 +130,11 @@ def test_no_sends_means_no_recoveries():
 # ── the DB path ──────────────────────────────────────────────────────────────
 
 
-async def _seed_business(db) -> Customer:
-    await ingest.ensure_business(db, BUSINESS_ID, "Hayward Coffee Co.", "cafe")
+async def _seed_business(db, *, review_requests_on: bool = False) -> Customer:
+    biz = await ingest.ensure_business(db, BUSINESS_ID, "Hayward Coffee Co.", "cafe")
+    if review_requests_on:
+        biz.review_request_enabled = True
+        biz.review_link = "https://g.page/r/hayward-coffee/review"
     customer = Customer(
         business_id=ingest._uuid(BUSINESS_ID),
         source="csv",
@@ -189,6 +193,37 @@ async def test_detect_recoveries_writes_an_attribution_and_flags_the_customer(db
     assert rows[0].campaign_send_id == send.id
     assert float(rows[0].estimated_value) == 64.0
     assert (await db.get(Customer, customer.id)).recovered is True
+
+
+async def test_a_recovery_never_triggers_an_n8n_review_email(db, monkeypatch):
+    """Review requests are drafted by Pulse (campaigns/reviews.py) for the
+    owner to approve. The earlier n8n trigger emailed directly on recovery;
+    with both live a customer would be asked twice, so recovery must not
+    notify n8n even with review requests switched on."""
+    calls = []
+
+    async def _fake_notify(webhook_url, event, payload, **_kw):
+        calls.append(event)
+        return True
+
+    monkeypatch.setattr(n8n_service, "notify", _fake_notify)
+
+    customer = await _seed_business(db, review_requests_on=True)
+    await _seed_send(db, customer, days_ago=10)
+    db.add(
+        Visit(
+            business_id=ingest._uuid(BUSINESS_ID),
+            customer_id=customer.id,
+            source="csv",
+            occurred_at=datetime.now() - timedelta(days=3),
+        )
+    )
+    await db.flush()
+
+    summary = await detect_recoveries(db, BUSINESS_ID)
+
+    assert summary.recoveries_found == 1
+    assert calls == []
 
 
 async def test_detect_recoveries_is_idempotent(db):

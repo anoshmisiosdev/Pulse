@@ -16,6 +16,7 @@ from decimal import Decimal
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.integrations.base import IntegrationError
 from app.models import (
     Business,
@@ -34,6 +35,7 @@ from app.schemas.normalized import (
     NormalizedVisit,
     SyncResult,
 )
+from app.services import n8n
 from app.services.activity import build_scored_customers
 
 
@@ -529,6 +531,7 @@ async def refresh_scores(db: AsyncSession, business_id: str) -> None:
             .all()
         )
     }
+    band_changes: list[dict] = []
     for s in scored:
         row = rows.get(s.customer.external_id or "")
         if row is None:
@@ -547,7 +550,27 @@ async def refresh_scores(db: AsyncSession, business_id: str) -> None:
                     signals=s.result.signals,
                 )
             )
+            if not row.do_not_contact:
+                band_changes.append(
+                    {
+                        "customer_id": str(row.id),
+                        "customer_name": row.first_name,
+                        "score": s.result.score,
+                        "band": s.result.band,
+                        "reasons": s.result.reasons,
+                    }
+                )
     await db.flush()
+    if band_changes:
+        # One call for the whole tenant's re-score, not one per customer — a
+        # nightly run can flip hundreds of bands at once and n8n can iterate
+        # the list itself (Split In Batches) far cheaper than Pulse awaiting
+        # N sequential webhook posts.
+        await n8n.notify(
+            settings.n8n_band_change_webhook_url,
+            "riskscore.band_changed",
+            {"business_id": business_id, "changes": band_changes},
+        )
 
 
 async def has_data(db: AsyncSession, business_id: str) -> bool:
@@ -668,4 +691,13 @@ async def record_sync_error(
     )
     db.add(run)
     await db.flush()
+    await n8n.notify(
+        settings.n8n_sync_failure_webhook_url,
+        "sync.failed",
+        {
+            "business_id": str(connection.business_id),
+            "source": connection.source,
+            "error": error[:1000],
+        },
+    )
     return run

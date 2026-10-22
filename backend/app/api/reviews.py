@@ -49,8 +49,8 @@ class QueueOut(BaseModel):
 
 def _out(business: Business) -> ReviewSettingsOut:
     return ReviewSettingsOut(
-        enabled=business.review_requests_enabled,
-        review_url=business.review_url,
+        enabled=business.review_request_enabled,
+        review_url=business.review_link,
         channel=business.review_request_channel or "email",
         delay_days=business.review_request_delay_days or 0,
     )
@@ -99,8 +99,8 @@ async def put_settings(
                     "or a shorter link.",
                 )
 
-    business.review_requests_enabled = payload.enabled
-    business.review_url = url
+    business.review_request_enabled = payload.enabled
+    business.review_link = url
     business.review_request_channel = payload.channel
     business.review_request_delay_days = payload.delay_days
     await record_audit(

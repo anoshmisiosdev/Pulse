@@ -82,6 +82,17 @@ services:
       redis:
         condition: service_healthy
 
+  n8n:
+    # Self-hosted, not n8n.cloud — avoids a third-party account for local dev.
+    # Own SQLite volume (n8n's default); no need to put it on Postgres too.
+    image: docker.n8n.io/n8nio/n8n
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_SECURE_COOKIE: "false" # local http, not https
+    volumes:
+      - ./.n8n-data:/home/node/.n8n
+
   frontend:
     build:
       context: ./frontend

@@ -20,7 +20,11 @@ BUSINESS_ID = uuid.uuid4()
 
 
 @pytest.fixture
-async def client(tmp_path):
+async def client(tmp_path, monkeypatch):
+    # attempt_send holds SMS during TCPA quiet hours based on the wall clock,
+    # which made SMS approvals 409 whenever CI ran 8pm-9am Eastern. Quiet
+    # hours themselves are covered with fixed times in test_compliance.py.
+    monkeypatch.setattr("app.services.automations.is_quiet_hours", lambda *a, **k: False)
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}", poolclass=NullPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -82,18 +86,7 @@ async def test_approving_a_suggestion_without_a_message_is_rejected(client):
     assert "needs a message" in resp.json()["detail"]
 
 
-@pytest.fixture
-def daytime(monkeypatch):
-    """Pin SMS sends outside TCPA quiet hours.
-
-    ``attempt_send`` re-checks ``is_quiet_hours`` against the business's local
-    time, so without this the SMS approve tests pass or fail depending on what
-    time of day the suite runs. The quiet-hours branch has its own test below.
-    """
-    monkeypatch.setattr("app.services.automations.is_quiet_hours", lambda _tz: False)
-
-
-async def test_approving_an_sms_suggestion_with_a_message_sets_the_body(client, daytime):
+async def test_approving_an_sms_suggestion_with_a_message_sets_the_body(client):
     http, sessions = client
     send_id = await _make_suggestion(sessions, channel="sms")
 
@@ -120,7 +113,7 @@ async def test_approving_an_email_suggestion_requires_a_subject_too(client):
     assert "subject" in resp.json()["detail"]
 
 
-async def test_approving_an_already_drafted_send_ignores_the_payload(client, daytime):
+async def test_approving_an_already_drafted_send_ignores_the_payload(client):
     """Approving a normal (already AI-drafted) send can't be used to sneak
     in a different message — the payload is only honored when body is empty."""
     http, sessions = client
