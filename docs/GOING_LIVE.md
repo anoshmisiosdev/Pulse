@@ -8,6 +8,33 @@ Ordered by what blocks the Definition of Done soonest.
 
 ---
 
+## 0. Fix these in your current `.env` first
+
+Found while debugging why Stripe and Square "weren't working":
+
+- **`STRIPE_SECRET_KEY` holds a publishable key** (`pk_test_…`). Server calls
+  need the *secret* key (`sk_test_…`, Stripe Dashboard → Developers → API keys
+  → reveal "Secret key"). The app now detects this, treats billing and "Connect
+  with Stripe" as not configured, and logs exactly this at startup — but it
+  can't do anything until the right key is in place.
+- **`API_BASE_URL` points at `https://api.riyanshomelab.com/`, which isn't
+  responding.** Both OAuth callbacks are built from it, so Square and Stripe
+  were redirecting you to a dead server after consent. For local testing,
+  override it in the backend terminal: `$env:API_BASE_URL = "http://localhost:8000"`.
+- **Square's sandbox page hung because of a bug on our side**, now fixed: we
+  sent `session=false`, which Square's sandbox doesn't support. Two more
+  requirements from Square's docs for sandbox OAuth:
+  1. Register `http://localhost:8000/api/integrations/oauth/square/callback` in
+     the Developer Console → your app → **OAuth → Sandbox** tab (sandbox allows
+     http/localhost; production requires https).
+  2. Before clicking "Connect Square", open the **Sandbox Seller Dashboard**
+     for a test account (Developer Console → Sandbox test accounts → Open) in
+     the same browser. Square requires an active sandbox seller session.
+- `STRIPE_WEBHOOK_SECRET` and the three `STRIPE_PRICE_*` values aren't set yet;
+  see section 1.
+
+---
+
 ## 1. Stripe — blocks "pay $199/mo"
 
 **Why I couldn't finish it:** Checkout and the subscription webhook need a real
@@ -103,7 +130,8 @@ crosses Twilio and I could not exercise it.
 ## 4. Square OAuth — blocks the one-click integration
 
 Set `SQUARE_APP_ID`, `SQUARE_APP_SECRET`, `SQUARE_ENVIRONMENT`, and register
-the redirect URL `{API_BASE_URL}/api/integrations/oauth/square/callback`.
+the redirect URL `{API_BASE_URL}/api/integrations/oauth/square/callback` (see
+section 0 for the sandbox specifics).
 `SQUARE_WEBHOOK_URL` must match the registered notification URL **exactly** —
 it is part of Square's HMAC signature input, so a trailing-slash mismatch
 silently fails every webhook.
@@ -131,14 +159,23 @@ retrieval returns no context and generation proceeds ungrounded.
 
 ---
 
-## 6. The database migration — needs a real Postgres
+## 6. The database migrations — need a real Postgres
 
-`alembic/versions/20261021_0009_generation_audit_chat_experiments.py` adds four
-tables (`generation_logs`, `audit_logs`, `chat_conversations`, `chat_messages`)
-and three columns (`campaigns.ab_test`, `campaigns.variant_b_incentive`,
-`campaign_sends.variant`).
+Two new revisions on this branch:
 
-**I verified it only in offline mode** (`alembic upgrade --sql`, both upgrade
+- `20261021_0009` — `generation_logs`, `audit_logs`, `chat_conversations`,
+  `chat_messages`; columns `campaigns.ab_test`, `campaigns.variant_b_incentive`,
+  `campaign_sends.variant`.
+- `20261022_0010` — `team_invites`, `webhook_endpoints`, `webhook_deliveries`;
+  columns `visits.location`, `transactions.location`, `campaigns.kind`, and four
+  review-request columns on `businesses`.
+
+**The app will error on any existing database until these run** —
+`create_all` on startup creates missing tables but never adds columns to
+existing ones. That's what broke a local dev `local.db` created before these
+landed.
+
+**I verified both only in offline mode** (`alembic upgrade --sql`, both upgrade
 and downgrade emit complete, correctly ordered SQL). I could not run it against
 Postgres: there is no Docker daemon on this machine, and the migration chain
 can't run on SQLite because earlier revisions issue pgvector
@@ -151,29 +188,40 @@ on real Postgres.
 
 ---
 
-## 7. Deliberately not built
+## 7. Built since the first handoff — what each needs from you
 
-- **Mindbody** remains a `NotImplementedError` stub, per CLAUDE.md.
-- **Team invites and roles.** `CurrentUser.role` exists and `users.role` is a
-  column, but there is no invite flow. One owner per tenant for now.
-- **Multi-location UI.** `businesses.location_label` exists and the Pro tier
-  advertises "multi-location ready", but nothing in the UI segments by
-  location. The column is there so this isn't a rewrite.
-- **Outbound webhooks / Zapier** on `customer_recovered`.
-- **Review-request flow** after a confirmed recovery.
-- **Sentry.** Structured logging and request IDs are in place; no error
-  aggregator is wired up.
+- **Team invites + staff role.** Works now; invite links are shown to copy.
+  Once Resend is configured (section 2) they're emailed automatically. Staff
+  can't touch billing, data export/deletion, team management, review settings
+  or webhooks.
+- **Multi-location (Pro).** Square supplies locations automatically. CSV users
+  need a `location` (or store/branch/studio) column.
+- **Outbound webhooks.** Needs the Celery worker + beat running in production
+  (`deliver_webhooks_tick`, every minute). Internal/private URLs are refused by
+  design, including in development, so test against a public catcher.
+- **Review requests.** Off by default. Needs the Celery `queue_review_requests_tick`
+  (hourly) and, to actually send, Resend or Twilio.
+
+## 8. Still not built
+
+- **Mindbody** remains a `NotImplementedError` stub, per CLAUDE.md — needs
+  Mindbody API credentials to build against.
+- **Sentry** — needs your project's DSN.
 
 ---
 
 ## Current state
 
-- Backend: **661 tests passing**, 1 skipped. `ruff` clean.
-- Frontend: **97 tests passing**. `tsc` clean. `vite build` clean.
+- Backend: **779 tests passing**, 1 skipped. `ruff` clean.
+- Frontend: **103 tests passing**. `tsc` clean. `vite build` clean.
 - Verified end to end against a running server on a clean database: CSV import
   → 50 scored customers → segment → campaign queued (sending nothing) → edit
   → approve → generation and audit logs → assistant answering from real rows
-  → digest → CSV and JSON export.
+  → digest → CSV and JSON export. A second live run covered locations (Pro
+  gate, per-location rollup, segment filter), team invites (hashed token,
+  email binding, revoke), webhooks (plan gate, four SSRF targets refused, a
+  real delivery attempt recorded) and review requests (drafted once, never
+  twice, held for approval).
 
 A security review of this branch found and fixed three issues (unauthorized
 Stripe coupon application, entitlement gates ignoring subscription status, and
