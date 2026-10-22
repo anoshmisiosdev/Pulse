@@ -4,12 +4,14 @@ import { usePulse } from "../context/PulseContext";
 import { useAuth } from "../context/AuthContext";
 import { api, formatCurrency } from "../lib/api";
 import ChurnaryMark from "./ChurnaryMark";
-import KnowledgeChat from "./KnowledgeChat";
+import AskChurnary from "./AskChurnary";
 
 const NAV = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/customers", label: "Customers" },
   { to: "/retention", label: "Retention" },
+  { to: "/campaigns", label: "Campaigns" },
+  { to: "/insights", label: "Insights" },
   { to: "/automations", label: "Automations" },
   { to: "/social", label: "Social" },
   { to: "/pricing", label: "Pricing" },
@@ -95,6 +97,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   >
                     Connect a data source
                   </NavLink>
+                  <NavLink
+                    to="/billing"
+                    onClick={() => setMenuOpen(false)}
+                    className="mt-2 block rounded-xl px-3 py-2 text-sm font-medium transition hover:brightness-95"
+                    style={{ background: "var(--surface-2)", color: "var(--ink-strong)" }}
+                  >
+                    Plan &amp; billing
+                  </NavLink>
                   {configured && (
                     <button
                       onClick={logout}
@@ -145,7 +155,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <main className="mx-auto max-w-6xl px-6 py-9 pb-20">{children}</main>
 
       {briefing && <BriefingModal onClose={() => setBriefing(false)} />}
-      <KnowledgeChat />
+      <AskChurnary />
     </div>
   );
 }

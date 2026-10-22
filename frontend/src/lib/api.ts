@@ -204,6 +204,285 @@ export interface KnowledgeItem {
   created_at: string;
 }
 
+// ── Billing (mirrors backend/app/schemas/billing.py) ──
+export type TierName = "starter" | "growth" | "pro";
+/** `trial_expired` is derived locally from `trial_ends_at`, not sent by Stripe —
+ * a missed webhook can't grant an unbounded free trial. */
+export type SubscriptionStatus =
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "canceled"
+  | "trial_expired";
+export type MeterSeverity = "ok" | "approaching" | "over";
+
+export interface Tier {
+  name: TierName;
+  label: string;
+  monthly_price_usd: number;
+  annual_price_usd: number;
+  /** null = unlimited. */
+  max_customers: number | null;
+  max_integrations: number | null;
+  channels: string[];
+  automation: boolean;
+  multi_location: boolean;
+  blurb: string;
+  highlights: string[];
+}
+
+export interface UsageMeter {
+  key: string;
+  label: string;
+  used: number;
+  limit: number | null;
+  severity: MeterSeverity;
+  message: string | null;
+}
+
+export interface Subscription {
+  tier: TierName;
+  status: SubscriptionStatus;
+  /** Whether the product is usable. `past_due` stays true on purpose. */
+  active: boolean;
+  trial_days_left: number | null;
+  current_period_end: string | null;
+  channels: string[];
+  automation: boolean;
+  multi_location: boolean;
+  meters: UsageMeter[];
+  billing_configured: boolean;
+  has_payment_method: boolean;
+}
+
+export interface Plans {
+  tiers: Tier[];
+  trial_days: number;
+  current_tier: TierName;
+  billing_configured: boolean;
+}
+
+// ── Persisted campaigns (mirrors backend/app/schemas/campaigns.py) ──
+export interface CampaignStats {
+  total: number;
+  pending: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  opened: number;
+  clicked: number;
+  recovered: number;
+  revenue_recovered: number;
+}
+
+export interface CampaignSendSummary {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  channel: AutomationChannel;
+  subject: string | null;
+  body: string;
+  status: CampaignSendStatus;
+  /** "owner_edited" once a human rewrites the copy — the dashboard stops
+   * crediting Claude for it. */
+  generated_by: string;
+  variant: string | null;
+  sent_at: string | null;
+  failure_reason: string | null;
+  opened: boolean;
+  clicked: boolean;
+}
+
+export interface Campaign {
+  id: string;
+  name: string;
+  channel: AutomationChannel;
+  status: string;
+  incentive: string | null;
+  ab_test: boolean;
+  variant_b_incentive: string | null;
+  created_at: string;
+  stats: CampaignStats;
+}
+
+export interface CampaignDetail extends Campaign {
+  sends: CampaignSendSummary[];
+  /** customer_id -> why they were left out (unsubscribed, no phone, …). */
+  skipped: Record<string, string>;
+}
+
+export interface ApprovalSummary {
+  sent: number;
+  failed: number;
+  /** Held back by TCPA quiet hours; a later tick picks them up. */
+  deferred: number;
+  skipped: Record<string, number>;
+}
+
+export interface ExperimentArm {
+  variant: string;
+  sent: number;
+  recovered: number;
+  recovery_rate: number;
+  revenue_recovered: number;
+}
+
+export interface ExperimentResult {
+  a: ExperimentArm;
+  b: ExperimentArm;
+  lift_pp: number;
+  /** False when the arms are too small to call — see the backend's
+   * campaigns/experiments.py for why that matters more than the maths. */
+  confident: boolean;
+  verdict: string;
+  winner: string | null;
+}
+
+export interface GenerationLogEntry {
+  id: string;
+  purpose: string;
+  model: string | null;
+  generated_by: string;
+  attempts: number;
+  latency_ms: number | null;
+  error: string | null;
+  created_at: string;
+  system_prompt: string;
+  user_prompt: string;
+  raw_output: string | null;
+  campaign_send_id: string | null;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  actor_email: string | null;
+  subject_type: string | null;
+  subject_id: string | null;
+  summary: string;
+  created_at: string;
+}
+
+// ── Assistant (mirrors backend/app/schemas/chat.py) ──
+export interface ChatToolCall {
+  tool: string;
+  /** Owner-readable note about what was actually read, shown as the citation. */
+  summary: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  tool_calls: ChatToolCall[];
+  /** "fallback" when the model was unreachable and the deterministic
+   * responder answered instead. */
+  generated_by: string;
+  model: string | null;
+  created_at: string;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: ChatMessage[];
+}
+
+export interface ChatAnswer {
+  conversation_id: string;
+  message: ChatMessage;
+  drafted_campaign_id: string | null;
+}
+
+// ── Insights (mirrors backend/app/schemas/insights.py) ──
+export interface Cohort {
+  cohort_month: string;
+  size: number;
+  /** False when the cohort is too small for its percentages to mean anything. */
+  meaningful: boolean;
+  retention: number[];
+  active: number[];
+}
+
+export interface Cohorts {
+  cohorts: Cohort[];
+  max_offset: number;
+  min_meaningful_size: number;
+}
+
+export interface ScoreFactor {
+  key: string;
+  label: string;
+  points: number;
+  share: number;
+  risk: number | null;
+  detail: string;
+}
+
+export interface ScoreExplanation {
+  customer_id: string;
+  name: string;
+  score: number;
+  band: Band;
+  reasons: string[];
+  recommended_action: RecommendedAction;
+  action_reason: string;
+  confidence: string;
+  factors: ScoreFactor[];
+}
+
+export interface SegmentDefinition {
+  key: string;
+  label: string;
+  description: string;
+  size: number;
+}
+
+export interface SegmentPreview {
+  key: string;
+  total: number;
+  customer_ids: string[];
+  reachable_on_channel: number;
+  channel: string;
+}
+
+export interface DigestPreview {
+  subject: string;
+  body: string;
+  generated_by: string;
+  model: string | null;
+  window_days: number;
+  /** False when there's nothing worth reporting; the weekly job stays silent. */
+  would_send: boolean;
+  recipients: string[];
+  recovered_count: number;
+  revenue_recovered: number;
+  messages_sent: number;
+  awaiting_approval: number;
+  high_risk_count: number;
+  revenue_at_risk: number;
+}
+
+export interface DigestSendResult {
+  outcome: string;
+  message: string;
+  sent: boolean;
+}
+
+export interface DeletionReport {
+  scope: string;
+  rows_deleted: number;
+  deleted: Record<string, number>;
+}
+
+export type DeletionScope = "retention" | "social" | "assistant" | "knowledge" | "all";
+
 export interface AuthUser {
   user_id: string;
   email: string | null;
@@ -1061,6 +1340,231 @@ export const api = {
     return getJson<CustomerTimeline>(
       `/api/customers/${dbCustomerId}/timeline?limit=${limit}`
     );
+  },
+
+  // -- Billing --
+
+  async plans(): Promise<Plans> {
+    return getJson<Plans>("/api/billing/plans");
+  },
+
+  /** Plan, entitlements and usage meters. Read from our own tables, so this
+   * still answers during a Stripe outage. */
+  async subscription(): Promise<Subscription> {
+    return getJson<Subscription>("/api/billing/subscription");
+  },
+
+  /** Returns a Stripe-hosted Checkout URL for the caller to redirect to. */
+  async startCheckout(input: {
+    tier: TierName;
+    annual?: boolean;
+    coupon?: string;
+  }): Promise<{ url: string; session_id: string }> {
+    const res = await fetch(`${BASE}/api/billing/checkout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(input),
+    });
+    return asJson<{ url: string; session_id: string }>(res);
+  },
+
+  /** Stripe's own portal for cards, invoices and cancellation. */
+  async billingPortal(): Promise<{ url: string }> {
+    const res = await fetch(`${BASE}/api/billing/portal`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<{ url: string }>(res);
+  },
+
+  // -- Persisted campaigns --
+
+  async listCampaigns(limit = 50): Promise<Campaign[]> {
+    return getJson<Campaign[]>(`/api/campaigns?limit=${limit}`);
+  },
+
+  async campaign(id: string): Promise<CampaignDetail> {
+    return getJson<CampaignDetail>(`/api/campaigns/${id}`);
+  },
+
+  /** Generate copy for the selected customers and queue it for approval.
+   * Sends nothing - every message lands as `pending`. */
+  async createCampaign(input: {
+    name: string;
+    channel: AutomationChannel;
+    customer_ids: string[];
+    incentive?: string;
+    tone?: string;
+    ab_test?: boolean;
+    variant_b_incentive?: string;
+  }): Promise<CampaignDetail> {
+    const res = await fetch(`${BASE}/api/campaigns`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(input),
+    });
+    return asJson<CampaignDetail>(res);
+  },
+
+  /** Approve and send every pending message on a campaign. Consent and quiet
+   * hours are re-checked server-side per message. */
+  async approveCampaign(id: string): Promise<ApprovalSummary> {
+    const res = await fetch(`${BASE}/api/campaigns/${id}/approve`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<ApprovalSummary>(res);
+  },
+
+  async editCampaignSend(
+    id: string,
+    input: { subject?: string; body?: string }
+  ): Promise<CampaignSendSummary> {
+    const res = await fetch(`${BASE}/api/campaigns/sends/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(input),
+    });
+    return asJson<CampaignSendSummary>(res);
+  },
+
+  async regenerateCampaignSend(id: string): Promise<CampaignSendSummary> {
+    const res = await fetch(`${BASE}/api/campaigns/sends/${id}/regenerate`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<CampaignSendSummary>(res);
+  },
+
+  async cancelCampaignSend(id: string): Promise<CampaignSendSummary> {
+    const res = await fetch(`${BASE}/api/campaigns/sends/${id}/cancel`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<CampaignSendSummary>(res);
+  },
+
+  async campaignExperiment(id: string): Promise<ExperimentResult> {
+    return getJson<ExperimentResult>(`/api/campaigns/${id}/experiment`);
+  },
+
+  /** Every LLM call made for this business: prompt, output, model version. */
+  async generationLogs(purpose = "", limit = 50): Promise<GenerationLogEntry[]> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (purpose) params.set("purpose", purpose);
+    return getJson<GenerationLogEntry[]>(`/api/campaigns/logs/generations?${params}`);
+  },
+
+  /** Who approved, edited or cancelled what. */
+  async auditLogs(action = "", limit = 100): Promise<AuditLogEntry[]> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (action) params.set("action", action);
+    return getJson<AuditLogEntry[]>(`/api/campaigns/logs/audit?${params}`);
+  },
+
+  // -- Assistant --
+
+  async chatSuggestions(): Promise<{ suggestions: string[] }> {
+    return getJson<{ suggestions: string[] }>("/api/chat/suggestions");
+  },
+
+  async conversations(limit = 30): Promise<Conversation[]> {
+    return getJson<Conversation[]>(`/api/chat/conversations?limit=${limit}`);
+  },
+
+  async conversation(id: string): Promise<ConversationDetail> {
+    return getJson<ConversationDetail>(`/api/chat/conversations/${id}`);
+  },
+
+  async deleteConversation(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/chat/conversations/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok) await asJson(res);
+  },
+
+  /** Non-streaming turn. Prefer `streamChat` in the UI so tool progress shows. */
+  async askChat(message: string, conversationId?: string): Promise<ChatAnswer> {
+    const res = await fetch(`${BASE}/api/chat/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ message, conversation_id: conversationId ?? null }),
+    });
+    return asJson<ChatAnswer>(res);
+  },
+
+  // -- Insights --
+
+  async cohorts(months = 12): Promise<Cohorts> {
+    return getJson<Cohorts>(`/api/insights/cohorts?months=${months}`);
+  },
+
+  /** Factor-by-factor breakdown of one customer's score. Takes the
+   * `db_customer_id` from a CustomerRisk row. */
+  async explainScore(dbCustomerId: string): Promise<ScoreExplanation> {
+    return getJson<ScoreExplanation>(`/api/insights/customers/${dbCustomerId}/score`);
+  },
+
+  async segments(): Promise<{ segments: SegmentDefinition[] }> {
+    return getJson<{ segments: SegmentDefinition[] }>("/api/insights/segments");
+  },
+
+  async segment(
+    key: string,
+    opts: { limit?: number; channel?: AutomationChannel } = {}
+  ): Promise<SegmentPreview> {
+    const params = new URLSearchParams({
+      limit: String(opts.limit ?? 100),
+      channel: opts.channel ?? "email",
+    });
+    return getJson<SegmentPreview>(`/api/insights/segments/${key}?${params}`);
+  },
+
+  /** Absolute URL for the CSV download, for an <a href> or window.open.
+   * Not fetched here: the browser should handle it as a file save. */
+  csvExportUrl(segment = ""): string {
+    const params = segment ? `?segment=${encodeURIComponent(segment)}` : "";
+    return `${BASE}/api/insights/export.csv${params}`;
+  },
+
+  async digestPreview(days = 7): Promise<DigestPreview> {
+    return getJson<DigestPreview>(`/api/insights/digest?days=${days}`);
+  },
+
+  async sendDigestNow(days = 7): Promise<DigestSendResult> {
+    const res = await fetch(`${BASE}/api/insights/digest/send?days=${days}`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<DigestSendResult>(res);
+  },
+
+  // -- Data export / deletion --
+
+  /** Downloads a JSON file of everything we hold for this business. */
+  async exportData(): Promise<Blob> {
+    const res = await fetch(`${BASE}/api/privacy/export`, { headers: authHeaders() });
+    if (!res.ok) await asJson(res);
+    return res.blob();
+  },
+
+  /** Irreversible. The backend requires `confirm: "delete"` verbatim. */
+  async deleteData(scope: DeletionScope, confirm: string): Promise<DeletionReport> {
+    const res = await fetch(`${BASE}/api/privacy/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ scope, confirm }),
+    });
+    return asJson<DeletionReport>(res);
+  },
+
+  async deleteCustomer(dbCustomerId: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/privacy/customers/${dbCustomerId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok) await asJson(res);
   },
 
   /** Run recovery attribution now instead of waiting for the hourly worker tick.

@@ -22,6 +22,9 @@ const Login = lazy(() => import("./pages/Login"));
 const Setup = lazy(() => import("./pages/Setup"));
 const Privacy = lazy(() => import("./pages/Privacy"));
 const Visitors = lazy(() => import("./pages/Visitors"));
+const Campaigns = lazy(() => import("./pages/Campaigns"));
+const Insights = lazy(() => import("./pages/Insights"));
+const Billing = lazy(() => import("./pages/Billing"));
 
 function Spinner({ label }: { label: string }) {
   return (
@@ -100,9 +103,16 @@ function AuthedApp() {
                     canManageVisitors ? <Visitors /> : <Navigate to="/" replace />
                   }
                 />
+                {/* Billing has to stay reachable with no data imported — an
+                    owner mid-trial needs to be able to pay before they connect
+                    anything, so it sits outside the DataGate. */}
+                <Route path="/billing" element={<Billing />} />
                 <Route path="/" element={<DataGate><Dashboard /></DataGate>} />
                 <Route path="/customers" element={<DataGate><Customers /></DataGate>} />
                 <Route path="/retention" element={<DataGate><Retention /></DataGate>} />
+                <Route path="/campaigns" element={<DataGate><Campaigns /></DataGate>} />
+                <Route path="/campaigns/:campaignId" element={<DataGate><Campaigns /></DataGate>} />
+                <Route path="/insights" element={<DataGate><Insights /></DataGate>} />
                 <Route path="/automations" element={<DataGate><Automations /></DataGate>} />
                 {/* One page holding campaigns, inbox and brand. It doesn't need
                     customer data loaded, so it sits outside the DataGate. The
