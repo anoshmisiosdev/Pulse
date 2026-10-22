@@ -9,6 +9,9 @@ import Rb2bLoader from "./components/Rb2bLoader";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PulseProvider, usePulse } from "./context/PulseContext";
 import { SETUP_SKIPPED_KEY } from "./lib/api";
+// Imported statically: the signed-out site and the app shell both need
+// pieces of it, and it is small.
+import Join, { JoinSignedOut, PendingInviteRedirect } from "./pages/Join";
 
 // Each page is its own chunk — visitors only download the routes they visit.
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -25,6 +28,7 @@ const Visitors = lazy(() => import("./pages/Visitors"));
 const Campaigns = lazy(() => import("./pages/Campaigns"));
 const Insights = lazy(() => import("./pages/Insights"));
 const Billing = lazy(() => import("./pages/Billing"));
+const Settings = lazy(() => import("./pages/Settings"));
 
 function Spinner({ label }: { label: string }) {
   return (
@@ -93,6 +97,7 @@ function AuthedApp() {
           path="*"
           element={
             <AppShell>
+              <PendingInviteRedirect />
               <Routes>
                 <Route path="/setup" element={<Setup />} />
                 <Route path="/connect" element={<Navigate to="/setup" replace />} />
@@ -107,6 +112,10 @@ function AuthedApp() {
                     owner mid-trial needs to be able to pay before they connect
                     anything, so it sits outside the DataGate. */}
                 <Route path="/billing" element={<Billing />} />
+                {/* Neither needs customer data: a teammate who just joined, or
+                    an owner setting up the team, may have none yet. */}
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/join" element={<Join />} />
                 <Route path="/" element={<DataGate><Dashboard /></DataGate>} />
                 <Route path="/customers" element={<DataGate><Customers /></DataGate>} />
                 <Route path="/retention" element={<DataGate><Retention /></DataGate>} />
@@ -136,6 +145,8 @@ function PublicSite() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/privacy" element={<Privacy />} />
+      {/* Before the catch-all, or the invite token is redirected away. */}
+      <Route path="/join" element={<JoinSignedOut />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePulse } from "../context/PulseContext";
 import {
+  ApiError,
   api,
+  formatCurrency,
   type Cohorts,
+  type Locations,
   type ScoreExplanation,
   type SegmentDefinition,
 } from "../lib/api";
@@ -122,6 +125,8 @@ export default function Insights() {
           <CohortGrid cohorts={cohorts} />
         )}
       </section>
+
+      <LocationsSection />
 
       <section
         className="anim-fade-up rounded-[20px] border p-6"
@@ -358,5 +363,92 @@ function ScoreBreakdown({ explanation }: { explanation: ScoreExplanation }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+/** Risk and revenue per location (Pro). On other plans the server answers 402
+ * with the upgrade message, which is shown as-is rather than as an error. */
+function LocationsSection() {
+  const [data, setData] = useState<Locations | null>(null);
+  const [upsell, setUpsell] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .locations()
+      .then(setData)
+      .catch((e) => {
+        if (e instanceof ApiError && e.status === 402) setUpsell(e.message);
+        else setError(e instanceof Error ? e.message : "Couldn't load locations");
+      });
+  }, []);
+
+  const max = Math.max(1, ...(data?.locations ?? []).map((l) => l.revenue_at_risk));
+
+  return (
+    <section
+      className="anim-fade-up rounded-[20px] border p-6"
+      style={{ animationDelay: "0.08s", borderColor: "var(--line)", background: "var(--card)" }}
+    >
+      <h2 className="font-display text-[20px] font-bold" style={{ color: "var(--ink)" }}>
+        By location
+      </h2>
+      <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+        Which of your locations is losing the most. Each customer counts toward the
+        location they visit most.
+      </p>
+
+      {upsell ? (
+        <p
+          className="mt-4 rounded-xl px-4 py-3 text-sm"
+          style={{ background: "var(--surface-2)", color: "var(--ink)" }}
+        >
+          {upsell}
+        </p>
+      ) : error ? (
+        <p className="mt-4 text-sm" style={{ color: "var(--accent-dark)" }}>
+          {error}
+        </p>
+      ) : !data ? (
+        <p className="mt-4 text-sm" style={{ color: "var(--muted)" }}>
+          Loading…
+        </p>
+      ) : !data.has_location_data ? (
+        <p className="mt-4 text-sm" style={{ color: "var(--muted)" }}>
+          None of your visits say which location they happened at yet. Square includes
+          it automatically; for a CSV, add a <b>location</b> (or store / branch / studio)
+          column and re-import.
+        </p>
+      ) : (
+        <ul className="mt-5 space-y-4">
+          {data.locations.map((loc) => (
+            <li key={loc.location}>
+              <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                <span className="font-semibold" style={{ color: "var(--ink)" }}>
+                  {loc.location}
+                </span>
+                <span style={{ color: "var(--muted)" }}>
+                  {loc.high_risk} of {loc.customers} at high risk ·{" "}
+                  <b style={{ color: "var(--ink)" }}>{formatCurrency(loc.revenue_at_risk)}</b> at
+                  risk
+                </span>
+              </div>
+              <div
+                className="mt-1.5 h-[8px] overflow-hidden rounded-full"
+                style={{ background: "var(--surface-2)" }}
+              >
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${Math.round((loc.revenue_at_risk / max) * 100)}%`,
+                    background: "var(--accent)",
+                  }}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

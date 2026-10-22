@@ -298,6 +298,8 @@ export interface Campaign {
   name: string;
   channel: AutomationChannel;
   status: string;
+  /** "review_request" campaigns are thank-yous to recovered customers. */
+  kind: "winback" | "review_request";
   incentive: string | null;
   ab_test: boolean;
   variant_b_incentive: string | null;
@@ -482,6 +484,108 @@ export interface DeletionReport {
 }
 
 export type DeletionScope = "retention" | "social" | "assistant" | "knowledge" | "all";
+
+// -- Team (mirrors backend/app/schemas/team.py) --
+export type TeamRole = "owner" | "staff";
+
+export interface TeamMember {
+  id: string;
+  email: string;
+  role: TeamRole;
+  is_you: boolean;
+  joined_at: string;
+}
+
+export interface TeamInvite {
+  id: string;
+  email: string;
+  role: TeamRole;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface Team {
+  members: TeamMember[];
+  /** Only returned to owners; staff always get []. */
+  invites: TeamInvite[];
+  your_role: TeamRole;
+}
+
+export interface InviteCreated {
+  invite: TeamInvite;
+  /** The only copy of the raw token anywhere — the server stores a hash. */
+  link: string;
+  /** False when email isn't configured; show the link to copy instead. */
+  emailed: boolean;
+}
+
+// -- Multi-location (Pro) --
+export interface LocationSummary {
+  location: string;
+  customers: number;
+  high_risk: number;
+  med_risk: number;
+  low_risk: number;
+  high_risk_share: number;
+  revenue_at_risk: number;
+  annual_value: number;
+}
+
+export interface Locations {
+  locations: LocationSummary[];
+  has_location_data: boolean;
+}
+
+// -- Outbound webhooks (mirrors backend/app/schemas/webhooks.py) --
+export interface WebhookEndpoint {
+  id: string;
+  url: string;
+  description: string | null;
+  /** Empty means every event. */
+  events: string[];
+  enabled: boolean;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  consecutive_failures: number;
+  /** Switched off by us after repeated failures, not paused by the owner. */
+  auto_disabled: boolean;
+  created_at: string;
+}
+
+export interface WebhookCreated {
+  endpoint: WebhookEndpoint;
+  /** Shown once. Never returned again. */
+  secret: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  event_type: string;
+  event_id: string;
+  status: "pending" | "delivered" | "failed";
+  attempts: number;
+  response_status: number | null;
+  last_error: string | null;
+  created_at: string;
+  delivered_at: string | null;
+  next_attempt_at: string | null;
+}
+
+export interface WebhookTestResult {
+  delivered: boolean;
+  response_status: number | null;
+  error: string | null;
+}
+
+// -- Review requests --
+export interface ReviewSettings {
+  enabled: boolean;
+  review_url: string | null;
+  channel: AutomationChannel;
+  delay_days: number;
+  lookback_days: number;
+  cooldown_days: number;
+}
 
 export interface AuthUser {
   user_id: string;
@@ -1516,12 +1620,14 @@ export const api = {
 
   async segment(
     key: string,
-    opts: { limit?: number; channel?: AutomationChannel } = {}
+    opts: { limit?: number; channel?: AutomationChannel; location?: string } = {}
   ): Promise<SegmentPreview> {
     const params = new URLSearchParams({
       limit: String(opts.limit ?? 100),
       channel: opts.channel ?? "email",
     });
+    // Narrowing to one location is a Pro feature; the server 402s otherwise.
+    if (opts.location) params.set("location", opts.location);
     return getJson<SegmentPreview>(`/api/insights/segments/${key}?${params}`);
   },
 
@@ -1569,6 +1675,145 @@ export const api = {
       headers: authHeaders(),
     });
     if (!res.ok) await asJson(res);
+  },
+
+  // -- Team --
+
+  async team(): Promise<Team> {
+    return getJson<Team>("/api/team");
+  },
+
+  async inviteTeammate(email: string, role: TeamRole = "staff"): Promise<InviteCreated> {
+    const res = await fetch(`${BASE}/api/team/invites`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ email, role }),
+    });
+    return asJson<InviteCreated>(res);
+  },
+
+  async revokeInvite(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/team/invites/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok) await asJson(res);
+  },
+
+  /** Join the business that sent the invite. The signed-in email must match. */
+  async acceptInvite(token: string): Promise<TeamMember> {
+    const res = await fetch(`${BASE}/api/team/accept`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ token }),
+    });
+    return asJson<TeamMember>(res);
+  },
+
+  async setTeammateRole(id: string, role: TeamRole): Promise<TeamMember> {
+    const res = await fetch(`${BASE}/api/team/members/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ role }),
+    });
+    return asJson<TeamMember>(res);
+  },
+
+  async removeTeammate(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/team/members/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok) await asJson(res);
+  },
+
+  // -- Multi-location (Pro) --
+
+  async locations(): Promise<Locations> {
+    return getJson<Locations>("/api/insights/locations");
+  },
+
+  // -- Outbound webhooks --
+
+  async webhookEvents(): Promise<string[]> {
+    return getJson<string[]>("/api/webhooks/events");
+  },
+
+  async webhooks(): Promise<WebhookEndpoint[]> {
+    return getJson<WebhookEndpoint[]>("/api/webhooks");
+  },
+
+  async createWebhook(input: {
+    url: string;
+    events?: string[];
+    description?: string;
+  }): Promise<WebhookCreated> {
+    const res = await fetch(`${BASE}/api/webhooks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(input),
+    });
+    return asJson<WebhookCreated>(res);
+  },
+
+  async updateWebhook(
+    id: string,
+    patch: { enabled?: boolean; events?: string[]; description?: string }
+  ): Promise<WebhookEndpoint> {
+    const res = await fetch(`${BASE}/api/webhooks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(patch),
+    });
+    return asJson<WebhookEndpoint>(res);
+  },
+
+  async deleteWebhook(id: string): Promise<void> {
+    const res = await fetch(`${BASE}/api/webhooks/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok) await asJson(res);
+  },
+
+  async testWebhook(id: string): Promise<WebhookTestResult> {
+    const res = await fetch(`${BASE}/api/webhooks/${id}/test`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<WebhookTestResult>(res);
+  },
+
+  async webhookDeliveries(id: string, limit = 25): Promise<WebhookDelivery[]> {
+    return getJson<WebhookDelivery[]>(`/api/webhooks/${id}/deliveries?limit=${limit}`);
+  },
+
+  // -- Review requests --
+
+  async reviewSettings(): Promise<ReviewSettings> {
+    return getJson<ReviewSettings>("/api/reviews/settings");
+  },
+
+  async saveReviewSettings(input: {
+    enabled: boolean;
+    review_url: string | null;
+    channel: AutomationChannel;
+    delay_days: number;
+  }): Promise<ReviewSettings> {
+    const res = await fetch(`${BASE}/api/reviews/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(input),
+    });
+    return asJson<ReviewSettings>(res);
+  },
+
+  async queueReviewRequests(): Promise<{ queued: number; skipped: Record<string, number> }> {
+    const res = await fetch(`${BASE}/api/reviews/queue`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    return asJson<{ queued: number; skipped: Record<string, number> }>(res);
   },
 
   /** Run recovery attribution now instead of waiting for the hourly worker tick.

@@ -58,6 +58,10 @@ function CampaignList() {
   const [incentive, setIncentive] = useState("");
   const [abTest, setAbTest] = useState(false);
   const [variantBIncentive, setVariantBIncentive] = useState("");
+  // Only populated on Pro with location data; otherwise the picker is hidden
+  // rather than shown disabled, since most businesses have one location.
+  const [locations, setLocations] = useState<string[]>([]);
+  const [location, setLocation] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -73,13 +77,30 @@ function CampaignList() {
 
   useEffect(load, [load]);
 
+  useEffect(() => {
+    api
+      .locations()
+      .then((data) =>
+        setLocations(
+          data.has_location_data
+            ? data.locations.map((l) => l.location).filter((l) => l !== "Unassigned")
+            : []
+        )
+      )
+      .catch(() => setLocations([])); // 402 on non-Pro plans: just no picker
+  }, []);
+
   const selectedSegment = segments.find((s) => s.key === segmentKey);
 
   async function build() {
     setBuilding(true);
     setError(null);
     try {
-      const picked = await api.segment(segmentKey, { channel, limit: 500 });
+      const picked = await api.segment(segmentKey, {
+        channel,
+        limit: 500,
+        location: location || undefined,
+      });
       if (picked.customer_ids.length === 0) {
         setError(
           "Nobody is in that segment right now, so there's nothing to send. Try a wider one."
@@ -87,7 +108,9 @@ function CampaignList() {
         return;
       }
       const detail = await api.createCampaign({
-        name: name.trim() || `${selectedSegment?.label ?? "Win-back"} campaign`,
+        name:
+          name.trim() ||
+          `${selectedSegment?.label ?? "Win-back"} campaign${location ? ` — ${location}` : ""}`,
         channel,
         customer_ids: picked.customer_ids,
         incentive: incentive.trim() || undefined,
@@ -192,6 +215,26 @@ function CampaignList() {
           </Field>
         </div>
 
+        {locations.length > 0 && (
+          <div className="mt-4 sm:max-w-sm">
+            <Field label="Location">
+              <select
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                className="w-full rounded-xl border px-3 py-2 text-sm outline-none"
+                style={{ borderColor: "var(--line)", background: "#fff", color: "var(--ink)" }}
+              >
+                <option value="">All locations</option>
+                {locations.map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        )}
+
         <label className="mt-4 flex items-start gap-2.5 text-sm" style={{ color: "var(--ink)" }}>
           <input
             type="checkbox"
@@ -270,6 +313,14 @@ function CampaignList() {
                           style={{ background: "var(--surface-2)", color: "var(--muted)" }}
                         >
                           A/B
+                        </span>
+                      )}
+                      {c.kind === "review_request" && (
+                        <span
+                          className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
+                          style={{ background: "var(--surface-2)", color: "var(--muted)" }}
+                        >
+                          Review asks
                         </span>
                       )}
                     </p>
