@@ -5,6 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.billing.guard import EntitlementsDep, require_channel
+from app.billing.limits import Entitlements
 from app.campaigns.generator import CampaignContext, generate_campaign
 from app.core.database import get_db
 from app.core.deps import CurrentUser, CurrentUserDep
@@ -20,9 +22,12 @@ async def generate(
     payload: GenerateCampaignIn,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = CurrentUserDep,
+    ent: Entitlements = EntitlementsDep,
 ) -> GeneratedCopyOut:
     if payload.channel not in ("email", "sms"):
         raise HTTPException(status_code=422, detail="channel must be 'email' or 'sms'")
+    # Refuse before spending an LLM call on copy the plan can't send.
+    require_channel(ent, payload.channel)
 
     retrieval_query = (
         f"win-back {payload.channel} for {payload.customer_name}. "

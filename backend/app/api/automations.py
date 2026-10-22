@@ -16,6 +16,8 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.billing.guard import EntitlementsDep, require_automation, require_channel
+from app.billing.limits import Entitlements
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser, CurrentUserDep
@@ -105,6 +107,7 @@ async def create_rule(
     payload: AutomationRuleIn,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = CurrentUserDep,
+    ent: Entitlements = EntitlementsDep,
 ) -> AutomationRuleOut:
     if payload.channel not in ("sms", "email"):
         raise HTTPException(422, "channel must be 'sms' or 'email'")
@@ -112,6 +115,11 @@ async def create_rule(
         raise HTTPException(422, "trigger_band must be 'low', 'med', or 'high'")
     if payload.mode not in ("suggest", "approve", "auto"):
         raise HTTPException(422, "mode must be 'suggest', 'approve', or 'auto'")
+    require_channel(ent, payload.channel)
+    # "suggest" and "approve" still need an owner in the loop, so they're not
+    # automation in the billable sense; only "auto" sends on its own.
+    if payload.mode == "auto":
+        require_automation(ent)
     rule = AutomationRule(business_id=_uuid(user.business_id), **payload.model_dump())
     db.add(rule)
     await db.commit()
@@ -136,11 +144,22 @@ async def update_rule(
     payload: AutomationRulePatch,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = CurrentUserDep,
+    ent: Entitlements = EntitlementsDep,
 ) -> AutomationRuleOut:
     rule = await db.get(AutomationRule, _uuid(rule_id))
     if rule is None or rule.business_id != _uuid(user.business_id):
         raise HTTPException(404, "Not found")
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    # Re-check entitlements against the *result* of the patch: switching an
+    # email rule to SMS, or an approve rule to auto, is how you'd otherwise
+    # get a feature you didn't pay for without ever hitting create_rule.
+    if "channel" in changes:
+        require_channel(ent, str(changes["channel"]))
+    if changes.get("mode") == "auto" or (
+        rule.mode == "auto" and changes.get("enabled") is True
+    ):
+        require_automation(ent)
+    for key, value in changes.items():
         setattr(rule, key, value)
     await db.commit()
     await db.refresh(rule)
@@ -197,10 +216,14 @@ async def approve_send(
     payload: SendApproveIn | None = None,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = CurrentUserDep,
+    ent: Entitlements = EntitlementsDep,
 ) -> CampaignSendOut:
     send = await db.get(CampaignSend, _uuid(send_id))
     if send is None or send.business_id != _uuid(user.business_id):
         raise HTTPException(404, "Not found")
+    # Checked here and not only at queue time: a send queued on Growth must not
+    # still go out by SMS after a downgrade to Starter.
+    require_channel(ent, send.channel)
     if send.status != "pending":
         raise HTTPException(422, f"Send is '{send.status}', not pending")
 
@@ -252,9 +275,12 @@ async def approve_send(
 
 @router.post("/dispatch", response_model=DispatchSummaryOut)
 async def trigger_dispatch(
-    db: AsyncSession = Depends(get_db), user: CurrentUser = CurrentUserDep
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = CurrentUserDep,
+    ent: Entitlements = EntitlementsDep,
 ) -> DispatchSummaryOut:
     """Manually run the rule engine now, instead of waiting for the next beat tick."""
+    require_automation(ent)
     summary = await dispatch_automations(db, user.business_id)
     await db.commit()
     capture_event(

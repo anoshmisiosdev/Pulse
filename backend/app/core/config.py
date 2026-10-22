@@ -288,6 +288,25 @@ class Settings(BaseSettings):
     stripe_price_starter: str = ""
     stripe_price_growth: str = ""
     stripe_price_pro: str = ""
+    # Annual prices (2 months free). Optional: a tier with no annual price
+    # configured simply falls back to monthly at checkout.
+    stripe_price_starter_annual: str = ""
+    stripe_price_growth_annual: str = ""
+    stripe_price_pro_annual: str = ""
+    # Where Stripe sends the owner back after Checkout / the billing portal.
+    # Defaults to the frontend origin, so local dev needs no extra setup.
+    billing_return_base_url: str = ""
+
+    @property
+    def billing_return_url(self) -> str:
+        return (self.billing_return_base_url or self.frontend_origin).rstrip("/")
+
+    @property
+    def billing_configured(self) -> bool:
+        """Checkout is possible: a secret key plus at least one price."""
+        return bool(self.stripe_secret_key) and any(
+            (self.stripe_price_starter, self.stripe_price_growth, self.stripe_price_pro)
+        )
 
     @property
     def is_production(self) -> bool:

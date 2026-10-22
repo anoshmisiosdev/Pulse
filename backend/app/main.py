@@ -13,6 +13,7 @@ from app.api import (
     analytics,
     auth,
     automations,
+    billing,
     campaigns,
     competitor_prices,
     customers,
@@ -101,6 +102,7 @@ fastapi_app.include_router(integrations.router, prefix=API_PREFIX)
 fastapi_app.include_router(portfolio.router, prefix=API_PREFIX)
 fastapi_app.include_router(customers.router, prefix=API_PREFIX)
 fastapi_app.include_router(campaigns.router, prefix=API_PREFIX)
+fastapi_app.include_router(billing.router, prefix=API_PREFIX)
 fastapi_app.include_router(competitor_prices.router, prefix=API_PREFIX)
 fastapi_app.include_router(knowledge.router, prefix=API_PREFIX)
 fastapi_app.include_router(automations.router, prefix=API_PREFIX)
@@ -127,6 +129,7 @@ fastapi_app.add_middleware(
         "/api/analytics": (60, 60),         # bounded public landing-page metrics
         "/api/waitlist": (5, 60),           # 5 per 60s — unauthenticated public write
         "/api/integrations/webhooks": (240, 60), # signed Stripe/Square deliveries
+        "/api/billing/webhook": (240, 60),  # signed Stripe subscription deliveries
         "/api/visitors/webhooks": (120, 60), # bounded third-party identity deliveries
         "/api/discord/interactions": (120, 60), # signed Discord command deliveries
     },

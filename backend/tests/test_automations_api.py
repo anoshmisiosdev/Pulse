@@ -14,7 +14,7 @@ from starlette.testclient import TestClient
 from app.core.database import Base, get_db
 from app.core.deps import CurrentUser, get_current_user
 from app.main import app, fastapi_app
-from app.models import Business, Campaign, CampaignSend, Customer
+from app.models import Business, Campaign, CampaignSend, Customer, Subscription
 
 BUSINESS_ID = uuid.uuid4()
 
@@ -48,6 +48,10 @@ async def _make_suggestion(SessionLocal, channel: str = "sms") -> str:
     """A pending suggest-mode send: empty body, generated_by='suggested'."""
     async with SessionLocal() as db:
         db.add(Business(id=BUSINESS_ID, name="Hayward Coffee Co.", vertical="cafe"))
+        # SMS is a Growth entitlement, and approve_send re-checks it at send
+        # time (app/billing/guard.py). Without a plan that includes SMS these
+        # approvals are correctly refused with a 402.
+        db.add(Subscription(business_id=BUSINESS_ID, tier="growth", status="active"))
         customer = Customer(
             business_id=BUSINESS_ID, source="csv", first_name="Dana",
             phone="+15551234567", email="dana@example.com",
@@ -78,7 +82,18 @@ async def test_approving_a_suggestion_without_a_message_is_rejected(client):
     assert "needs a message" in resp.json()["detail"]
 
 
-async def test_approving_an_sms_suggestion_with_a_message_sets_the_body(client):
+@pytest.fixture
+def daytime(monkeypatch):
+    """Pin SMS sends outside TCPA quiet hours.
+
+    ``attempt_send`` re-checks ``is_quiet_hours`` against the business's local
+    time, so without this the SMS approve tests pass or fail depending on what
+    time of day the suite runs. The quiet-hours branch has its own test below.
+    """
+    monkeypatch.setattr("app.services.automations.is_quiet_hours", lambda _tz: False)
+
+
+async def test_approving_an_sms_suggestion_with_a_message_sets_the_body(client, daytime):
     http, sessions = client
     send_id = await _make_suggestion(sessions, channel="sms")
 
@@ -105,7 +120,7 @@ async def test_approving_an_email_suggestion_requires_a_subject_too(client):
     assert "subject" in resp.json()["detail"]
 
 
-async def test_approving_an_already_drafted_send_ignores_the_payload(client):
+async def test_approving_an_already_drafted_send_ignores_the_payload(client, daytime):
     """Approving a normal (already AI-drafted) send can't be used to sneak
     in a different message — the payload is only honored when body is empty."""
     http, sessions = client
@@ -122,3 +137,23 @@ async def test_approving_an_already_drafted_send_ignores_the_payload(client):
 
     assert resp.status_code == 200
     assert resp.json()["body"] == "Original AI-drafted copy"
+
+
+async def test_approving_an_sms_send_during_quiet_hours_is_refused(client, monkeypatch):
+    """TCPA: an SMS approved outside 9am-8pm local stays pending and the owner
+    is told to wait, rather than the message going out at 2am."""
+    monkeypatch.setattr("app.services.automations.is_quiet_hours", lambda _tz: True)
+    http, sessions = client
+    send_id = await _make_suggestion(sessions, channel="sms")
+
+    resp = http.post(
+        f"/api/automations/sends/{send_id}/approve", json={"body": "Hey Dana, come back!"}
+    )
+
+    assert resp.status_code == 409
+    assert "9am-8pm" in resp.json()["detail"]
+    async with sessions() as db:
+        send = await db.get(CampaignSend, uuid.UUID(send_id))
+        assert send.status == "pending"
+        # The body override still persisted, so approving later doesn't lose it.
+        assert send.body == "Hey Dana, come back!"
