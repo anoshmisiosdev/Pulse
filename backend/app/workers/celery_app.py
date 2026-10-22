@@ -58,6 +58,14 @@ celery.conf.update(
             "task": "app.workers.celery_app.sync_payment_integrations_tick",
             "schedule": settings.payment_sync_interval_seconds,
         },
+        "weekly-owner-digest": {
+            "task": "app.workers.celery_app.send_weekly_digests",
+            # Weekly. The beat interval is the cadence, not the content window:
+            # the digest always reports the last 7 days, so a missed or
+            # restarted beat shifts when it arrives without changing what it
+            # says or double-counting anything.
+            "schedule": settings.digest_interval_seconds,
+        },
     },
 )
 
@@ -229,3 +237,29 @@ def sync_payment_integrations_tick() -> dict:
     errors = sum(row["errors"] for row in results.values() if isinstance(row, dict))
     logger.info("sync_payment_integrations complete: %d synced, %d errors", synced, errors)
     return {"status": "ok", "synced": synced, "errors": errors}
+
+
+@celery.task
+def send_weekly_digests() -> dict:
+    """Email every owner their weekly recovery digest.
+
+    The "3 customers recovered, ~$640 saved" email from the Definition of Done.
+    Businesses with nothing to report are skipped rather than sent an empty
+    summary — see app/services/digest.py for why that's the product decision.
+    """
+    from app.services.digest import send_digest_for_business
+
+    if not settings.digest_enabled:
+        logger.info("weekly digest disabled by configuration")
+        return {"status": "disabled"}
+
+    async def _digest(db, bid: str) -> dict:
+        return {"outcome": await send_digest_for_business(db, business_id=bid)}
+
+    results = asyncio.run(_for_every_business(_digest))
+    outcomes: dict[str, int] = {}
+    for result in results.values():
+        key = result.get("outcome", "error") if isinstance(result, dict) else "error"
+        outcomes[key] = outcomes.get(key, 0) + 1
+    logger.info("send_weekly_digests complete: %s", outcomes)
+    return {"status": "ok", "businesses": len(results), "outcomes": outcomes}

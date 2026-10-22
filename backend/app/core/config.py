@@ -282,6 +282,12 @@ class Settings(BaseSettings):
     payment_sync_overlap_minutes: int = 10
     payment_sync_interval_seconds: int = 900
 
+    # Weekly owner digest ("3 customers recovered, ~$640 saved"). Off by
+    # default: it sends real email, so it stays opt-in until an operator has
+    # verified the Resend sender domain.
+    digest_enabled: bool = False
+    digest_interval_seconds: int = 7 * 24 * 60 * 60
+
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
