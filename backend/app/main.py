@@ -15,6 +15,7 @@ from app.api import (
     automations,
     billing,
     campaigns,
+    chat,
     competitor_prices,
     customers,
     discord_bot,
@@ -103,6 +104,7 @@ fastapi_app.include_router(portfolio.router, prefix=API_PREFIX)
 fastapi_app.include_router(customers.router, prefix=API_PREFIX)
 fastapi_app.include_router(campaigns.router, prefix=API_PREFIX)
 fastapi_app.include_router(billing.router, prefix=API_PREFIX)
+fastapi_app.include_router(chat.router, prefix=API_PREFIX)
 fastapi_app.include_router(competitor_prices.router, prefix=API_PREFIX)
 fastapi_app.include_router(knowledge.router, prefix=API_PREFIX)
 fastapi_app.include_router(automations.router, prefix=API_PREFIX)
@@ -124,6 +126,7 @@ fastapi_app.add_middleware(
         "/api/auth": (5, 60),               # 5 per 60s — brute-force protection
         "/api/competitor-prices": (10, 60), # v2 batch queue; tenant quota is authoritative
         "/api/campaigns/generate": (10, 60), # direct LLM call per request
+        "/api/chat": (30, 60),              # agent loop: several LLM calls per turn
         "/api/social/campaigns": (20, 60),  # covers list/create too; /generate is the LLM call
         "/api/social/inbox": (20, 60),      # covers list/briefing too; /suggest is the LLM call
         "/api/analytics": (60, 60),         # bounded public landing-page metrics
