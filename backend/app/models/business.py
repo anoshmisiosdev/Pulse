@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import ForeignKey, String, Uuid
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -20,6 +20,15 @@ class Business(UUIDMixin, Base):
     timezone: Mapped[str] = mapped_column(String(64), default="America/New_York")
     # Multi-location readiness without a multi-location product yet.
     location_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Review requests: after a customer is recovered, ask them for a review.
+    # Off by default -- it messages real people, so it's an explicit opt-in.
+    review_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    review_requests_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    review_request_channel: Mapped[str] = mapped_column(String(8), default="email")
+    # Days after the recovering visit before asking. Asking at the till feels
+    # transactional; a couple of days later reads as genuine.
+    review_request_delay_days: Mapped[int] = mapped_column(Integer, default=2)
 
 
 class User(UUIDMixin, Base):

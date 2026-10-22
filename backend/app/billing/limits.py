@@ -176,3 +176,18 @@ def automation_denial(ent: Entitlements) -> str | None:
         "Upgrade to Growth to let Churnary send win-backs for you. "
         "You can still approve each one by hand."
     )
+
+
+def multi_location_denial(ent: Entitlements) -> str | None:
+    """Why the per-location views aren't available, or None if they are.
+
+    Gated on the plan only, not on subscription status: it's a read-only view
+    of the owner's own data, and reading their data is never cut off because
+    a plan lapsed (see ``_inactive_denial``).
+    """
+    if ent.multi_location:
+        return None
+    return (
+        f"Location breakdowns are part of Pro. You're on {ent.tier.label} — "
+        "upgrade to see risk and revenue for each location separately."
+    )

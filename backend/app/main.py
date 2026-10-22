@@ -25,9 +25,12 @@ from app.api import (
     knowledge,
     portfolio,
     privacy,
+    reviews,
     social,
+    team,
     visitors,
     waitlist,
+    webhooks,
 )
 from app.core.config import settings
 from app.core.logging_setup import setup_logging
@@ -114,6 +117,9 @@ fastapi_app.include_router(billing.router, prefix=API_PREFIX)
 fastapi_app.include_router(chat.router, prefix=API_PREFIX)
 fastapi_app.include_router(privacy.router, prefix=API_PREFIX)
 fastapi_app.include_router(insights.router, prefix=API_PREFIX)
+fastapi_app.include_router(team.router, prefix=API_PREFIX)
+fastapi_app.include_router(webhooks.router, prefix=API_PREFIX)
+fastapi_app.include_router(reviews.router, prefix=API_PREFIX)
 fastapi_app.include_router(competitor_prices.router, prefix=API_PREFIX)
 fastapi_app.include_router(knowledge.router, prefix=API_PREFIX)
 fastapi_app.include_router(automations.router, prefix=API_PREFIX)
@@ -137,6 +143,8 @@ fastapi_app.add_middleware(
         "/api/campaigns/generate": (10, 60), # direct LLM call per request
         "/api/chat": (30, 60),              # agent loop: several LLM calls per turn
         "/api/privacy": (10, 60),           # irreversible deletes + full-tenant exports
+        "/api/team": (20, 60),              # invite emails + token guessing on /accept
+        "/api/webhooks": (20, 60),          # /test makes an outbound request per call
         "/api/social/campaigns": (20, 60),  # covers list/create too; /generate is the LLM call
         "/api/social/inbox": (20, 60),      # covers list/briefing too; /suggest is the LLM call
         "/api/analytics": (60, 60),         # bounded public landing-page metrics

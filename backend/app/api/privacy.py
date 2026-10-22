@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser, CurrentUserDep
+from app.core.deps import CurrentUser, OwnerDep
 from app.core.posthog_client import capture_event
 from app.schemas.privacy import DeletionReportOut, DeletionRequestIn
 from app.services import privacy
@@ -30,7 +30,7 @@ CONFIRMATION_PHRASE = "delete"
 
 @router.get("/export")
 async def export_data(
-    db: AsyncSession = Depends(get_db), user: CurrentUser = CurrentUserDep
+    db: AsyncSession = Depends(get_db), user: CurrentUser = OwnerDep
 ) -> Response:
     """Download everything we hold for this business as JSON.
 
@@ -66,7 +66,7 @@ async def export_data(
 async def delete_data(
     payload: DeletionRequestIn,
     db: AsyncSession = Depends(get_db),
-    user: CurrentUser = CurrentUserDep,
+    user: CurrentUser = OwnerDep,
 ) -> DeletionReportOut:
     """Erase this business's data. Irreversible.
 
@@ -107,7 +107,7 @@ async def delete_data(
 async def delete_one_customer(
     customer_id: str,
     db: AsyncSession = Depends(get_db),
-    user: CurrentUser = CurrentUserDep,
+    user: CurrentUser = OwnerDep,
 ) -> None:
     """Erase one customer and all of their history (right to be forgotten)."""
     deleted = await privacy.delete_customer(

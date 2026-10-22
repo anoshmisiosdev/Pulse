@@ -20,7 +20,7 @@ from app.billing.tiers import TIERS, TRIAL_DAYS, Tier
 from app.billing.webhooks import apply_subscription_event
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import CurrentUser, CurrentUserDep
+from app.core.deps import CurrentUser, CurrentUserDep, OwnerDep
 from app.core.posthog_client import capture_event
 from app.schemas.billing import (
     CheckoutIn,
@@ -112,7 +112,7 @@ async def subscription(
 async def checkout(
     payload: CheckoutIn,
     db: AsyncSession = Depends(get_db),
-    user: CurrentUser = CurrentUserDep,
+    user: CurrentUser = OwnerDep,
 ) -> CheckoutOut:
     base = settings.billing_return_url
     try:
@@ -140,7 +140,7 @@ async def checkout(
 
 @router.post("/portal", response_model=PortalOut)
 async def portal(
-    db: AsyncSession = Depends(get_db), user: CurrentUser = CurrentUserDep
+    db: AsyncSession = Depends(get_db), user: CurrentUser = OwnerDep
 ) -> PortalOut:
     try:
         url = await service.portal_url(

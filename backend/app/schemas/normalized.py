@@ -88,6 +88,9 @@ class NormalizedTransaction(BaseModel):
     occurred_at: datetime
     updated_at: datetime | None = None
     failure_code: str | None = None
+    # Where it happened, for multi-location businesses. None when the source
+    # doesn't say (most CSVs, single-location accounts).
+    location: str | None = None
 
     @field_validator("customer_email")
     @classmethod
@@ -111,6 +114,9 @@ class NormalizedVisit(BaseModel):
     customer_email: str | None = None
     customer_phone: str | None = None
     occurred_at: datetime
+    # Where it happened, for multi-location businesses. None when the source
+    # doesn't say (most CSVs, single-location accounts).
+    location: str | None = None
 
     @field_validator("customer_email")
     @classmethod

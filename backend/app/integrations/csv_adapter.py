@@ -43,6 +43,9 @@ _HEADER_SYNONYMS: dict[str, set[str]] = {
         "amount", "total_spent", "total_spend", "lifetime_spend", "ltv",
         "revenue", "spend", "price",
     },
+    "location": {
+        "location", "location_name", "store", "branch", "site", "studio", "shop",
+    },
     "favorite_item": {
         "favorite_item", "favorite", "favourite", "top_item", "usual",
         "favorite_product", "preferred_item",
@@ -159,6 +162,8 @@ def parse_csv(content: str) -> SyncResult:
         )
         result.customers.append(customer)
 
+        location = (fields.get("location") or "").strip()[:120] or None
+
         visit_at = parse_date(fields.get("last_visit"))
         if visit_at is not None:
             result.visits.append(
@@ -168,6 +173,7 @@ def parse_csv(content: str) -> SyncResult:
                     customer_email=email,
                     customer_phone=phone,
                     occurred_at=visit_at,
+                    location=location,
                 )
             )
 
@@ -181,6 +187,7 @@ def parse_csv(content: str) -> SyncResult:
                     customer_phone=phone,
                     amount=amount,  # Decimal coercion handled by pydantic
                     occurred_at=visit_at or customer.created_at or datetime.utcnow(),
+                    location=location,
                 )
             )
 

@@ -14,6 +14,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.billing.guard import EntitlementsDep, require_multi_location
+from app.billing.limits import Entitlements
 from app.core.database import get_db
 from app.core.deps import CurrentUser, CurrentUserDep
 from app.core.posthog_client import capture_event
@@ -23,6 +25,8 @@ from app.schemas.insights import (
     CohortsOut,
     DigestPreviewOut,
     DigestSendOut,
+    LocationsOut,
+    LocationSummaryOut,
     ScoreExplanationOut,
     ScoreFactorOut,
     SegmentDefinitionOut,
@@ -154,15 +158,25 @@ async def preview_segment(
     segment_key: str,
     db: AsyncSession = Depends(get_db),
     user: CurrentUser = CurrentUserDep,
+    ent: Entitlements = EntitlementsDep,
     limit: int = Query(default=100, ge=1, le=500),
     channel: str = Query(default="email", pattern="^(email|sms)$"),
+    location: str = Query(default="", max_length=120),
 ) -> SegmentPreviewOut:
-    """The customers in one segment, ready to feed into a campaign."""
+    """The customers in one segment, ready to feed into a campaign.
+
+    ``location`` narrows it to one location's customers (Pro), so an owner can
+    run a win-back for the store that's actually losing people.
+    """
     if segment_key not in insights.SEGMENT_KEYS:
         raise HTTPException(
             404, f"Unknown segment. Available: {', '.join(insights.SEGMENT_KEYS)}"
         )
     scored, _biz = await _scored(db, user)
+    if location:
+        require_multi_location(ent)
+        home = await insights.home_locations(db, business_id=user.business_id)
+        scored = insights.filter_by_location(scored, home, location)
     reachable = await insights.contactable_ids(
         db, business_id=user.business_id, channel=channel
     )
@@ -216,6 +230,38 @@ async def export_customers_csv(
         content=buffer.getvalue(),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# -- Multi-location -----------------------------------------------------------
+
+
+@router.get("/locations", response_model=LocationsOut)
+async def locations(
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = CurrentUserDep,
+    ent: Entitlements = EntitlementsDep,
+) -> LocationsOut:
+    """Risk and revenue for each location, worst first (Pro)."""
+    require_multi_location(ent)
+    scored, _biz = await _scored(db, user)
+    home = await insights.home_locations(db, business_id=user.business_id)
+    rows = insights.location_breakdown(scored, home)
+    return LocationsOut(
+        has_location_data=bool(home),
+        locations=[
+            LocationSummaryOut(
+                location=r.location,
+                customers=r.customers,
+                high_risk=r.high_risk,
+                med_risk=r.med_risk,
+                low_risk=r.low_risk,
+                high_risk_share=r.high_risk_share,
+                revenue_at_risk=r.revenue_at_risk,
+                annual_value=r.annual_value,
+            )
+            for r in rows
+        ],
     )
 
 

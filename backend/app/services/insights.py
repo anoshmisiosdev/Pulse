@@ -19,7 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Customer, Visit
@@ -421,3 +421,109 @@ def to_csv_rows(scored: list[ScoredCustomer]) -> list[list[str]]:
 
 def utc_today() -> str:
     return datetime.now(UTC).date().isoformat()
+
+
+# -- Multi-location -----------------------------------------------------------
+
+# Customers whose visits carry no location at all. Reported as its own row
+# rather than dropped, so the location totals still add up to the whole book.
+UNASSIGNED_LOCATION = "Unassigned"
+
+
+async def home_locations(db: AsyncSession, *, business_id: str) -> dict[str, str]:
+    """Each customer's home location: where they visit most.
+
+    Ties break toward the most recent visit, so a regular who moved from the
+    Downtown studio to the Northside one counts as Northside once the visit
+    counts even out. Aggregated in SQL — this runs per page load and a Pro
+    tenant's visit table is the biggest one we have.
+    """
+    bid = uuid.UUID(business_id)
+    rows = (
+        await db.execute(
+            select(
+                Visit.customer_id,
+                Visit.location,
+                func.count().label("n"),
+                func.max(Visit.occurred_at).label("latest"),
+            )
+            .where(
+                Visit.business_id == bid,
+                Visit.customer_id.is_not(None),
+                Visit.location.is_not(None),
+            )
+            .group_by(Visit.customer_id, Visit.location)
+        )
+    ).all()
+
+    best: dict[str, tuple[int, object, str]] = {}
+    for customer_id, location, n, latest in rows:
+        key = str(customer_id)
+        candidate = (n, latest, location)
+        current = best.get(key)
+        # Compare (count, recency). `latest` may be naive (SQLite) or aware
+        # (Postgres) but is consistent within one query, so it compares fine.
+        if current is None or candidate[:2] > current[:2]:
+            best[key] = candidate
+    return {customer_id: location for customer_id, (_n, _l, location) in best.items()}
+
+
+@dataclass
+class LocationSummary:
+    location: str
+    customers: int = 0
+    high_risk: int = 0
+    med_risk: int = 0
+    low_risk: int = 0
+    revenue_at_risk: float = 0.0
+    annual_value: float = 0.0
+
+    @property
+    def high_risk_share(self) -> float:
+        return round(self.high_risk / self.customers, 4) if self.customers else 0.0
+
+
+def location_breakdown(
+    scored: list[ScoredCustomer], home: dict[str, str]
+) -> list[LocationSummary]:
+    """Roll scored customers up by home location. Pure.
+
+    Revenue at risk uses the same weighting as ``activity.summarize`` (all of
+    a high-risk customer's value, half of a medium one's) so the per-location
+    figures sum to the dashboard's headline number rather than disagreeing
+    with it.
+    """
+    by_location: dict[str, LocationSummary] = {}
+    for s in scored:
+        name = home.get(s.customer.external_id or "", UNASSIGNED_LOCATION)
+        row = by_location.setdefault(name, LocationSummary(location=name))
+        row.customers += 1
+        row.annual_value += s.estimated_annual_value
+        if s.result.band == "high":
+            row.high_risk += 1
+            row.revenue_at_risk += s.estimated_annual_value
+        elif s.result.band == "med":
+            row.med_risk += 1
+            row.revenue_at_risk += 0.5 * s.estimated_annual_value
+        else:
+            row.low_risk += 1
+
+    for row in by_location.values():
+        row.revenue_at_risk = round(row.revenue_at_risk, 2)
+        row.annual_value = round(row.annual_value, 2)
+
+    # Most money at risk first: that's the location that needs attention.
+    # "Unassigned" always sorts last so it doesn't look like a real place.
+    return sorted(
+        by_location.values(),
+        key=lambda r: (r.location == UNASSIGNED_LOCATION, -r.revenue_at_risk, r.location),
+    )
+
+
+def filter_by_location(
+    scored: list[ScoredCustomer], home: dict[str, str], location: str
+) -> list[ScoredCustomer]:
+    """Scored customers whose home location is ``location``. Pure."""
+    if location == UNASSIGNED_LOCATION:
+        return [s for s in scored if (s.customer.external_id or "") not in home]
+    return [s for s in scored if home.get(s.customer.external_id or "") == location]

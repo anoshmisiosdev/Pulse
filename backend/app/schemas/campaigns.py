@@ -57,6 +57,8 @@ class CampaignOut(BaseModel):
     name: str
     channel: str
     status: str
+    # winback | review_request
+    kind: str = "winback"
     incentive: str | None
     ab_test: bool
     variant_b_incentive: str | None

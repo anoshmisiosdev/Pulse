@@ -76,6 +76,13 @@ AUDIT_ACTIONS = (
     "data_export_requested",
     "data_deleted",
     "plan_changed",
+    "team_invited",
+    "team_joined",
+    "team_role_changed",
+    "team_removed",
+    "webhook_created",
+    "webhook_deleted",
+    "review_settings_changed",
 )
 
 

@@ -122,6 +122,10 @@ class Transaction(UUIDMixin, Base):
     )
     failure_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # Which location the activity happened at (multi-location businesses).
+    # Null for single-location sources and older rows. A column, not a
+    # table: CLAUDE.md -- "multi-location is a column, never a rewrite".
+    location: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
 
 class Visit(UUIDMixin, Base):
@@ -142,6 +146,10 @@ class Visit(UUIDMixin, Base):
     source: Mapped[str] = mapped_column(String(32))
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # Which location the activity happened at (multi-location businesses).
+    # Null for single-location sources and older rows. A column, not a
+    # table: CLAUDE.md -- "multi-location is a column, never a rewrite".
+    location: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
 
 class EngagementEvent(UUIDMixin, Base):

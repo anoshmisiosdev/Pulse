@@ -35,10 +35,15 @@ from app.models.social import (
     SocialComment,
     SocialPost,
 )
+from app.models.team import TeamInvite
 from app.models.visitor import VisitorEvent, VisitorIdentifier, VisitorProfile
 from app.models.waitlist import WaitlistSignup
+from app.models.webhooks import WebhookDelivery, WebhookEndpoint
 
 __all__ = [
+    "TeamInvite",
+    "WebhookEndpoint",
+    "WebhookDelivery",
     "AuditLog",
     "GenerationLog",
     "ChatConversation",

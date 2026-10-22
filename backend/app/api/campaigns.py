@@ -220,6 +220,7 @@ def _campaign_out(campaign: Campaign, stats: dict) -> CampaignOut:
         name=campaign.name,
         channel=campaign.channel,
         status=campaign.status,
+        kind=campaign.kind or "winback",
         incentive=campaign.incentive,
         ab_test=campaign.ab_test,
         variant_b_incentive=campaign.variant_b_incentive,

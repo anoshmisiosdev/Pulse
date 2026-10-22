@@ -21,7 +21,12 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.billing.limits import Entitlements, automation_denial, channel_denial
+from app.billing.limits import (
+    Entitlements,
+    automation_denial,
+    channel_denial,
+    multi_location_denial,
+)
 from app.billing.store import entitlements
 from app.core.database import get_db
 from app.core.deps import CurrentUser, CurrentUserDep
@@ -51,5 +56,11 @@ def require_channel(ent: Entitlements, channel: str) -> None:
 
 def require_automation(ent: Entitlements) -> None:
     denial = automation_denial(ent)
+    if denial:
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, detail=denial)
+
+
+def require_multi_location(ent: Entitlements) -> None:
+    denial = multi_location_denial(ent)
     if denial:
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, detail=denial)

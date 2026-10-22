@@ -49,8 +49,16 @@ def parse_square_customer(obj: dict[str, Any]) -> NormalizedCustomer:
     )
 
 
-def parse_square_payment(obj: dict[str, Any]) -> NormalizedTransaction | None:
-    """Normalize completed, failed, pending, canceled, and refunded payments."""
+def parse_square_payment(
+    obj: dict[str, Any], location_names: dict[str, str] | None = None
+) -> NormalizedTransaction | None:
+    """Normalize completed, failed, pending, canceled, and refunded payments.
+
+    ``location_names`` maps Square location ids to their display names. Every
+    Square payment carries a ``location_id``; the name is what an owner
+    recognises ("Downtown"), so it's preferred, with the raw id as a fallback
+    rather than dropping the location entirely.
+    """
     if not obj.get("id"):
         return None
     money = obj.get("amount_money") or {}
@@ -98,6 +106,11 @@ def parse_square_payment(obj: dict[str, Any]) -> NormalizedTransaction | None:
         updated_at=(
             datetime.fromisoformat(updated.replace("Z", "+00:00")) if updated else None
         ),
+        location=(
+            (location_names or {}).get(obj.get("location_id") or "")
+            or obj.get("location_id")
+            or None
+        ),
     )
 
 
@@ -109,6 +122,7 @@ class SquareAdapter(DataSourceAdapter):
         self._environment = environment if environment in _HOSTS else "production"
         self._account_id: str | None = None
         self._location_ids: list[str] = []
+        self._location_names: dict[str, str] = {}
         self._tx_cache: tuple[datetime | None, list[NormalizedTransaction]] | None = None
 
     @property
@@ -181,6 +195,13 @@ class SquareAdapter(DataSourceAdapter):
                     for location in locations.get("locations", [])
                     if location.get("id") and location.get("status") != "INACTIVE"
                 ]
+                # Names for every location, inactive ones included: a closed
+                # location's history still belongs to it.
+                self._location_names = {
+                    location["id"]: (location.get("name") or location["id"])
+                    for location in locations.get("locations", [])
+                    if location.get("id")
+                }
         except httpx.HTTPError as exc:
             raise IntegrationError(f"Could not reach Square: {exc}") from exc
 
@@ -220,7 +241,11 @@ class SquareAdapter(DataSourceAdapter):
                 await self._paginate("/v2/payments", "payments", **location_params)
             )
         rows = list({row.get("id"): row for row in rows if row.get("id")}.values())
-        txs = [t for o in rows if (t := parse_square_payment(o)) is not None]
+        txs = [
+            t
+            for o in rows
+            if (t := parse_square_payment(o, self._location_names)) is not None
+        ]
         self._tx_cache = (since, txs)
         return txs
 
@@ -233,6 +258,7 @@ class SquareAdapter(DataSourceAdapter):
                 customer_external_id=t.customer_external_id,
                 customer_email=t.customer_email,
                 occurred_at=t.occurred_at,
+                location=t.location,
             )
             for t in await self.sync_transactions(since)
             if t.is_revenue

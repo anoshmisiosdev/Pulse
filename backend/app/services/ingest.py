@@ -328,6 +328,7 @@ async def persist_sync(
                 provider_updated_at=t.updated_at,
                 failure_code=t.failure_code,
                 occurred_at=t.occurred_at,
+                location=t.location,
             )
             db.add(row)
             existing_tx[ext] = row
@@ -363,6 +364,12 @@ async def persist_sync(
             row.failure_code = t.failure_code
             row.occurred_at = t.occurred_at
             n_tx += 1
+        # Location is set independently of `changed`: a re-sync after a
+        # source starts reporting locations should backfill them without
+        # needing any money field to move. An absent location never erases
+        # a known one.
+        if t.location and row.location != t.location:
+            row.location = t.location
 
     visit_exts = sorted(
         {
@@ -415,6 +422,7 @@ async def persist_sync(
                 source=source,
                 external_id=ext,
                 occurred_at=v.occurred_at,
+                location=v.location,
             )
             db.add(row)
             existing_visits[ext] = row
@@ -423,6 +431,8 @@ async def persist_sync(
             row.customer_id = cust.id
             row.occurred_at = v.occurred_at
             n_visits += 1
+        if v.location and row.location != v.location:
+            row.location = v.location
 
     for t in sync.transactions:
         if not t.external_id or t.is_revenue:

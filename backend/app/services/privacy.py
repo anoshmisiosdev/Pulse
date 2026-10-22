@@ -63,8 +63,12 @@ from app.models import (
     SocialComment,
     SocialPost,
     SyncRun,
+    TeamInvite,
     Transaction,
+    User,
     Visit,
+    WebhookDelivery,
+    WebhookEndpoint,
 )
 from app.services.generation_log import record_audit
 
@@ -78,6 +82,9 @@ logger = logging.getLogger("pulse.privacy")
 #
 # Ordering within each tuple matters; the groups themselves are independent.
 RETENTION_TABLES: tuple[Any, ...] = (
+    # Webhook deliveries hold customer names and contact details in their
+    # payloads, so they're customer data, not configuration.
+    WebhookDelivery,
     # Children of campaign_sends / customers first.
     RecoveryAttribution,
     EngagementEvent,
@@ -116,7 +123,13 @@ PRICING_TABLES: tuple[Any, ...] = (
     CompetitorPriceWatch,
 )
 
-CONNECTION_TABLES: tuple[Any, ...] = (IntegrationConnection,)
+CONNECTION_TABLES: tuple[Any, ...] = (
+    IntegrationConnection,
+    # After WebhookDelivery (in RETENTION_TABLES), which references it.
+    WebhookEndpoint,
+    # Pending invites name people who never joined.
+    TeamInvite,
+)
 
 # What "everything" means. Subscription is excluded on purpose: it is the
 # billing relationship, not customer data, and dropping it would leave a
@@ -334,6 +347,9 @@ async def export_business_data(db: AsyncSession, *, business_id: str) -> dict:
     conversations = await rows(ChatConversation, ChatConversation.created_at)
     messages = await rows(ChatMessage, ChatMessage.created_at)
     audit = await rows(AuditLog, AuditLog.created_at)
+    members = await rows(User, User.created_at)
+    invites = await rows(TeamInvite, TeamInvite.created_at)
+    endpoints = await rows(WebhookEndpoint, WebhookEndpoint.created_at)
 
     return {
         "exported_at": _iso(datetime.now(UTC)),
@@ -453,6 +469,25 @@ async def export_business_data(db: AsyncSession, *, business_id: str) -> dict:
                 ],
             }
             for c in conversations
+        ],
+        "team_members": [
+            {"email": m.email, "role": m.role, "joined_at": _iso(m.created_at)}
+            for m in members
+        ],
+        "team_invites": [
+            {
+                "email": i.email,
+                "role": i.role,
+                "created_at": _iso(i.created_at),
+                "accepted_at": _iso(i.accepted_at),
+                "revoked_at": _iso(i.revoked_at),
+            }
+            for i in invites
+        ],
+        # Where customer data is being sent. The signing secret is not included.
+        "webhook_endpoints": [
+            {"url": e.url, "events": list(e.events or []), "enabled": e.enabled}
+            for e in endpoints
         ],
         "audit_log": [
             {

@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     Business,
+    Campaign,
     CampaignSend,
     Customer,
     RecoveryAttribution,
@@ -49,6 +50,7 @@ from app.models import (
 )
 from app.scoring.config import get_vertical_config
 from app.services.ingest import _uuid
+from app.services.outbound_webhooks import emit as emit_webhook
 
 logger = logging.getLogger("pulse.attribution")
 
@@ -192,10 +194,16 @@ async def detect_recoveries(
     send_rows = (
         (
             await db.execute(
-                select(CampaignSend).where(
+                select(CampaignSend)
+                .join(Campaign, Campaign.id == CampaignSend.campaign_id)
+                .where(
                     CampaignSend.business_id == bid,
                     CampaignSend.status.in_(CREDITABLE_SEND_STATUSES),
                     CampaignSend.sent_at.is_not(None),
+                    # Review requests go to customers who already came back.
+                    # Crediting one would count the thank-you note as the
+                    # thing that won them back (campaigns/reviews.py).
+                    Campaign.kind != "review_request",
                 )
             )
         )
@@ -273,6 +281,23 @@ async def detect_recoveries(
         customer = await db.get(Customer, _uuid(match.customer_id))
         if customer is not None:
             customer.recovered = True
+            await emit_webhook(
+                db,
+                business_id=bid,
+                event_type="customer.recovered",
+                data={
+                    "customer": {
+                        "id": str(customer.id),
+                        "first_name": customer.first_name,
+                        "last_name": customer.last_name,
+                        "email": customer.email,
+                        "phone": customer.phone,
+                    },
+                    "estimated_value": round(match.revenue_recovered, 2),
+                    "recovered_at": match.recovered_at.isoformat(),
+                    "campaign_send_id": match.send_id,
+                },
+            )
         summary.recoveries_found += 1
         summary.revenue_recovered += match.revenue_recovered
 

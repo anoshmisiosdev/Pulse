@@ -58,6 +58,18 @@ celery.conf.update(
             "task": "app.workers.celery_app.sync_payment_integrations_tick",
             "schedule": settings.payment_sync_interval_seconds,
         },
+        "queue-review-requests": {
+            "task": "app.workers.celery_app.queue_review_requests_tick",
+            # Hourly. It only drafts pending requests, and the delay setting is
+            # in days, so anything more frequent would be wasted work.
+            "schedule": 60 * 60.0,
+        },
+        "deliver-webhooks": {
+            "task": "app.workers.celery_app.deliver_webhooks_tick",
+            # Every minute. Due deliveries are cheap to find (indexed on
+            # status + next_attempt_at) and backoff spaces the retries.
+            "schedule": 60.0,
+        },
         "weekly-owner-digest": {
             "task": "app.workers.celery_app.send_weekly_digests",
             # Weekly. The beat interval is the cadence, not the content window:
@@ -263,3 +275,37 @@ def send_weekly_digests() -> dict:
         outcomes[key] = outcomes.get(key, 0) + 1
     logger.info("send_weekly_digests complete: %s", outcomes)
     return {"status": "ok", "businesses": len(results), "outcomes": outcomes}
+
+
+@celery.task
+def deliver_webhooks_tick() -> dict:
+    """Deliver every due outbound webhook, across all tenants."""
+    from app.core.database import SessionLocal
+    from app.services.outbound_webhooks import deliver_pending
+
+    async def _run() -> dict:
+        async with SessionLocal() as db:
+            counts = await deliver_pending(db)
+            await db.commit()
+            return counts
+
+    counts = asyncio.run(_run())
+    if any(counts.values()):
+        logger.info("deliver_webhooks_tick: %s", counts)
+    return {"status": "ok", **counts}
+
+
+@celery.task
+def queue_review_requests_tick() -> dict:
+    """Draft review requests for recently recovered customers (approve-to-send)."""
+    from app.campaigns.reviews import queue_review_requests
+
+    async def _queue(db, bid: str) -> dict:
+        summary = await queue_review_requests(db, business_id=bid)
+        return {"queued": summary.queued}
+
+    results = asyncio.run(_for_every_business(_queue))
+    total = sum(r.get("queued", 0) for r in results.values() if isinstance(r, dict))
+    if total:
+        logger.info("queue_review_requests_tick: %d drafted", total)
+    return {"status": "ok", "queued": total}

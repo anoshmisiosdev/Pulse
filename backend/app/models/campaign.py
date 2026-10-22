@@ -30,6 +30,10 @@ class Campaign(UUIDMixin, Base):
     # draft | pending_approval | approved | sending | sent | failed
     status: Mapped[str] = mapped_column(String(24), default="draft")
     incentive: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # winback | review_request. Review requests go to customers who already
+    # came back, so they must never be credited as a recovery themselves —
+    # attribution (services/attribution.py) only considers winback sends.
+    kind: Mapped[str] = mapped_column(String(16), default="winback")
     # A/B: when true, sends are split across two generated variants and
     # recovery attribution is reported per variant (app/campaigns/experiments.py).
     ab_test: Mapped[bool] = mapped_column(default=False)

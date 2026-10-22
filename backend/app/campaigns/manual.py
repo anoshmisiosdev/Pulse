@@ -35,6 +35,7 @@ from app.services.automations import attempt_send, unsubscribe_url
 from app.services.compliance import can_contact
 from app.services.generation_log import record_audit, record_generation
 from app.services.ingest import _uuid, load_sync
+from app.services.outbound_webhooks import emit as emit_webhook
 from app.services.rag.knowledge_store import search_knowledge
 
 logger = logging.getLogger("pulse.campaigns.manual")
@@ -353,6 +354,23 @@ async def approve_campaign(
         campaign.status = "failed"
     await db.flush()
 
+    if summary.sent:
+        await emit_webhook(
+            db,
+            business_id=campaign.business_id,
+            event_type="campaign.sent",
+            data={
+                "campaign": {
+                    "id": str(campaign.id),
+                    "name": campaign.name,
+                    "channel": campaign.channel,
+                    "kind": campaign.kind,
+                },
+                "sent": summary.sent,
+                "failed": summary.failed,
+                "deferred": summary.deferred,
+            },
+        )
     await record_audit(
         db,
         business_id=campaign.business_id,

@@ -86,3 +86,22 @@ class DigestSendOut(BaseModel):
     outcome: str
     message: str
     sent: bool
+
+
+class LocationSummaryOut(BaseModel):
+    location: str
+    customers: int
+    high_risk: int
+    med_risk: int
+    low_risk: int
+    high_risk_share: float
+    revenue_at_risk: float
+    annual_value: float
+
+
+class LocationsOut(BaseModel):
+    locations: list[LocationSummaryOut]
+    # False when no visit carries a location yet -- the UI says how to get
+    # them (connect Square, or add a "location" column to the CSV) instead of
+    # showing a single "Unassigned" row that looks like a bug.
+    has_location_data: bool
