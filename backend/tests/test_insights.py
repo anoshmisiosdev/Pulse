@@ -358,6 +358,18 @@ def test_the_digest_reports_the_definition_of_done_sentence():
     assert "Maria, Jon and Avery" in body
 
 
+def test_a_business_name_ending_in_a_period_does_not_get_two():
+    """"Hayward Coffee Co.." in the first line looks like a bug because it is."""
+    _subject, body = fallback_digest(_facts(recovered_count=1, revenue_recovered=10))
+    assert "Co.." not in body
+    assert body.startswith("Here's your week at Hayward Coffee Co.")
+
+    _s2, body2 = fallback_digest(
+        DigestFacts(business_name="Glow Studio", window_days=7, high_risk_count=1)
+    )
+    assert body2.startswith("Here's your week at Glow Studio.")
+
+
 def test_a_single_recovery_is_phrased_in_the_singular():
     subject, body = fallback_digest(_facts(recovered_count=1, revenue_recovered=210.0))
     assert "1 customer came back" in subject

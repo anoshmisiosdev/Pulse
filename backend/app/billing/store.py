@@ -105,6 +105,22 @@ async def entitlements(db: AsyncSession, *, business_id: str) -> Entitlements:
     )
 
 
+def _as_aware(value: datetime | None) -> datetime | None:
+    """Coerce a stored timestamp to UTC-aware.
+
+    The column is ``DateTime(timezone=True)``, but what comes back depends on
+    the driver: Postgres returns an aware datetime, SQLite returns a naive one.
+    Comparing a naive value against ``datetime.now(UTC)`` raises TypeError, so
+    every read of a stored timestamp goes through here rather than trusting the
+    dialect. (This bit in practice, not in theory: the test suite missed it
+    because ``expire_on_commit=False`` kept the aware in-memory value alive,
+    while a fresh process reading the row crashed.)
+    """
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
 def _effective_status(sub: Subscription) -> str:
     """``status`` with an expired trial resolved.
 
@@ -115,7 +131,8 @@ def _effective_status(sub: Subscription) -> str:
     """
     if sub.status != "trialing":
         return sub.status
-    if sub.trial_ends_at and sub.trial_ends_at <= datetime.now(UTC):
+    trial_ends_at = _as_aware(sub.trial_ends_at)
+    if trial_ends_at and trial_ends_at <= datetime.now(UTC):
         return "trial_expired"
     return "trialing"
 
@@ -126,9 +143,10 @@ def trial_days_left(sub: Subscription, *, now: datetime | None = None) -> int | 
     Rounded up, so the banner reads "1 day left" through the final day rather
     than flipping to "0 days left" with hours still on the clock.
     """
-    if sub.status != "trialing" or sub.trial_ends_at is None:
+    trial_ends_at = _as_aware(sub.trial_ends_at)
+    if sub.status != "trialing" or trial_ends_at is None:
         return None
-    remaining = sub.trial_ends_at - (now or datetime.now(UTC))
+    remaining = trial_ends_at - (now or datetime.now(UTC))
     if remaining.total_seconds() <= 0:
         return 0
     return math.ceil(remaining.total_seconds() / 86_400)

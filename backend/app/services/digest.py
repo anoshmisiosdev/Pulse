@@ -99,6 +99,15 @@ def _money(value: float) -> str:
     return f"${value:,.0f}"
 
 
+def _sentence_end(name: str) -> str:
+    """A business name safe to put a full stop after.
+
+    Plenty of them end in one already ("Hayward Coffee Co."), and "Co.." in the
+    first line of the weekly email looks like a bug because it is one.
+    """
+    return name[:-1] if name.endswith(".") else name
+
+
 def _join_names(names: list[str], limit: int = 3) -> str:
     shown = names[:limit]
     extra = len(names) - len(shown)
@@ -123,7 +132,7 @@ def fallback_digest(facts: DigestFacts, *, unsubscribe_url: str = "") -> tuple[s
     else:
         subject = f"Your week at {facts.business_name}"
 
-    lines = [f"Here's your week at {facts.business_name}.", ""]
+    lines = [f"Here's your week at {_sentence_end(facts.business_name)}.", ""]
 
     if facts.recovered_count:
         who = _join_names(facts.recovered_names)

@@ -24,31 +24,64 @@ from dataclasses import dataclass
 # Each intent maps to one tool plus fixed arguments. Patterns are substring
 # matches on a lowercased question, ordered most-specific first - "how many
 # came back" must not be captured by the broader at-risk pattern.
-_PATTERNS: tuple[tuple[str, str, dict], ...] = (
+_DRAFT_NOTE = (
+    "I can't write the messages without the AI model, but open Campaigns and "
+    "pick a segment — Churnary will draft them from a template and hold them "
+    "for your approval."
+)
+
+_PATTERNS: tuple[tuple[str, str, dict, str | None], ...] = (
+    (
+        # A drafting request. The pure path can't supply customer ids, so it
+        # answers with the list and says where to go — matched before the
+        # at-risk pattern, which this phrasing would otherwise be caught by.
+        r"draft|write|compose|send (a|an|them)|win.?back (email|message|text)",
+        "get_at_risk_customers",
+        {"band": "high", "limit": 10},
+        _DRAFT_NOTE,
+    ),
     (
         r"recover|came back|won back|win.?back result|saved|retained|roi",
         "get_recovery_stats",
         {},
+        None,
     ),
     (
         r"campaign|sent|outreach|approval queue|waiting",
         "list_recent_campaigns",
         {},
+        None,
     ),
     (
         r"brand voice|our services|what do we offer|notes|knowledge",
         "search_business_knowledge",
         {},
+        None,
     ),
     (
-        r"high.?risk|about to leave|leaving|at risk|churn|lapsed|who should i",
+        # More specific than the at-risk pattern below, which also matches
+        # "at risk": asking *how much* wants the total, not a name list.
+        r"revenue at risk|how much.*risk|money at risk|value at risk",
+        "get_portfolio_summary",
+        {},
+        None,
+    ),
+    (
+        # Includes the phrasings the chat's own suggestion chips use — a
+        # fallback that can't answer the questions the product puts in front of
+        # the owner is worse than no fallback.
+        r"high.?risk|about to leave|leaving|at risk|churn|lapsed"
+        r"|stop coming|stopped coming|not coming back|slipping"
+        r"|who should i|who do i|who needs",
         "get_at_risk_customers",
         {"band": "high", "limit": 10},
+        None,
     ),
     (
         r"how many customers|total customers|summary|overview|how are we doing|revenue at risk",
         "get_portfolio_summary",
         {},
+        None,
     ),
 )
 
@@ -57,6 +90,10 @@ _PATTERNS: tuple[tuple[str, str, dict], ...] = (
 class Intent:
     tool: str
     args: dict
+    # Appended to the rendered answer. Used when the question asks for
+    # something the deterministic path can't do on its own, so the reply still
+    # moves the owner forward instead of refusing.
+    note: str | None = None
 
 
 def match(question: str) -> Intent | None:
@@ -64,9 +101,9 @@ def match(question: str) -> Intent | None:
     text = (question or "").lower()
     if not text.strip():
         return None
-    for pattern, tool, args in _PATTERNS:
+    for pattern, tool, args, note in _PATTERNS:
         if re.search(pattern, text):
-            return Intent(tool=tool, args=dict(args))
+            return Intent(tool=tool, args=dict(args), note=note)
     return None
 
 

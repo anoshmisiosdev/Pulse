@@ -21,6 +21,7 @@ from app.billing.service import BillingError, price_id_for, tier_for_price
 from app.billing.store import (
     ensure_subscription,
     entitlements,
+    get_subscription,
     trial_days_left,
     usage_counts,
 )
@@ -209,6 +210,30 @@ async def test_an_expired_trial_reports_trial_expired_without_a_webhook(sessions
         ent = await entitlements(db, business_id=str(BUSINESS_ID))
     assert ent.status == "trial_expired"
     assert not ent.active
+
+
+async def test_entitlements_work_when_the_row_is_read_in_a_fresh_session(sessions):
+    """Regression: a real request reads the subscription from the database, not
+    from an identity map that still holds the aware datetime we wrote.
+
+    SQLite hands back naive datetimes for a ``DateTime(timezone=True)`` column,
+    so comparing ``trial_ends_at`` against ``datetime.now(UTC)`` raised
+    TypeError and 500'd GET /billing/subscription. The original tests all
+    created and read the row inside one session, where ``expire_on_commit=False``
+    kept the aware value alive, so they never saw it.
+    """
+    async with sessions() as db:
+        await ensure_subscription(db, business_id=str(BUSINESS_ID))
+        await db.commit()
+
+    # A different session: nothing cached, the value comes off the driver.
+    async with sessions() as db:
+        ent = await entitlements(db, business_id=str(BUSINESS_ID))
+        sub = await get_subscription(db, business_id=str(BUSINESS_ID))
+        assert sub is not None
+        assert trial_days_left(sub) == 14
+    assert ent.status == "trialing"
+    assert ent.active
 
 
 async def test_usage_counts_only_see_this_tenant(sessions):

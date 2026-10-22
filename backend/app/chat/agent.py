@@ -166,8 +166,13 @@ async def _fallback(ctx: ToolContext, question: str, reason: str) -> AgentReply:
     if intent.tool == "search_business_knowledge":
         intent.args.setdefault("query", question)
     result = await dispatch(ctx, intent.tool, intent.args)
+    text = intents.render(intent.tool, result)
+    if intent.note:
+        # The question asked for something the pure path can't do, so the answer
+        # carries a pointer rather than refusing.
+        text = f"{text}\n\n{intent.note}"
     return AgentReply(
-        text=intents.render(intent.tool, result),
+        text=text,
         tool_calls=[
             ToolInvocation(
                 tool=intent.tool,

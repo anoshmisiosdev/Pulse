@@ -678,6 +678,49 @@ def test_intent_matching_covers_the_common_questions(question, expected):
     assert matched.tool == expected
 
 
+def test_every_suggestion_the_product_offers_is_answerable_offline():
+    """The chat shows suggestion chips. If the deterministic fallback can't
+    match one of them, an owner who clicks it while the model is down gets
+    "I'm in reduced mode" for a question the product just invited them to ask.
+    """
+    from app.api.chat import _SUGGESTIONS
+
+    unmatched = [s for s in _SUGGESTIONS if intents.match(s) is None]
+    assert unmatched == []
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Who is about to stop coming in?",
+        "who stopped coming in",
+        "anyone not coming back?",
+        "who's slipping away",
+        "who do i call today",
+        "who needs attention",
+    ],
+)
+def test_natural_phrasings_of_the_at_risk_question_all_match(question):
+    matched = intents.match(question)
+    assert matched is not None
+    assert matched.tool == "get_at_risk_customers"
+
+
+def test_the_specific_revenue_question_beats_the_broad_at_risk_pattern():
+    """"How much revenue is at risk" wants the total, not a list of names."""
+    assert intents.match("how much revenue is at risk").tool == "get_portfolio_summary"
+    assert intents.match("who is at risk").tool == "get_at_risk_customers"
+
+
+def test_a_drafting_request_answers_with_the_list_and_says_where_to_go():
+    """The pure path can't supply customer ids, so it must move the owner
+    forward rather than refuse."""
+    matched = intents.match("Draft a win-back email for my highest-risk customers")
+    assert matched is not None
+    assert matched.tool == "get_at_risk_customers"
+    assert matched.note and "open Campaigns" in matched.note
+
+
 def test_recovery_questions_win_over_the_broader_at_risk_pattern():
     """Ordering matters: 'how many came back' must not be swallowed by the
     at-risk pattern that also mentions customers."""
