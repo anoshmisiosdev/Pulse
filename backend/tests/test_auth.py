@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import uuid
+
 import jwt
 import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
 
 from app.core.config import settings
+from app.core.database import Base, get_db
 from app.core.deps import _tenant_from_claims
 from app.core.security import verify_supabase_jwt
-from app.main import app
+from app.main import app, fastapi_app
+from app.models import Business, User
 
 client = TestClient(app)
 SECRET = "test-supabase-jwt-secret"
@@ -25,6 +31,35 @@ def _hs256_token(secret: str = SECRET, **overrides) -> str:
         **overrides,
     }
     return jwt.encode(payload, secret, algorithm="HS256")
+
+
+@pytest.fixture(autouse=True)
+async def isolated_db():
+    """An in-memory database for every request these tests make.
+
+    Since team membership is read per request (core/deps.py), a real token
+    goes through a `users` lookup. Without this override that lookup used the
+    app's own DATABASE_URL -- in local runs, whatever .env points at, which
+    can be a live database. Tests must never reach one.
+    """
+    engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def _db():
+        async with factory() as session:
+            yield session
+            await session.commit()
+
+    fastapi_app.dependency_overrides[get_db] = _db
+    yield factory
+    fastapi_app.dependency_overrides.pop(get_db, None)
+    await engine.dispose()
 
 
 @pytest.fixture
@@ -82,6 +117,32 @@ def test_me_with_valid_token_returns_tenant(supabase_hs256):
     r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {_hs256_token()}"})
     assert r.status_code == 200
     assert r.json()["business_name"] == "Hayward Coffee Co."
+
+
+async def test_me_resolves_a_team_member_to_the_inviting_business(
+    supabase_hs256, isolated_db
+):
+    """End to end through the real token path: a membership row written when
+    an invite was accepted is what decides the tenant, not the token's `sub`."""
+    biz_id = uuid.uuid4()
+    async with isolated_db() as db:
+        db.add(Business(id=biz_id, name="Glow Studio", vertical="salon"))
+        db.add(
+            User(
+                business_id=biz_id,
+                supabase_user_id="user-123",
+                email="owner@hayward.coffee",
+                role="staff",
+            )
+        )
+        await db.commit()
+
+    r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {_hs256_token()}"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["business_id"] == str(biz_id)
+    assert body["business_name"] == "Glow Studio"
+    assert body["role"] == "staff"
 
 
 def test_me_rejects_garbage_token(supabase_hs256):
