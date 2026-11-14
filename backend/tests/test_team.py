@@ -48,6 +48,7 @@ async def sessions(tmp_path):
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as db:
         db.add(Business(id=OWNER_BIZ, name="Hayward Coffee Co.", vertical="cafe"))
+        await db.flush()  # parent row before its children
         db.add(Business(id=OTHER_BIZ, name="Glow Studio", vertical="salon"))
         await db.commit()
     yield factory

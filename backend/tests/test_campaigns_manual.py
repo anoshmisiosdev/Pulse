@@ -125,6 +125,7 @@ async def _seed(sessions, *, count: int = 3, tier: str = "growth") -> list[str]:
     now = datetime.now(UTC).replace(tzinfo=None)
     async with sessions() as db:
         db.add(Business(id=BUSINESS_ID, name="Hayward Coffee Co.", vertical="cafe"))
+        await db.flush()  # parent row before its children
         db.add(Subscription(business_id=BUSINESS_ID, tier=tier, status="active"))
         for i in range(count):
             customer = Customer(
@@ -267,6 +268,7 @@ async def test_another_tenants_customer_ids_are_ignored(client, sessions):
     other_business = uuid.uuid4()
     async with sessions() as db:
         db.add(Business(id=other_business, name="Rival", vertical="salon"))
+        await db.flush()  # parent row before its children
         theirs = Customer(business_id=other_business, source="csv", email="theirs@x.com")
         db.add(theirs)
         await db.commit()
@@ -375,6 +377,7 @@ async def test_sends_from_another_tenant_are_not_reachable(client, sessions):
     other = uuid.uuid4()
     async with sessions() as db:
         db.add(Business(id=other, name="Rival", vertical="salon"))
+        await db.flush()  # parent row before its children
         customer = Customer(business_id=other, source="csv", email="x@x.com")
         db.add(customer)
         campaign = Campaign(business_id=other, name="Theirs", channel="email")

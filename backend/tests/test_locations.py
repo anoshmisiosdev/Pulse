@@ -179,6 +179,7 @@ async def _customer_with_visits(db, visits: list[tuple[str | None, int]]) -> str
 async def test_home_location_is_where_they_visit_most(sessions):
     async with sessions() as db:
         db.add(Business(id=BIZ, name="Glow", vertical="salon"))
+        await db.flush()  # parent row before its children
         cid = await _customer_with_visits(
             db, [("Downtown", 90), ("Downtown", 60), ("Downtown", 30), ("Uptown", 5)]
         )
@@ -191,6 +192,7 @@ async def test_a_tie_goes_to_the_more_recent_location(sessions):
     """A regular who moved studios counts as the new one once it evens out."""
     async with sessions() as db:
         db.add(Business(id=BIZ, name="Glow", vertical="salon"))
+        await db.flush()  # parent row before its children
         cid = await _customer_with_visits(
             db, [("Downtown", 90), ("Downtown", 80), ("Uptown", 10), ("Uptown", 3)]
         )
@@ -202,6 +204,7 @@ async def test_a_tie_goes_to_the_more_recent_location(sessions):
 async def test_visits_without_a_location_dont_create_a_home(sessions):
     async with sessions() as db:
         db.add(Business(id=BIZ, name="Glow", vertical="salon"))
+        await db.flush()  # parent row before its children
         cid = await _customer_with_visits(db, [(None, 10), (None, 5)])
         await db.commit()
         home = await insights.home_locations(db, business_id=str(BIZ))
@@ -212,7 +215,9 @@ async def test_home_locations_never_include_another_tenant(sessions):
     other = uuid.uuid4()
     async with sessions() as db:
         db.add(Business(id=BIZ, name="Glow", vertical="salon"))
+        await db.flush()  # parent row before its children
         db.add(Business(id=other, name="Rival", vertical="salon"))
+        await db.flush()  # parent row before its children
         customer = Customer(business_id=other, source="csv", first_name="R", email="r@x.com")
         db.add(customer)
         await db.flush()
@@ -251,6 +256,7 @@ def client_for(sessions):
 async def _seed_two_locations(sessions, tier: str) -> None:
     async with sessions() as db:
         db.add(Business(id=BIZ, name="Glow", vertical="salon"))
+        await db.flush()  # parent row before its children
         db.add(Subscription(business_id=BIZ, tier=tier, status="active"))
         for location in ("Downtown", "Downtown", "Uptown"):
             cid = await _customer_with_visits(db, [(location, 200), (location, 160)])

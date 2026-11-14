@@ -52,6 +52,7 @@ async def _make_suggestion(SessionLocal, channel: str = "sms") -> str:
     """A pending suggest-mode send: empty body, generated_by='suggested'."""
     async with SessionLocal() as db:
         db.add(Business(id=BUSINESS_ID, name="Hayward Coffee Co.", vertical="cafe"))
+        await db.flush()  # parent row before its children
         # SMS is a Growth entitlement, and approve_send re-checks it at send
         # time (app/billing/guard.py). Without a plan that includes SMS these
         # approvals are correctly refused with a 402.

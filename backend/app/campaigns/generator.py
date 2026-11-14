@@ -18,6 +18,10 @@ from app.core.llm import active_model, complete_text, extract_json_object
 logger = logging.getLogger("pulse.campaigns")
 
 SMS_MAX_CHARS = 320
+# CampaignSend.subject is String(512); Postgres rejects anything longer, so a
+# runaway model response would fail the send rather than just look odd.
+# 200 is already far past what any inbox displays.
+SUBJECT_MAX_CHARS = 200
 
 
 @dataclass
@@ -78,7 +82,7 @@ def parse_model_json(raw: str, channel: str) -> GeneratedCopy:
     if channel == "sms":
         return GeneratedCopy(body=body[:SMS_MAX_CHARS], subject=None)
 
-    subject = (data.get("subject") or "").strip()
+    subject = (data.get("subject") or "").strip()[:SUBJECT_MAX_CHARS]
     if not subject:
         raise ValueError("email output missing 'subject'")
     return GeneratedCopy(body=body, subject=subject)
@@ -252,7 +256,7 @@ def _parse_batch_json(raw: str, channel: str, n: int) -> list[GeneratedCopy | No
         if channel == "sms":
             out[idx] = GeneratedCopy(body=body[:SMS_MAX_CHARS], subject=None)
             continue
-        subject = (item.get("subject") or "").strip()
+        subject = (item.get("subject") or "").strip()[:SUBJECT_MAX_CHARS]
         if not subject:
             continue
         out[idx] = GeneratedCopy(body=body, subject=subject)

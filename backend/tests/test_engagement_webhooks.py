@@ -66,6 +66,9 @@ async def seeded(monkeypatch):
             Customer(id=customer_id, business_id=business_id, source="csv", email="a@example.com")
         )
         db.add(Campaign(id=campaign_id, business_id=business_id, name="Win back", channel="email"))
+        # Parents before the send: without relationship()s SQLAlchemy doesn't
+        # order these inserts, and Postgres enforces the foreign keys.
+        await db.flush()
         db.add(
             CampaignSend(
                 id=send_id,

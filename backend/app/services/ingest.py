@@ -69,6 +69,33 @@ def _chunks(values: list, size: int = 500):
         yield values[i : i + size]
 
 
+# The name a business row gets before the owner has told us anything.
+# ``ensure_business`` treats it as a placeholder and replaces it on import.
+PLACEHOLDER_BUSINESS_NAME = "My Business"
+
+
+async def ensure_business_exists(db: AsyncSession, business_id: str) -> Business:
+    """The tenant's business row, creating a placeholder if there isn't one.
+
+    Several tables reference ``businesses.id`` (subscriptions, team_invites,
+    users). A brand-new owner can reach code that writes those -- opening Plan
+    & billing, paying, inviting a teammate -- before importing any data, which
+    is when the business row is normally created. Postgres rejects the child
+    row; SQLite (the test suite) doesn't notice. This creates the parent first.
+
+    Flushes the business on its own: these models declare bare foreign keys,
+    not relationship()s, so SQLAlchemy doesn't order a parent ahead of a child
+    added in the same flush. Never modifies an existing row.
+    """
+    bid = _uuid(business_id)
+    biz = await db.get(Business, bid)
+    if biz is None:
+        biz = Business(id=bid, name=PLACEHOLDER_BUSINESS_NAME, vertical="other")
+        db.add(biz)
+        await db.flush()
+    return biz
+
+
 async def ensure_business(
     db: AsyncSession, business_id: str, name: str, vertical: str
 ) -> Business:
@@ -78,7 +105,7 @@ async def ensure_business(
         biz = Business(id=bid, name=name, vertical=vertical)
         db.add(biz)
     else:
-        if name and name != "My Business":
+        if name and name != PLACEHOLDER_BUSINESS_NAME:
             biz.name = name
         if vertical:
             biz.vertical = vertical

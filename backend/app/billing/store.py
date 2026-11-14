@@ -45,26 +45,34 @@ async def ensure_subscription(db: AsyncSession, *, business_id: str) -> Subscrip
     race here. The loser catches the IntegrityError and re-reads rather than
     surfacing a 500 on what is, from the owner's side, just opening the app.
     """
-    existing = await get_subscription(db, business_id=business_id)
-    if existing is not None:
-        return existing
+    from app.services.ingest import ensure_business_exists
 
-    row = Subscription(
-        business_id=_uuid(business_id),
-        tier="starter",
-        status="trialing",
-        trial_ends_at=datetime.now(UTC) + timedelta(days=TRIAL_DAYS),
-    )
-    db.add(row)
-    try:
-        await db.flush()
-    except IntegrityError:
-        await db.rollback()
-        concurrent = await get_subscription(db, business_id=business_id)
-        if concurrent is None:  # pragma: no cover — only if the unique index changed
-            raise
-        return concurrent
-    return row
+    # Two attempts: the first can lose a race with a concurrent first request
+    # creating the same business or subscription row. After rolling back, the
+    # winner's rows are either visible (return them) or not yet committed
+    # (try once more, now that the business very likely exists).
+    for attempt in (1, 2):
+        existing = await get_subscription(db, business_id=business_id)
+        if existing is not None:
+            return existing
+        try:
+            # A brand-new tenant has no business row until they import data,
+            # and subscriptions.business_id is a foreign key to it.
+            await ensure_business_exists(db, business_id)
+            row = Subscription(
+                business_id=_uuid(business_id),
+                tier="starter",
+                status="trialing",
+                trial_ends_at=datetime.now(UTC) + timedelta(days=TRIAL_DAYS),
+            )
+            db.add(row)
+            await db.flush()
+            return row
+        except IntegrityError:
+            await db.rollback()
+            if attempt == 2:
+                raise
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 async def usage_counts(db: AsyncSession, *, business_id: str) -> tuple[int, int]:

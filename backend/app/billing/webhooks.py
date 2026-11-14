@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.billing.store import _uuid, get_subscription
+from app.billing.store import _uuid, ensure_subscription, get_subscription
 from app.models import Subscription
 
 logger = logging.getLogger("pulse.billing.webhooks")
@@ -130,10 +130,9 @@ async def _handle_checkout_completed(db: AsyncSession, obj: dict) -> str:
     business_id = _business_id_from(obj)
     if not business_id:
         return "ignored_no_business_id"
-    sub = await get_subscription(db, business_id=business_id)
-    if sub is None:
-        sub = Subscription(business_id=_uuid(business_id), tier="starter", status="trialing")
-        db.add(sub)
+    # Someone can pay before importing any data, when no business row exists
+    # yet; ensure_subscription creates the parent first (see ingest.py).
+    sub = await ensure_subscription(db, business_id=business_id)
     customer = obj.get("customer")
     subscription = obj.get("subscription")
     if isinstance(customer, str):
@@ -151,6 +150,12 @@ async def _handle_subscription_changed(db: AsyncSession, obj: dict) -> str:
     business_id = _business_id_from(obj)
     customer = obj.get("customer") if isinstance(obj.get("customer"), str) else None
     sub = await _subscription_for(db, business_id=business_id, stripe_customer_id=customer)
+    if sub is None and business_id:
+        # Stripe doesn't guarantee event order: customer.subscription.created
+        # routinely arrives before checkout.session.completed. Ignoring it left
+        # a paid plan on Starter until the next renewal sent another update.
+        # The business_id is ours, stamped on the subscription at checkout.
+        sub = await ensure_subscription(db, business_id=business_id)
     if sub is None:
         logger.warning("Stripe subscription event for an unknown tenant: %s", obj.get("id"))
         return "ignored_unknown_tenant"

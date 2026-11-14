@@ -130,6 +130,7 @@ async def _seed(sessions, *, count: int = 3, tier: str = "growth") -> list[str]:
     now = datetime.now(UTC).replace(tzinfo=None)
     async with sessions() as db:
         db.add(Business(id=BUSINESS_ID, name="Hayward Coffee Co.", vertical="cafe"))
+        await db.flush()  # parent row before its children
         db.add(Subscription(business_id=BUSINESS_ID, tier=tier, status="active"))
         for i in range(count):
             customer = Customer(
@@ -186,6 +187,7 @@ async def test_at_risk_customers_only_sees_this_tenant(sessions):
     now = datetime.now(UTC).replace(tzinfo=None)
     async with sessions() as db:
         db.add(Business(id=OTHER_BUSINESS_ID, name="Rival Salon", vertical="salon"))
+        await db.flush()  # parent row before its children
         theirs = Customer(
             business_id=OTHER_BUSINESS_ID,
             source="csv",
@@ -224,6 +226,7 @@ async def test_find_customer_cannot_reach_another_tenants_person(sessions):
     await _seed(sessions, count=1)
     async with sessions() as db:
         db.add(Business(id=OTHER_BUSINESS_ID, name="Rival", vertical="salon"))
+        await db.flush()  # parent row before its children
         db.add(
             Customer(
                 business_id=OTHER_BUSINESS_ID,
@@ -250,6 +253,7 @@ async def test_customer_detail_refuses_a_foreign_id(sessions):
     await _seed(sessions, count=1)
     async with sessions() as db:
         db.add(Business(id=OTHER_BUSINESS_ID, name="Rival", vertical="salon"))
+        await db.flush()  # parent row before its children
         theirs = Customer(business_id=OTHER_BUSINESS_ID, source="csv", email="x@rival.com")
         db.add(theirs)
         await db.commit()

@@ -268,6 +268,7 @@ async def test_usage_counts_only_see_this_tenant(sessions):
     other = uuid.uuid4()
     async with sessions() as db:
         db.add(Business(id=other, name="Someone Else", vertical="salon"))
+        await db.flush()  # parent row before its children
         for i in range(3):
             db.add(Customer(business_id=BUSINESS_ID, source="csv", email=f"a{i}@x.com"))
         db.add(Customer(business_id=other, source="csv", email="theirs@x.com"))

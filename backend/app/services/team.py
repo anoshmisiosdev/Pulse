@@ -83,6 +83,11 @@ async def create_invite(
         raise TeamError("You're already on this team.")
 
     bid = _uuid(owner.business_id)
+    # An owner can build their team before importing data, when there's no
+    # business row yet; team_invites.business_id is a foreign key to it.
+    from app.services.ingest import ensure_business_exists
+
+    await ensure_business_exists(db, str(bid))
     already = (
         await db.execute(
             select(User.id).where(User.business_id == bid, func.lower(User.email) == email)

@@ -106,9 +106,15 @@ def parse_square_payment(
         updated_at=(
             datetime.fromisoformat(updated.replace("Z", "+00:00")) if updated else None
         ),
+        # Square allows 255-character location names; visits.location and
+        # transactions.location are String(120), and on Postgres one long name
+        # would fail the whole sync, not just that row.
         location=(
-            (location_names or {}).get(obj.get("location_id") or "")
-            or obj.get("location_id")
+            (
+                (location_names or {}).get(obj.get("location_id") or "")
+                or obj.get("location_id")
+                or ""
+            )[:120]
             or None
         ),
     )

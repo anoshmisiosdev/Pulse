@@ -171,6 +171,7 @@ async def _seed(sessions, *, count: int = 6) -> list[str]:
     naive = datetime.now(UTC).replace(tzinfo=None)
     async with sessions() as db:
         db.add(Business(id=BUSINESS_ID, name="Hayward Coffee Co.", vertical="cafe"))
+        await db.flush()  # parent row before its children
         db.add(Subscription(business_id=BUSINESS_ID, tier="growth", status="active"))
         db.add(
             User(business_id=BUSINESS_ID, email="owner@hayward.coffee", role="owner")
@@ -632,6 +633,7 @@ async def test_a_quiet_week_explains_why_it_sent_nothing(client, sessions, monke
     # A business with no customers at all: nothing recovered, nothing at risk.
     async with sessions() as db:
         db.add(Business(id=BUSINESS_ID, name="Brand New", vertical="cafe"))
+        await db.flush()  # parent row before its children
         db.add(User(business_id=BUSINESS_ID, email="owner@hayward.coffee", role="owner"))
         await db.commit()
 

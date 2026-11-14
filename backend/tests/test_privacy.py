@@ -79,6 +79,7 @@ async def _seed_everything(sessions, business_id: uuid.UUID = BUSINESS_ID) -> di
     naive = now.replace(tzinfo=None)
     async with sessions() as db:
         db.add(Business(id=business_id, name="Hayward Coffee Co.", vertical="cafe"))
+        await db.flush()  # parent row before its children
         db.add(
             User(
                 business_id=business_id,
